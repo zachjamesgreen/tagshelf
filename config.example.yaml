@@ -1,0 +1,12 @@
+# tagshelf configuration
+# Copy to config.yaml and adjust. Command-line flags override these values.
+# Set source and destination to the same path to reorganize an existing library.
+source: "D:\\Incoming"                 # folder to organize
+destination: "D:\\Music"               # organized library
+#untagged: "D:\\Music\\_Untagged"      # audio without usable tags (default: <destination>/_Untagged)
+#other: "D:\\Music\\_Other"            # non-audio files that don't belong to a tagged album (default: <destination>/_Other)
+compilations: "Various Artists"        # artist folder for Various Artists compilations
+workers: 0                             # 0 = number of CPUs
+dry_run: true                          # preview only; set to false to move files
+verbose: false
+cue_rewrite: true                      # fix FILE lines in moved .cue files (keeps album.cue.orig)
