@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dhowden/tag"
+	"tagshelf/internal/tag"
 )
 
 func TestSanitizeName(t *testing.T) {

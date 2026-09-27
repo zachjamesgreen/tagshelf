@@ -20,9 +20,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/dhowden/tag"
-	"github.com/dhowden/tag/mbz"
 	"gopkg.in/yaml.v3"
+
+	"tagshelf/internal/tag"
+	"tagshelf/internal/tag/mbz"
 )
 
 const defaultConfigName = "config.yaml"
