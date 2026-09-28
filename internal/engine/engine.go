@@ -823,8 +823,8 @@ func (o *organizer) processFile(path string) {
 	file.Close()
 
 	ext := filepath.Ext(path)
-	if tagErr == nil && metadata != nil && rules.HasMusicBrainzTags(metadata) {
-		if desiredDst, ok := rules.LibraryPath(cfg.Destination, cfg.Compilations, metadata, ext); ok {
+	if tagErr == nil {
+		if desiredDst, ok := rules.Qualifies(cfg.Destination, cfg.Compilations, metadata, ext); ok {
 			o.recordAlbum(filepath.Dir(path), filepath.Dir(desiredDst))
 			o.place(path, desiredDst, Organized)
 			return

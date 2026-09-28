@@ -211,6 +211,43 @@ func hasChunk(riff []byte, id string) bool {
 	return false
 }
 
+// TestManualFixtures checks the hand-tagged fixtures carry the fixture tags
+// and the manual marker, but no MusicBrainz IDs.
+func TestManualFixtures(t *testing.T) {
+	var names []string
+	for _, ext := range ManualExtensions() {
+		names = append(names, "manual"+ext)
+	}
+	for _, name := range append(names, ManualNoAlbumFLAC, RipperFLAC) {
+		t.Run(name, func(t *testing.T) {
+			if b := readFixture(t, name); len(b) > maxSize {
+				t.Errorf("%d bytes, want at most %d", len(b), maxSize)
+			}
+			m := readTags(t, name)
+			if m == nil {
+				t.Fatal("no tags read")
+			}
+			album := Album
+			if name == ManualNoAlbumFLAC {
+				album = ""
+			}
+			if m.Title() != Title || m.Artist() != Artist || m.AlbumArtist() != AlbumArtist || m.Album() != album || m.Year() != Year {
+				t.Errorf("got %q / %q / %q / %q / %d", m.Title(), m.Artist(), m.AlbumArtist(), m.Album(), m.Year())
+			}
+			if n, _ := m.Track(); n != Track {
+				t.Errorf("track %d, want %d", n, Track)
+			}
+			if ids := mbz.Extract(m); ids.AlbumID != "" || ids.RecordingID != "" || ids.ReleaseTrackID != "" || len(ids.AlbumArtistIDs) != 0 {
+				t.Errorf("carries MusicBrainz IDs: %+v", ids)
+			}
+			hasMarker := bytes.Contains(readFixture(t, name), []byte(ManualMarker))
+			if want := name != RipperFLAC; hasMarker != want {
+				t.Errorf("has the marker value: %t, want %t", hasMarker, want)
+			}
+		})
+	}
+}
+
 func utf16le(s string) []byte {
 	var b []byte
 	for _, u := range utf16.Encode([]rune(s)) {
