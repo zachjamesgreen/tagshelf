@@ -22,7 +22,8 @@ var fixtureIDs = mbz.IDs{
 // TestExtractFixtures reads every ID from each format internal/tag reads,
 // written under Picard's key names.
 func TestExtractFixtures(t *testing.T) {
-	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b", fixtures.TaggedID3v2AAC} {
+	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b", fixtures.TaggedID3v2AAC,
+		"tagged.wav", "tagged.ape", "tagged.mpc", "tagged.aac"} {
 		t.Run(name, func(t *testing.T) {
 			f, err := os.Open(fixtures.Path(name))
 			if err != nil {

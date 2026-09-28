@@ -190,3 +190,97 @@ func id3v1(title string) []byte {
 	copy(b[3:33], title)
 	return b
 }
+
+// TestSumSurvivesRetagWAVAndAPEv2 is the regression test for WAV, APE, MPC
+// and .aac, whose Sum used to hash their tags.
+func TestSumSurvivesRetagWAVAndAPEv2(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"untagged.wav", "tagged.wav"},
+		{"untagged.ape", "tagged.ape"},
+		{"untagged.mpc", "tagged.mpc"},
+		{"untagged.aac", "tagged.aac"},
+		{"untagged.aac", fixtures.TaggedID3v2AAC},
+	} {
+		if u, g := sumFile(t, pair[0]), sumFile(t, pair[1]); u != g {
+			t.Errorf("Sum(%s) = %s, Sum(%s) = %s, want equal", pair[0], u, pair[1], g)
+		}
+	}
+}
+
+// TestSumWAVDataChunk hashes the data chunk payload alone, without the pad
+// byte after an odd size, wherever the tag chunks sit: ffmpeg puts LIST/INFO
+// before data, go-taglib drops it and appends "ID3 " and LIST/INFO.
+func TestSumWAVDataChunk(t *testing.T) {
+	frame := slices.Concat([]byte("TIT2"), []byte{0, 0, 0, 6, 0, 0, 3}, []byte("Title"))
+	id3 := slices.Concat(id3v2TagHeader(4, 0, len(frame)), frame)
+	for _, data := range [][]byte{{1, 2, 3, 4}, {1, 2, 3}} {
+		want := fmt.Sprintf("%x", sha1.Sum(data))
+		for name, b := range map[string][]byte{
+			"plain":            wavFile(wavFmt, wavChunk("data", data)),
+			"INFO before data": wavFile(wavFmt, infoList("ISFT", "Lavf"), wavChunk("data", data)),
+			"ID3 and INFO after data": wavFile(wavFmt, wavChunk("data", data), wavChunk("ID3 ", id3),
+				infoList("INAM", "Title")),
+		} {
+			if got := sumBytes(t, name, b); got != want {
+				t.Errorf("%d-byte data, %s: Sum = %s, want %s", len(data), name, got, want)
+			}
+		}
+	}
+
+	// The odd fixture: the pad byte is not audio.
+	b := fixtureBytes(t, fixtures.UntaggedOddWAV)
+	i := bytes.Index(b, []byte("data"))
+	size := int(binary.LittleEndian.Uint32(b[i+4:]))
+	want := fmt.Sprintf("%x", sha1.Sum(b[i+8:i+8+size]))
+	if got := sumBytes(t, fixtures.UntaggedOddWAV, b); got != want {
+		t.Errorf("Sum(%s) = %s, want %s", fixtures.UntaggedOddWAV, got, want)
+	}
+	withID3 := wavFile(wavFmt, wavChunk("data", b[i+8:i+8+size]), wavChunk("id3 ", id3))
+	if got := sumBytes(t, "odd data + id3", withID3); got != want {
+		t.Errorf("odd data + id3: Sum = %s, want %s", got, want)
+	}
+
+	// A streamed WAV's data size is unknown: hash to the end of the file.
+	streamed := wavFile(wavFmt, wavChunk("data", []byte{1, 2, 3, 4}))
+	binary.LittleEndian.PutUint32(streamed[len(streamed)-8:], 0xffffffff)
+	if got, want := sumBytes(t, "streamed", streamed), fmt.Sprintf("%x", sha1.Sum([]byte{1, 2, 3, 4})); got != want {
+		t.Errorf("streamed: Sum = %s, want %s", got, want)
+	}
+}
+
+// TestSumAPEv2Layouts hashes APE, MPC and .aac audio between a leading ID3v2
+// tag and the trailing tags, in every order taggers leave them: ID3v1 after
+// APEv2 (TagLib), before it (mutagen), and both (mutagen, then TagLib).
+func TestSumAPEv2Layouts(t *testing.T) {
+	frame := slices.Concat([]byte("TIT2"), []byte{0, 0, 0, 6, 0, 0, 3}, []byte("Title"))
+	id3 := slices.Concat(id3v2TagHeader(4, 0, len(frame)), frame)
+	footer := id3v2TagHeader(4, 0x10, len(frame))
+	copy(footer, "3DI")
+	id3Footer := slices.Concat(id3v2TagHeader(4, 0x10, len(frame)), frame, footer)
+	ape := apeTag(apeItem{key: "Title", value: "T"}, apeItem{key: "Artist", value: "A"})
+
+	for _, name := range []string{"untagged.ape", "untagged.mpc", "untagged.aac", fixtures.UntaggedSV8MPC} {
+		audio := fixtureBytes(t, name)
+		want := fmt.Sprintf("%x", sha1.Sum(audio))
+		for layout, b := range map[string][]byte{
+			"none":                  audio,
+			"APE":                   slices.Concat(audio, ape),
+			"APE TAG":               slices.Concat(audio, ape, id3v1("V1")),
+			"TAG APE":               slices.Concat(audio, id3v1("V1"), ape),
+			"TAG APE TAG":           slices.Concat(audio, id3v1("V1"), ape, id3v1("V1")),
+			"ID3v2 APE TAG":         slices.Concat(id3, audio, ape, id3v1("V1")),
+			"ID3v2 with footer APE": slices.Concat(id3Footer, audio, ape),
+		} {
+			if got := sumBytes(t, name+" "+layout, b); got != want {
+				t.Errorf("%s, %s: Sum = %s, want %s", name, layout, got, want)
+			}
+		}
+	}
+
+	// An MP3 carrying an APEv2 tag hashes its frames alone too.
+	mp3 := fixtureBytes(t, "untagged.mp3")
+	want := sumBytes(t, "untagged.mp3", mp3)
+	if got := sumBytes(t, "MP3 + APE + TAG", slices.Concat(mp3, ape, id3v1("V1"))); got != want {
+		t.Errorf("MP3 + APE + TAG: Sum = %s, want %s", got, want)
+	}
+}
