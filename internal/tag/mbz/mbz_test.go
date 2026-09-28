@@ -22,7 +22,7 @@ var fixtureIDs = mbz.IDs{
 // TestExtractFixtures reads every ID from each format internal/tag reads,
 // written under Picard's key names.
 func TestExtractFixtures(t *testing.T) {
-	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b", fixtures.TaggedID3v2AAC} {
+	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b", "tagged.wma", fixtures.TaggedID3v2AAC} {
 		t.Run(name, func(t *testing.T) {
 			f, err := os.Open(fixtures.Path(name))
 			if err != nil {
@@ -129,6 +129,7 @@ func TestExtractMultipleArtistIDs(t *testing.T) {
 		{"v2.4", fakeMetadata{format: tag.ID3v2_4, raw: map[string]any{"TXXX": &tag.Comm{Description: "MusicBrainz Artist Id", Text: "a\x00b"}}}},
 		{"v2.3", fakeMetadata{format: tag.ID3v2_3, raw: map[string]any{"TXXX": &tag.Comm{Description: "MusicBrainz Artist Id", Text: "a / b"}}}},
 		{"mp4", fakeMetadata{format: tag.MP4, raw: map[string]any{"MusicBrainz Artist Id": "a;b"}}},
+		{"asf", fakeMetadata{format: tag.ASF, raw: map[string]any{"MusicBrainz/Artist Id": "a\x00b"}}},
 	} {
 		if got := mbz.Extract(tt.m).ArtistIDs; !reflect.DeepEqual(got, []string{"a", "b"}) {
 			t.Errorf("%s: ArtistIDs = %q, want [a b]", tt.name, got)
@@ -146,6 +147,24 @@ func TestExtractStripsNULs(t *testing.T) {
 	got := mbz.Extract(m)
 	if got.AlbumID != "album" || got.ReleaseGroupID != "rg" {
 		t.Errorf("AlbumID = %q, ReleaseGroupID = %q, want album and rg", got.AlbumID, got.ReleaseGroupID)
+	}
+}
+
+// TestExtractASF pins Picard's ASF names, where "MusicBrainz/Track Id" is the
+// recording.
+func TestExtractASF(t *testing.T) {
+	m := fakeMetadata{format: tag.ASF, raw: map[string]any{
+		"MusicBrainz/Track Id":         "rec",
+		"MusicBrainz/Release Track Id": "rt",
+		"MusicBrainz/Album Id":         "album",
+		"MusicBrainz/Release Group Id": "rg",
+		"MusicBrainz/Artist Id":        "a",
+		"MusicBrainz/Album Artist Id":  "aa",
+		"TAGSHELF_MANUAL":              "hand 2026-09-27",
+	}}
+	want := mbz.IDs{RecordingID: "rec", ReleaseTrackID: "rt", AlbumID: "album", ReleaseGroupID: "rg", ArtistIDs: []string{"a"}, AlbumArtistIDs: []string{"aa"}}
+	if got := mbz.Extract(m); !reflect.DeepEqual(got, want) {
+		t.Errorf("Extract = %+v, want %+v", got, want)
 	}
 }
 

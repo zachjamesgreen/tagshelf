@@ -35,6 +35,9 @@ func Sum(r io.ReadSeeker) (string, error) {
 
 	case string(b[0:3]) == "ID3":
 		return SumID3v2(r)
+
+	case isASF(b):
+		return SumASF(r)
 	}
 
 	h, err := SumID3v1(r)

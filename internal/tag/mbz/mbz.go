@@ -34,10 +34,11 @@ func one(value string) string {
 }
 
 // setters maps lower-cased key names to the ID they hold. The Vorbis and
-// APEv2 names and the MP4 freeform and ID3 TXXX names never collide, so one
-// table serves every format. Both "track id" names are the recording: Picard
-// writes the release track under "release track id". In ID3 the recording
-// is normally a UFID frame, which Extract reads separately.
+// APEv2 names, the MP4 freeform and ID3 TXXX names and the ASF attribute
+// names never collide, so one table serves every format. Every "track id"
+// name is the recording: Picard writes the release track under "release
+// track id". In ID3 the recording is normally a UFID frame, which Extract
+// reads separately.
 var setters = map[string]func(ids *IDs, value string){
 	"musicbrainz_trackid":          setRecording,
 	"musicbrainz track id":         setRecording,
@@ -52,6 +53,12 @@ var setters = map[string]func(ids *IDs, value string){
 	"musicbrainz artist id":        func(ids *IDs, v string) { ids.ArtistIDs = splitIDs(v) },
 	"musicbrainz_albumartistid":    func(ids *IDs, v string) { ids.AlbumArtistIDs = splitIDs(v) },
 	"musicbrainz album artist id":  func(ids *IDs, v string) { ids.AlbumArtistIDs = splitIDs(v) },
+	"musicbrainz/track id":         setRecording, // ASF
+	"musicbrainz/release track id": func(ids *IDs, v string) { ids.ReleaseTrackID = one(v) },
+	"musicbrainz/album id":         func(ids *IDs, v string) { ids.AlbumID = one(v) },
+	"musicbrainz/release group id": func(ids *IDs, v string) { ids.ReleaseGroupID = one(v) },
+	"musicbrainz/artist id":        func(ids *IDs, v string) { ids.ArtistIDs = splitIDs(v) },
+	"musicbrainz/album artist id":  func(ids *IDs, v string) { ids.AlbumArtistIDs = splitIDs(v) },
 }
 
 func setRecording(ids *IDs, v string) { ids.RecordingID = one(v) }
@@ -112,7 +119,7 @@ func extractID3(m tag.Metadata) IDs {
 }
 
 // extractKeyValue reads formats whose raw tags are plain key/value strings:
-// Vorbis comments and MP4 freeform atoms.
+// Vorbis comments, MP4 freeform atoms and ASF attributes.
 func extractKeyValue(m tag.Metadata) IDs {
 	var ids IDs
 	raw := m.Raw()
