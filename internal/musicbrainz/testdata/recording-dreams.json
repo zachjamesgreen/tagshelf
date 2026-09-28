@@ -1,0 +1,97 @@
+{
+  "created": "2026-09-28T10:00:00.000Z",
+  "count": 1,
+  "offset": 0,
+  "recordings": [
+    {
+      "id": "9c0d000d-1b2c-4d3e-8f4a-5b6c7d8e9f0d",
+      "score": 100,
+      "title": "Dreams",
+      "length": 222000,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "first-release-date": "2017-06-02",
+      "releases": [
+        {
+          "id": "d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+          "count": 1,
+          "title": "Dua Lipa",
+          "status": "Official",
+          "release-group": {
+            "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+            "title": "Dua Lipa",
+            "primary-type": "Album",
+            "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "secondary-types": [],
+            "secondary-type-ids": []
+          },
+          "date": "2017-06-02",
+          "country": "GB",
+          "track-count": 17,
+          "media": [
+            {
+              "position": 2,
+              "format": "CD",
+              "track": [
+                {
+                  "id": "7a0b000d-1b2c-4d3e-8f4a-5b6c7d8e9f0d",
+                  "number": "1",
+                  "title": "Dreams",
+                  "length": 222000
+                }
+              ],
+              "track-count": 5,
+              "track-offset": 0
+            }
+          ]
+        },
+        {
+          "id": "e2b3c4d5-6f70-4b81-9c2d-3e4f5a6b7c8d",
+          "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+          "count": 1,
+          "title": "Dua Lipa: Complete Edition",
+          "status": "Official",
+          "release-group": {
+            "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+            "title": "Dua Lipa",
+            "primary-type": "Album",
+            "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "secondary-types": [],
+            "secondary-type-ids": []
+          },
+          "date": "2018-10-19",
+          "country": "XW",
+          "track-count": 29,
+          "media": [
+            {
+              "position": 1,
+              "format": "Digital Media",
+              "track": [
+                {
+                  "id": "d5e6f708-192a-4b3c-8d4e-5f6a7b8c9d0e",
+                  "number": "13",
+                  "title": "Dreams",
+                  "length": 222000
+                }
+              ],
+              "track-count": 29,
+              "track-offset": 12
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

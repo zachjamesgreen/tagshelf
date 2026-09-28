@@ -34,8 +34,12 @@
             "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
             "title": "Now That’s What I Call Music! 95",
             "primary-type": "Album",
-            "secondary-types": ["Compilation"],
-            "secondary-type-ids": ["dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"]
+            "secondary-types": [
+              "Compilation"
+            ],
+            "secondary-type-ids": [
+              "dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"
+            ]
           },
           "date": "2016-11-18",
           "country": "GB",
@@ -80,6 +84,40 @@
               "track": [
                 {
                   "id": "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f",
+                  "number": "6",
+                  "title": "Blow Your Mind (Mwah)",
+                  "length": 178583
+                }
+              ],
+              "track-count": 12,
+              "track-offset": 5
+            }
+          ]
+        },
+        {
+          "id": "d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+          "count": 1,
+          "title": "Dua Lipa",
+          "status": "Official",
+          "release-group": {
+            "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+            "title": "Dua Lipa",
+            "primary-type": "Album",
+            "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "secondary-types": [],
+            "secondary-type-ids": []
+          },
+          "date": "2017-06-02",
+          "country": "GB",
+          "track-count": 17,
+          "media": [
+            {
+              "position": 1,
+              "format": "CD",
+              "track": [
+                {
+                  "id": "7a0b0006-1b2c-4d3e-8f4a-5b6c7d8e9f06",
                   "number": "6",
                   "title": "Blow Your Mind (Mwah)",
                   "length": 178583

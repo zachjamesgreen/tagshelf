@@ -38,9 +38,17 @@ type Artist struct {
 	SortName string `json:"sort-name"`
 }
 
+// ReleaseSearch is a page of /ws/2/release search results.
+type ReleaseSearch struct {
+	Count    int       `json:"count"`
+	Offset   int       `json:"offset"`
+	Releases []Release `json:"releases"`
+}
+
 // Release is a release as it appears in search results and lookups.
 type Release struct {
 	ID           string         `json:"id"`
+	Score        flexInt        `json:"score"` // release search hits only
 	Title        string         `json:"title"`
 	Status       string         `json:"status"`
 	Date         string         `json:"date"`
@@ -57,6 +65,8 @@ type ReleaseGroup struct {
 	Title          string   `json:"title"`
 	PrimaryType    string   `json:"primary-type"`
 	SecondaryTypes []string `json:"secondary-types"`
+	// FirstReleaseDate is only in lookups.
+	FirstReleaseDate string `json:"first-release-date"`
 }
 
 // Medium is one disc (or other medium) of a release. Search results list the
@@ -70,13 +80,25 @@ type Medium struct {
 	Tracks      []Track `json:"tracks"`
 }
 
-// Track is a release track.
+// Track is a release track. Lookups with inc=artist-credits+recordings also
+// carry its artist credit and recording.
 type Track struct {
-	ID       string `json:"id"`
-	Number   string `json:"number"`
-	Position int    `json:"position"`
-	Title    string `json:"title"`
-	Length   int    `json:"length"` // milliseconds
+	ID           string          `json:"id"`
+	Number       string          `json:"number"`
+	Position     int             `json:"position"`
+	Title        string          `json:"title"`
+	Length       int             `json:"length"` // milliseconds
+	ArtistCredit []ArtistCredit  `json:"artist-credit"`
+	Recording    *TrackRecording `json:"recording"`
+}
+
+// TrackRecording is the recording of a release track in a release lookup.
+type TrackRecording struct {
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	Length           int            `json:"length"` // milliseconds
+	ArtistCredit     []ArtistCredit `json:"artist-credit"`
+	FirstReleaseDate string         `json:"first-release-date"`
 }
 
 // Credit joins an artist credit into its display string, as Picard does.
