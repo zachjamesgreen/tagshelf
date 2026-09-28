@@ -237,16 +237,22 @@ func (m *metadataVorbis) Year() int {
 }
 
 func (m *metadataVorbis) Track() (int, int) {
-	x, _ := strconv.Atoi(m.c["tracknumber"])
 	// https://wiki.xiph.org/Field_names
-	n, _ := strconv.Atoi(m.c["tracktotal"])
-	return x, n
+	return m.xOfN("tracknumber", "tracktotal")
 }
 
 func (m *metadataVorbis) Disc() (int, int) {
 	// https://wiki.xiph.org/Field_names
-	x, _ := strconv.Atoi(m.c["discnumber"])
-	n, _ := strconv.Atoi(m.c["disctotal"])
+	return m.xOfN("discnumber", "disctotal")
+}
+
+// xOfN reads a number that may be written "N/M", as many taggers do, with a
+// separate total key taking precedence over M.
+func (m *metadataVorbis) xOfN(number, total string) (int, int) {
+	x, n := parseXofN(strings.TrimSpace(m.c[number]))
+	if t, err := strconv.Atoi(strings.TrimSpace(m.c[total])); err == nil {
+		n = t
+	}
 	return x, n
 }
 

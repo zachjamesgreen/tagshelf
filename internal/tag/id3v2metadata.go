@@ -7,7 +7,6 @@ package tag
 import (
 	"strconv"
 	"strings"
-	"time"
 )
 
 type frameNames map[string][2]string
@@ -96,12 +95,15 @@ func (m metadataID3v2) Year() int {
 		return year
 	}
 
-	date, err := time.Parse(time.DateOnly, stringYear)
-	if err != nil {
-		return 0
+	// ID3v2.4 timestamps are ISO 8601 prefixes: yyyy, yyyy-MM, yyyy-MM-dd,
+	// yyyy-MM-ddTHH, yyyy-MM-ddTHH:mm or yyyy-MM-ddTHH:mm:ss.
+	if len(stringYear) > 4 && stringYear[4] == '-' {
+		if year, err := strconv.Atoi(stringYear[:4]); err == nil {
+			return year
+		}
 	}
 
-	return date.Year()
+	return 0
 }
 
 func parseXofN(s string) (x, n int) {
