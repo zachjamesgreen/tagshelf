@@ -1,6 +1,61 @@
 package tag
 
-import "testing"
+import (
+	"bytes"
+	"encoding/binary"
+	"testing"
+)
+
+// vorbisComment builds a Vorbis comment block: vendor, count, then each
+// length-prefixed comment.
+func vorbisComment(vendor string, comments ...string) []byte {
+	var b bytes.Buffer
+	put := func(s string) {
+		binary.Write(&b, binary.LittleEndian, uint32(len(s)))
+		b.WriteString(s)
+	}
+	put(vendor)
+	binary.Write(&b, binary.LittleEndian, uint32(len(comments)))
+	for _, c := range comments {
+		put(c)
+	}
+	return b.Bytes()
+}
+
+// TestVorbisRepeatedKeys checks that a key written more than once keeps every
+// value, joined with NUL in Raw as the ASF reader does, while the getters
+// return the first.
+func TestVorbisRepeatedKeys(t *testing.T) {
+	m := newMetadataVorbis()
+	err := m.readVorbisComment(bytes.NewReader(vorbisComment("v",
+		"MUSICBRAINZ_ARTISTID=a1",
+		"ARTIST=First",
+		"musicbrainz_artistid=a2",
+		"ARTIST=Second",
+		"DATE=2003",
+		"date=2004",
+		"TITLE=Only",
+	)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := m.Raw()
+	if got := raw["musicbrainz_artistid"]; got != "a1\x00a2" {
+		t.Errorf("Raw musicbrainz_artistid = %q, want a1 NUL a2", got)
+	}
+	if got := raw["artist"]; got != "First\x00Second" {
+		t.Errorf("Raw artist = %q, want First NUL Second", got)
+	}
+	if got := raw["title"]; got != "Only" {
+		t.Errorf("Raw title = %q, want Only", got)
+	}
+	if got := m.Artist(); got != "First" {
+		t.Errorf("Artist() = %q, want First", got)
+	}
+	if got := m.Year(); got != 2003 {
+		t.Errorf("Year() = %d, want 2003", got)
+	}
+}
 
 func TestVorbisTrackAndDisc(t *testing.T) {
 	table := []struct {

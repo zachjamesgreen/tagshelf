@@ -22,8 +22,25 @@ func newMetadataVorbis() *metadataVorbis {
 }
 
 type metadataVorbis struct {
-	c map[string]string // the vorbis comments
+	c map[string]string // the vorbis comments by lower-cased key; repeated keys NUL-joined
 	p *Picture
+}
+
+// get returns the first value of the comment named k (lower case).
+func (m *metadataVorbis) get(k string) string {
+	v, _, _ := strings.Cut(m.c[k], "\x00")
+	return v
+}
+
+// add records a comment. A key written more than once keeps every value,
+// joined with NUL in the order they came, as the ASF reader does and as mbz
+// expects of a list of IDs.
+func (m *metadataVorbis) add(k, v string) {
+	if old, ok := m.c[k]; ok {
+		m.c[k] = old + "\x00" + v
+		return
+	}
+	m.c[k] = v
 }
 
 func (m *metadataVorbis) readVorbisComment(r io.Reader) error {
@@ -56,10 +73,11 @@ func (m *metadataVorbis) readVorbisComment(r io.Reader) error {
 		if err != nil {
 			return err
 		}
-		m.c[strings.ToLower(k)] = v
+		m.add(strings.ToLower(k), v)
 	}
 
-	if b64data, ok := m.c["metadata_block_picture"]; ok {
+	if _, ok := m.c["metadata_block_picture"]; ok {
+		b64data := m.get("metadata_block_picture")
 		data, err := base64.StdEncoding.DecodeString(b64data)
 		if err != nil {
 			return err
@@ -169,7 +187,7 @@ func (m *metadataVorbis) Raw() map[string]interface{} {
 }
 
 func (m *metadataVorbis) Title() string {
-	return m.c["title"]
+	return m.get("title")
 }
 
 func (m *metadataVorbis) Artist() string {
@@ -177,36 +195,36 @@ func (m *metadataVorbis) Artist() string {
 	// The artist generally considered responsible for the work. In popular music
 	// this is usually the performing band or singer. For classical music it would
 	// be the composer. For an audio book it would be the author of the original text.
-	return m.c["artist"]
+	return m.get("artist")
 }
 
 func (m *metadataVorbis) Album() string {
-	return m.c["album"]
+	return m.get("album")
 }
 
 func (m *metadataVorbis) AlbumArtist() string {
 	// This field isn't actually included in the standard, though
 	// it is commonly assigned to albumartist.
-	return m.c["albumartist"]
+	return m.get("albumartist")
 }
 
 func (m *metadataVorbis) Composer() string {
-	if m.c["composer"] != "" {
-		return m.c["composer"]
+	if m.get("composer") != "" {
+		return m.get("composer")
 	}
 	// PERFORMER
 	// The artist(s) who performed the work. In classical music this would be the
 	// conductor, orchestra, soloists. In an audio book it would be the actor who
 	// did the reading. In popular music this is typically the same as the ARTIST
 	// and is omitted.
-	if m.c["performer"] != "" {
-		return m.c["performer"]
+	if m.get("performer") != "" {
+		return m.get("performer")
 	}
-	return m.c["artist"]
+	return m.get("artist")
 }
 
 func (m *metadataVorbis) Genre() string {
-	return m.c["genre"]
+	return m.get("genre")
 }
 
 func (m *metadataVorbis) Year() int {
@@ -214,11 +232,11 @@ func (m *metadataVorbis) Year() int {
 
 	// The date need to follow the international standard https://en.wikipedia.org/wiki/ISO_8601
 	// and obviously the VorbisComment standard https://wiki.xiph.org/VorbisComment#Date_and_time
-	switch len(m.c["date"]) {
+	switch len(m.get("date")) {
 	case 0:
 		// Fallback on year tag as some files use that.
-		if len(m.c["year"]) != 0 {
-			year, err := strconv.Atoi(m.c["year"])
+		if len(m.get("year")) != 0 {
+			year, err := strconv.Atoi(m.get("year"))
 			if err == nil {
 				return year
 			}
@@ -232,7 +250,7 @@ func (m *metadataVorbis) Year() int {
 		dateFormat = "2006-01-02"
 	}
 
-	t, _ := time.Parse(dateFormat, m.c["date"])
+	t, _ := time.Parse(dateFormat, m.get("date"))
 	return t.Year()
 }
 
@@ -249,22 +267,22 @@ func (m *metadataVorbis) Disc() (int, int) {
 // xOfN reads a number that may be written "N/M", as many taggers do, with a
 // separate total key taking precedence over M.
 func (m *metadataVorbis) xOfN(number, total string) (int, int) {
-	x, n := parseXofN(strings.TrimSpace(m.c[number]))
-	if t, err := strconv.Atoi(strings.TrimSpace(m.c[total])); err == nil {
+	x, n := parseXofN(strings.TrimSpace(m.get(number)))
+	if t, err := strconv.Atoi(strings.TrimSpace(m.get(total))); err == nil {
 		n = t
 	}
 	return x, n
 }
 
 func (m *metadataVorbis) Lyrics() string {
-	return m.c["lyrics"]
+	return m.get("lyrics")
 }
 
 func (m *metadataVorbis) Comment() string {
-	if m.c["comment"] != "" {
-		return m.c["comment"]
+	if m.get("comment") != "" {
+		return m.get("comment")
 	}
-	return m.c["description"]
+	return m.get("description")
 }
 
 func (m *metadataVorbis) Picture() *Picture {
