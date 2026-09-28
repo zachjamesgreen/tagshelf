@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -187,6 +188,10 @@ const (
 	outcomeDuplicate
 	// outcomeInPlace: the source file already *is* the file at the returned path.
 	outcomeInPlace
+	// outcomeCaseFix: as outcomeInPlace, but the returned path spells the file
+	// or a folder above it in another case, which a case-insensitive file
+	// system treats as the same path. Reorganize only.
+	outcomeCaseFix
 )
 
 // organizer holds the per-run state shared by the worker goroutines. Keeping it
@@ -214,6 +219,15 @@ type organizer struct {
 	// name was taken; a reorganize retries them once everything has moved.
 	suffixedMu sync.Mutex
 	suffixed   []suffixedMove
+
+	// caseFixes lists files in place apart from letter case; a reorganize
+	// renames them onto the exact spelling once everything has moved.
+	caseFixesMu sync.Mutex
+	caseFixes   []caseFix
+}
+
+type caseFix struct {
+	src, desired string
 }
 
 type suffixedMove struct {
@@ -421,6 +435,9 @@ func (o *organizer) resolveDestination(srcPath, desiredDst string) (string, coll
 			if os.SameFile(srcInfo, candInfo) {
 				// The file is already where it belongs; renaming it would only
 				// manufacture a "(1)" copy, and again on every later run.
+				if o.cfg.Reorganizing() && candidate != srcPath && strings.EqualFold(candidate, srcPath) {
+					return candidate, outcomeCaseFix, nil
+				}
 				return candidate, outcomeInPlace, nil
 			}
 			if candInfo.IsDir() {
@@ -472,6 +489,9 @@ func (o *organizer) moveFile(src, dst string) error {
 	}
 
 	if err := os.Remove(src); err != nil {
+		// On Windows a file another program holds open fails both the rename
+		// and this; take the copy back so the file is not left in two places.
+		os.Remove(dst)
 		return fmt.Errorf("failed to remove source after copy: %w", err)
 	}
 
@@ -621,8 +641,9 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	})
 
 	if cfg.Reorganizing() && !cfg.DryRun && ctx.Err() == nil {
-		o.startPhase(PhaseRetrySuffixed, int64(len(o.suffixed)), 0)
+		o.startPhase(PhaseRetrySuffixed, int64(len(o.suffixed)+len(o.caseFixes)), 0)
 		o.retrySuffixed(ctx)
+		o.fixCase(ctx)
 	}
 
 	if !cfg.NoCueRewrite {
@@ -865,7 +886,12 @@ func (o *organizer) place(path, desiredDst string, kind Outcome) {
 		o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: Duplicate})
 		stats.Skipped.Add(1)
 		return
-	case outcomeInPlace:
+	case outcomeInPlace, outcomeCaseFix:
+		if outcome == outcomeCaseFix && !cfg.DryRun {
+			o.caseFixesMu.Lock()
+			o.caseFixes = append(o.caseFixes, caseFix{src: path, desired: finalDst})
+			o.caseFixesMu.Unlock()
+		}
 		o.placed.Store(rules.PathKey(path), finalDst)
 		o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: InPlace})
 		stats.InPlace.Add(1)
@@ -926,6 +952,104 @@ func (o *organizer) retryOne(s suffixedMove) {
 	o.placed.Store(rules.PathKey(s.src), s.desired)
 	o.emit(FilePlaced{Path: s.final, Destination: s.desired, Outcome: Renamed})
 	o.stats.Retried.Add(1)
+}
+
+// fixCase renames files that are in place apart from letter case, and the
+// folders above them, onto the exact spelling their tags ask for. A folder is
+// renamed only when every file placed under it asks for the same spelling;
+// otherwise two albums whose tags disagree would flip it on every run.
+func (o *organizer) fixCase(ctx context.Context) {
+	if len(o.caseFixes) == 0 {
+		return
+	}
+	spellings := make(map[string]map[string]struct{}) // rules.PathKey(dir) -> spellings asked for
+	o.placed.Range(func(_, v any) bool {
+		for _, dir := range o.libraryDirs(v.(string)) {
+			key := rules.PathKey(dir)
+			if spellings[key] == nil {
+				spellings[key] = make(map[string]struct{})
+			}
+			spellings[key][dir] = struct{}{}
+		}
+		return true
+	})
+
+	fixes := slices.Clone(o.caseFixes)
+	sort.Slice(fixes, func(i, j int) bool { return fixes[i].desired < fixes[j].desired })
+	renamed := make(map[string]bool) // rules.PathKey(dir) -> whether this run renamed it
+	for _, f := range fixes {
+		if ctx.Err() != nil {
+			return
+		}
+		changed := false
+		for _, dir := range o.libraryDirs(f.desired) {
+			key := rules.PathKey(dir)
+			if len(spellings[key]) != 1 {
+				continue
+			}
+			did, seen := renamed[key]
+			if !seen {
+				var err error
+				if did, err = renameCase(dir); err != nil {
+					o.fail(dir, dir, OpRename, err)
+				}
+				renamed[key] = did
+			}
+			changed = changed || did
+		}
+		did, err := renameCase(f.desired)
+		if err != nil {
+			o.fail(f.src, f.desired, OpRename, err)
+		}
+		if changed || did {
+			o.emit(FilePlaced{Path: f.src, Destination: f.desired, Outcome: Renamed})
+			o.stats.Retried.Add(1)
+		}
+		o.phase.advance(0)
+	}
+}
+
+// libraryDirs lists the folders above path inside the destination, top down.
+func (o *organizer) libraryDirs(path string) []string {
+	if !isSubdirectory(o.cfg.Destination, filepath.Dir(path)) {
+		return nil
+	}
+	rel, err := filepath.Rel(o.cfg.Destination, filepath.Dir(path))
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	dir := o.cfg.Destination
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		dir = filepath.Join(dir, part)
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// renameCase gives the file or folder at path the exact spelling of its last
+// element when the file system holds it under another case, and reports
+// whether it renamed anything.
+func renameCase(path string) (bool, error) {
+	parent, name := filepath.Dir(path), filepath.Base(path)
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return false, nil
+		}
+	}
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), name) {
+			if err := os.Rename(filepath.Join(parent, e.Name()), path); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // cueFileLine matches a cue sheet FILE command: FILE "name" TYPE, or with an

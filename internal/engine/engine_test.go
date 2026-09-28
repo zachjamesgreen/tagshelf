@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"tagshelf/internal/fixtures"
 	"tagshelf/internal/rules"
@@ -913,9 +914,19 @@ func writeTaggedMP3(t *testing.T, path string, tags id3Tags, body string) {
 		frames = append(frames, data...)
 	}
 	text := func(id, value string) {
-		if value != "" {
-			frame(id, append([]byte{0}, value...))
+		if value == "" {
+			return
 		}
+		if isASCII(value) {
+			frame(id, append([]byte{0}, value...))
+			return
+		}
+		// UTF-16 with a byte order mark, the only Unicode encoding ID3v2.3 has.
+		data := []byte{1, 0xff, 0xfe}
+		for _, u := range utf16.Encode([]rune(value)) {
+			data = append(data, byte(u), byte(u>>8))
+		}
+		frame(id, data)
 	}
 	text("TPE1", tags.artist)
 	text("TPE2", tags.albumArtist)
