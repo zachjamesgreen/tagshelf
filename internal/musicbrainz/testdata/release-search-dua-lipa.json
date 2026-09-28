@@ -1,0 +1,188 @@
+{
+  "created": "2026-09-28T10:00:00.000Z",
+  "count": 4,
+  "offset": 0,
+  "releases": [
+    {
+      "id": "8f1c5c16-7d4a-4c3b-9f3e-1a2b3c4d5e6f",
+      "score": 100,
+      "count": 1,
+      "title": "Dua Lipa",
+      "status": "Official",
+      "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+      "disambiguation": "",
+      "packaging": "None",
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "release-group": {
+        "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+        "title": "Dua Lipa",
+        "primary-type": "Album",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": [],
+        "secondary-type-ids": []
+      },
+      "date": "2017-06-02",
+      "country": "XW",
+      "track-count": 12,
+      "media": [
+        {
+          "format": "Digital Media",
+          "disc-count": 0,
+          "track-count": 12
+        }
+      ]
+    },
+    {
+      "id": "d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "score": 100,
+      "count": 1,
+      "title": "Dua Lipa",
+      "status": "Official",
+      "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+      "disambiguation": "deluxe edition",
+      "packaging": "Jewel Case",
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "release-group": {
+        "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+        "title": "Dua Lipa",
+        "primary-type": "Album",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": [],
+        "secondary-type-ids": []
+      },
+      "date": "2017-06-02",
+      "country": "GB",
+      "track-count": 17,
+      "media": [
+        {
+          "format": "CD",
+          "disc-count": 0,
+          "track-count": 12
+        },
+        {
+          "format": "CD",
+          "disc-count": 0,
+          "track-count": 5
+        }
+      ]
+    },
+    {
+      "id": "e2b3c4d5-6f70-4b81-9c2d-3e4f5a6b7c8d",
+      "score": 91,
+      "count": 1,
+      "title": "Dua Lipa: Complete Edition",
+      "status": "Official",
+      "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+      "disambiguation": "",
+      "packaging": "None",
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "release-group": {
+        "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+        "title": "Dua Lipa",
+        "primary-type": "Album",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": [],
+        "secondary-type-ids": []
+      },
+      "date": "2018-10-19",
+      "country": "XW",
+      "track-count": 29,
+      "media": [
+        {
+          "format": "Digital Media",
+          "disc-count": 0,
+          "track-count": 29
+        }
+      ]
+    },
+    {
+      "id": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "score": 88,
+      "count": 1,
+      "title": "Dua Lipa",
+      "status": "Official",
+      "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+      "disambiguation": "Japanese edition",
+      "packaging": "Jewel Case",
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "release-group": {
+        "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+        "title": "Dua Lipa",
+        "primary-type": "Album",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": [],
+        "secondary-type-ids": []
+      },
+      "date": "2017-06-02",
+      "country": "JP",
+      "track-count": 17,
+      "media": [
+        {
+          "format": "CD",
+          "disc-count": 0,
+          "track-count": 17
+        }
+      ]
+    }
+  ]
+}

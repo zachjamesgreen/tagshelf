@@ -1,0 +1,440 @@
+{
+  "id": "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f",
+  "title": "Hits of the Summer 2017",
+  "status": "Official",
+  "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+  "disambiguation": "",
+  "date": "2017-07",
+  "country": "GB",
+  "barcode": "",
+  "packaging": "Jewel Case",
+  "quality": "normal",
+  "text-representation": {
+    "language": "eng",
+    "script": "Latn"
+  },
+  "artist-credit": [
+    {
+      "name": "Various Artists",
+      "joinphrase": "",
+      "artist": {
+        "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+        "name": "Various Artists",
+        "sort-name": "Various Artists",
+        "disambiguation": ""
+      }
+    }
+  ],
+  "release-group": {
+    "id": "6d7e8f9a-0b1c-4d2e-9f3a-4b5c6d7e8f9a",
+    "title": "Hits of the Summer 2017",
+    "primary-type": "Album",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "secondary-types": [
+      "Compilation"
+    ],
+    "secondary-type-ids": [
+      "dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"
+    ],
+    "disambiguation": "",
+    "artist-credit": [
+      {
+        "name": "Various Artists",
+        "joinphrase": "",
+        "artist": {
+          "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+          "name": "Various Artists",
+          "sort-name": "Various Artists",
+          "disambiguation": ""
+        }
+      }
+    ],
+    "first-release-date": "2017-07"
+  },
+  "media": [
+    {
+      "position": 1,
+      "format": "CD",
+      "format-id": "9712d52a-4509-3d4b-a1a2-67c88c643e31",
+      "title": "",
+      "track-count": 6,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "id": "b2c3d4e5-0001-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 1,
+          "number": "1",
+          "title": "New Rules",
+          "length": 209320,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000a-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
+            "title": "New Rules",
+            "length": 209320,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        },
+        {
+          "id": "b2c3d4e5-0002-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 2,
+          "number": "2",
+          "title": "Shape of You",
+          "length": 233712,
+          "artist-credit": [
+            {
+              "name": "Ed Sheeran",
+              "joinphrase": "",
+              "artist": {
+                "id": "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6",
+                "name": "Ed Sheeran",
+                "sort-name": "Sheeran, Ed",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b",
+            "title": "Shape of You",
+            "length": 233712,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Ed Sheeran",
+                "joinphrase": "",
+                "artist": {
+                  "id": "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6",
+                  "name": "Ed Sheeran",
+                  "sort-name": "Sheeran, Ed",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        },
+        {
+          "id": "b2c3d4e5-0003-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 3,
+          "number": "3",
+          "title": "Despacito (remix)",
+          "length": 228827,
+          "artist-credit": [
+            {
+              "name": "Luis Fonsi",
+              "joinphrase": " & ",
+              "artist": {
+                "id": "d68a4b0e-3c2a-4c8f-9b1e-6f7a2d3c4b5e",
+                "name": "Luis Fonsi",
+                "sort-name": "Fonsi, Luis",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Daddy Yankee",
+              "joinphrase": " feat. ",
+              "artist": {
+                "id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+                "name": "Daddy Yankee",
+                "sort-name": "Daddy Yankee",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Justin Bieber",
+              "joinphrase": "",
+              "artist": {
+                "id": "e0140a67-e4d1-4f13-8a01-364355bee46e",
+                "name": "Justin Bieber",
+                "sort-name": "Bieber, Justin",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "a1b2c3d4-0002-4e5f-8a9b-0c1d2e3f4a5b",
+            "title": "Despacito (Remix)",
+            "length": 228827,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Luis Fonsi",
+                "joinphrase": " & ",
+                "artist": {
+                  "id": "d68a4b0e-3c2a-4c8f-9b1e-6f7a2d3c4b5e",
+                  "name": "Luis Fonsi",
+                  "sort-name": "Fonsi, Luis",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Daddy Yankee",
+                "joinphrase": " feat. ",
+                "artist": {
+                  "id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+                  "name": "Daddy Yankee",
+                  "sort-name": "Daddy Yankee",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Justin Bieber",
+                "joinphrase": "",
+                "artist": {
+                  "id": "e0140a67-e4d1-4f13-8a01-364355bee46e",
+                  "name": "Justin Bieber",
+                  "sort-name": "Bieber, Justin",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        },
+        {
+          "id": "b2c3d4e5-0004-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 4,
+          "number": "4",
+          "title": "Rockabye",
+          "length": 251088,
+          "artist-credit": [
+            {
+              "name": "Clean Bandit",
+              "joinphrase": " feat. ",
+              "artist": {
+                "id": "3f4a5b6c-7d8e-4f9a-8b0c-1d2e3f4a5b6c",
+                "name": "Clean Bandit",
+                "sort-name": "Clean Bandit",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Sean Paul",
+              "joinphrase": " & ",
+              "artist": {
+                "id": "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+                "name": "Sean Paul",
+                "sort-name": "Paul, Sean",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Anne-Marie",
+              "joinphrase": "",
+              "artist": {
+                "id": "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8f",
+                "name": "Anne-Marie",
+                "sort-name": "Anne-Marie",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "a1b2c3d4-0003-4e5f-8a9b-0c1d2e3f4a5b",
+            "title": "Rockabye",
+            "length": 251088,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Clean Bandit",
+                "joinphrase": " feat. ",
+                "artist": {
+                  "id": "3f4a5b6c-7d8e-4f9a-8b0c-1d2e3f4a5b6c",
+                  "name": "Clean Bandit",
+                  "sort-name": "Clean Bandit",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Sean Paul",
+                "joinphrase": " & ",
+                "artist": {
+                  "id": "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+                  "name": "Sean Paul",
+                  "sort-name": "Paul, Sean",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Anne-Marie",
+                "joinphrase": "",
+                "artist": {
+                  "id": "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8f",
+                  "name": "Anne-Marie",
+                  "sort-name": "Anne-Marie",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        },
+        {
+          "id": "b2c3d4e5-0005-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 5,
+          "number": "5",
+          "title": "Sign of the Times",
+          "length": 340000,
+          "artist-credit": [
+            {
+              "name": "Harry Styles",
+              "joinphrase": "",
+              "artist": {
+                "id": "7eb1ce54-a355-41f9-8d68-e018b096d427",
+                "name": "Harry Styles",
+                "sort-name": "Styles, Harry",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "a1b2c3d4-0004-4e5f-8a9b-0c1d2e3f4a5b",
+            "title": "Sign of the Times",
+            "length": 340000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Harry Styles",
+                "joinphrase": "",
+                "artist": {
+                  "id": "7eb1ce54-a355-41f9-8d68-e018b096d427",
+                  "name": "Harry Styles",
+                  "sort-name": "Styles, Harry",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        },
+        {
+          "id": "b2c3d4e5-0006-4f6a-9b0c-1d2e3f4a5b6c",
+          "position": 6,
+          "number": "6",
+          "title": "Feels",
+          "length": 223000,
+          "artist-credit": [
+            {
+              "name": "Calvin Harris",
+              "joinphrase": " feat. ",
+              "artist": {
+                "id": "8dd98bdc-80ec-4e93-8509-2f46bafc09a7",
+                "name": "Calvin Harris",
+                "sort-name": "Harris, Calvin",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Pharrell Williams",
+              "joinphrase": ", ",
+              "artist": {
+                "id": "149f91ef-1287-46fb-9b2d-4b2b0b8e1ec8",
+                "name": "Pharrell Williams",
+                "sort-name": "Williams, Pharrell",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Katy Perry",
+              "joinphrase": " & ",
+              "artist": {
+                "id": "122d63fc-8671-43e4-9752-34e846d62a9c",
+                "name": "Katy Perry",
+                "sort-name": "Perry, Katy",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Big Sean",
+              "joinphrase": "",
+              "artist": {
+                "id": "a8e0f2c1-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+                "name": "Big Sean",
+                "sort-name": "Big Sean",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "a1b2c3d4-0005-4e5f-8a9b-0c1d2e3f4a5b",
+            "title": "Feels",
+            "length": 223000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Calvin Harris",
+                "joinphrase": " feat. ",
+                "artist": {
+                  "id": "8dd98bdc-80ec-4e93-8509-2f46bafc09a7",
+                  "name": "Calvin Harris",
+                  "sort-name": "Harris, Calvin",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Pharrell Williams",
+                "joinphrase": ", ",
+                "artist": {
+                  "id": "149f91ef-1287-46fb-9b2d-4b2b0b8e1ec8",
+                  "name": "Pharrell Williams",
+                  "sort-name": "Williams, Pharrell",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Katy Perry",
+                "joinphrase": " & ",
+                "artist": {
+                  "id": "122d63fc-8671-43e4-9752-34e846d62a9c",
+                  "name": "Katy Perry",
+                  "sort-name": "Perry, Katy",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Big Sean",
+                "joinphrase": "",
+                "artist": {
+                  "id": "a8e0f2c1-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+                  "name": "Big Sean",
+                  "sort-name": "Big Sean",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 // Package musicbrainz finds MusicBrainz recordings and releases for a file: a
 // rate-limited, caching web service client, Picard-style query building and
-// local ranking of the candidates.
+// local ranking of the candidates. For a release match it also assigns files
+// to the tracks of a looked-up release, and it maps a release track to the
+// tags tagshelf writes.
 package musicbrainz
 
 import (

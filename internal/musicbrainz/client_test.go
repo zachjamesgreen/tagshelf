@@ -26,21 +26,49 @@ var (
 	contact = flag.String("contact", "", "musicbrainz_contact to send when recording")
 )
 
-// fixture is one recorded search response.
+// fixture is one recorded response: a recording search, a release search
+// (release set) or a release lookup (lookup set).
 type fixture struct {
-	file   string // under testdata
-	query  Query
-	offset int
+	file    string // under testdata
+	query   Query
+	release *ReleaseQuery
+	lookup  string
+	offset  int
 }
 
+// The release lookups use hand-authored MBIDs, so -record reports them as not
+// found until they are replaced with real releases.
 var fixtures = []fixture{
 	{file: "recording-blow-your-mind.json", query: Query{Title: "Blow Your Mind", Artist: "Dua Lipa", Length: 178 * time.Second}},
 	{file: "recording-no-hits.json", query: Query{Title: "zzqx tagshelf no such recording", Artist: "qqzx nobody"}},
+	{file: "recording-new-rules.json", query: Query{Title: "New Rules", Artist: "Dua Lipa", Length: 209 * time.Second}},
+	{file: "recording-dreams.json", query: Query{Title: "Dreams", Artist: "Dua Lipa"}},
+	{file: "release-search-dua-lipa.json", release: &ReleaseQuery{Album: "Dua Lipa", Artist: "Dua Lipa", Tracks: 17}},
+	{file: "release-dua-lipa-deluxe.json", lookup: deluxeID},
+	{file: "release-various-artists.json", lookup: variousID},
+}
+
+// Release IDs of the recorded lookups.
+const (
+	deluxeID  = "d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+	variousID = "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f"
+)
+
+// url is the fixture's request URL under base.
+func (f fixture) url(base string) (string, error) {
+	switch {
+	case f.lookup != "":
+		return releaseLookupURL(base, f.lookup)
+	case f.release != nil:
+		return releaseSearchURL(base, *f.release, f.offset)
+	default:
+		return recordingSearchURL(base, f.query, f.offset)
+	}
 }
 
 func (f fixture) requestURI(t *testing.T) string {
 	t.Helper()
-	u, err := recordingSearchURL("/ws/2", f.query, f.offset)
+	u, err := f.url("/ws/2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +84,14 @@ func TestRecordFixtures(t *testing.T) {
 		t.Fatalf("-record needs -contact: %v", err)
 	}
 	for _, f := range fixtures {
-		u, err := recordingSearchURL(DefaultBaseURL, f.query, f.offset)
+		u, err := f.url(DefaultBaseURL)
 		if err != nil {
 			t.Fatal(err)
 		}
 		body, err := c.fetch(context.Background(), u)
 		if err != nil {
-			t.Fatalf("%s: %v", f.file, err)
+			t.Errorf("%s: %v", f.file, err)
+			continue
 		}
 		if err := os.WriteFile(filepath.Join("testdata", f.file), body, 0o644); err != nil {
 			t.Fatal(err)

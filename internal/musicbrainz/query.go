@@ -30,7 +30,9 @@ type FileInfo struct {
 	Year       int
 	Track      int
 	TrackTotal int
-	Length     time.Duration
+	// Disc is the disc number tag; only release match uses it.
+	Disc   int
+	Length time.Duration
 	// Path is the file's current path; only its base name is used.
 	Path string
 	// Folder is the name of the folder the file originally came from, used as

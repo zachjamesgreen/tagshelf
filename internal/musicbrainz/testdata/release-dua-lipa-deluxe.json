@@ -1,0 +1,755 @@
+{
+  "id": "d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "title": "Dua Lipa",
+  "status": "Official",
+  "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+  "disambiguation": "deluxe edition",
+  "date": "2017-06-02",
+  "country": "GB",
+  "barcode": "190295819984",
+  "packaging": "Jewel Case",
+  "quality": "normal",
+  "text-representation": {
+    "language": "eng",
+    "script": "Latn"
+  },
+  "artist-credit": [
+    {
+      "name": "Dua Lipa",
+      "joinphrase": "",
+      "artist": {
+        "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+        "name": "Dua Lipa",
+        "sort-name": "Lipa, Dua",
+        "disambiguation": ""
+      }
+    }
+  ],
+  "release-group": {
+    "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+    "title": "Dua Lipa",
+    "primary-type": "Album",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "secondary-types": [],
+    "secondary-type-ids": [],
+    "disambiguation": "",
+    "artist-credit": [
+      {
+        "name": "Dua Lipa",
+        "joinphrase": "",
+        "artist": {
+          "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+          "name": "Dua Lipa",
+          "sort-name": "Lipa, Dua",
+          "disambiguation": ""
+        }
+      }
+    ],
+    "first-release-date": "2017-06-02"
+  },
+  "media": [
+    {
+      "position": 1,
+      "format": "CD",
+      "format-id": "9712d52a-4509-3d4b-a1a2-67c88c643e31",
+      "title": "",
+      "track-count": 12,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "id": "7a0b0001-1b2c-4d3e-8f4a-5b6c7d8e9f01",
+          "position": 1,
+          "number": "1",
+          "title": "Genesis",
+          "length": 206000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0001-1b2c-4d3e-8f4a-5b6c7d8e9f01",
+            "title": "Genesis",
+            "length": 206000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0002-1b2c-4d3e-8f4a-5b6c7d8e9f02",
+          "position": 2,
+          "number": "2",
+          "title": "Lost in Your Light",
+          "length": 204000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": " feat. ",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            },
+            {
+              "name": "Miguel",
+              "joinphrase": "",
+              "artist": {
+                "id": "5b7a6c3e-7f4b-4f0c-9a0c-2d8e4b7f1a93",
+                "name": "Miguel",
+                "sort-name": "Miguel",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0002-1b2c-4d3e-8f4a-5b6c7d8e9f02",
+            "title": "Lost in Your Light",
+            "length": 204000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": " feat. ",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              },
+              {
+                "name": "Miguel",
+                "joinphrase": "",
+                "artist": {
+                  "id": "5b7a6c3e-7f4b-4f0c-9a0c-2d8e4b7f1a93",
+                  "name": "Miguel",
+                  "sort-name": "Miguel",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0003-1b2c-4d3e-8f4a-5b6c7d8e9f03",
+          "position": 3,
+          "number": "3",
+          "title": "Hotter Than Hell",
+          "length": 187000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0003-1b2c-4d3e-8f4a-5b6c7d8e9f03",
+            "title": "Hotter Than Hell",
+            "length": 187000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0004-1b2c-4d3e-8f4a-5b6c7d8e9f04",
+          "position": 4,
+          "number": "4",
+          "title": "Be the One",
+          "length": 202000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0004-1b2c-4d3e-8f4a-5b6c7d8e9f04",
+            "title": "Be the One",
+            "length": 202000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0005-1b2c-4d3e-8f4a-5b6c7d8e9f05",
+          "position": 5,
+          "number": "5",
+          "title": "IDGAF",
+          "length": 217000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0005-1b2c-4d3e-8f4a-5b6c7d8e9f05",
+            "title": "IDGAF",
+            "length": 217000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0006-1b2c-4d3e-8f4a-5b6c7d8e9f06",
+          "position": 6,
+          "number": "6",
+          "title": "Blow Your Mind (Mwah)",
+          "length": 178583,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "b1a9c0e9-d987-4042-ae91-78d6a3267d69",
+            "title": "Blow Your Mind (Mwah)",
+            "length": 178583,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2016-08-26"
+          }
+        },
+        {
+          "id": "7a0b0007-1b2c-4d3e-8f4a-5b6c7d8e9f07",
+          "position": 7,
+          "number": "7",
+          "title": "Garden",
+          "length": 227000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0007-1b2c-4d3e-8f4a-5b6c7d8e9f07",
+            "title": "Garden",
+            "length": 227000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0008-1b2c-4d3e-8f4a-5b6c7d8e9f08",
+          "position": 8,
+          "number": "8",
+          "title": "No Goodbyes",
+          "length": 214000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0008-1b2c-4d3e-8f4a-5b6c7d8e9f08",
+            "title": "No Goodbyes",
+            "length": 214000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0009-1b2c-4d3e-8f4a-5b6c7d8e9f09",
+          "position": 9,
+          "number": "9",
+          "title": "Thinking ’Bout You",
+          "length": 169000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0009-1b2c-4d3e-8f4a-5b6c7d8e9f09",
+            "title": "Thinking ’Bout You",
+            "length": 169000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b000a-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
+          "position": 10,
+          "number": "10",
+          "title": "New Rules",
+          "length": 209320,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000a-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
+            "title": "New Rules",
+            "length": 209320,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b000b-1b2c-4d3e-8f4a-5b6c7d8e9f0b",
+          "position": 11,
+          "number": "11",
+          "title": "Begging",
+          "length": 193000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000b-1b2c-4d3e-8f4a-5b6c7d8e9f0b",
+            "title": "Begging",
+            "length": 193000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b000c-1b2c-4d3e-8f4a-5b6c7d8e9f0c",
+          "position": 12,
+          "number": "12",
+          "title": "Homesick",
+          "length": 229000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000c-1b2c-4d3e-8f4a-5b6c7d8e9f0c",
+            "title": "Homesick",
+            "length": 229000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        }
+      ]
+    },
+    {
+      "position": 2,
+      "format": "CD",
+      "format-id": "9712d52a-4509-3d4b-a1a2-67c88c643e31",
+      "title": "",
+      "track-count": 5,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "id": "7a0b000d-1b2c-4d3e-8f4a-5b6c7d8e9f0d",
+          "position": 1,
+          "number": "1",
+          "title": "Dreams",
+          "length": 222000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000d-1b2c-4d3e-8f4a-5b6c7d8e9f0d",
+            "title": "Dreams",
+            "length": 222000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b000e-1b2c-4d3e-8f4a-5b6c7d8e9f0e",
+          "position": 2,
+          "number": "2",
+          "title": "Room for 2",
+          "length": 222000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000e-1b2c-4d3e-8f4a-5b6c7d8e9f0e",
+            "title": "Room for 2",
+            "length": 222000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b000f-1b2c-4d3e-8f4a-5b6c7d8e9f0f",
+          "position": 3,
+          "number": "3",
+          "title": "New Love",
+          "length": 234000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d000f-1b2c-4d3e-8f4a-5b6c7d8e9f0f",
+            "title": "New Love",
+            "length": 234000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0010-1b2c-4d3e-8f4a-5b6c7d8e9f10",
+          "position": 4,
+          "number": "4",
+          "title": "Bad Together",
+          "length": 227000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0010-1b2c-4d3e-8f4a-5b6c7d8e9f10",
+            "title": "Bad Together",
+            "length": 227000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        },
+        {
+          "id": "7a0b0011-1b2c-4d3e-8f4a-5b6c7d8e9f11",
+          "position": 5,
+          "number": "5",
+          "title": "Last Dance",
+          "length": 229000,
+          "artist-credit": [
+            {
+              "name": "Dua Lipa",
+              "joinphrase": "",
+              "artist": {
+                "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                "name": "Dua Lipa",
+                "sort-name": "Lipa, Dua",
+                "disambiguation": ""
+              }
+            }
+          ],
+          "recording": {
+            "id": "9c0d0011-1b2c-4d3e-8f4a-5b6c7d8e9f11",
+            "title": "Last Dance",
+            "length": 229000,
+            "video": false,
+            "disambiguation": "",
+            "artist-credit": [
+              {
+                "name": "Dua Lipa",
+                "joinphrase": "",
+                "artist": {
+                  "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+                  "name": "Dua Lipa",
+                  "sort-name": "Lipa, Dua",
+                  "disambiguation": ""
+                }
+              }
+            ],
+            "first-release-date": "2017-06-02"
+          }
+        }
+      ]
+    }
+  ]
+}
