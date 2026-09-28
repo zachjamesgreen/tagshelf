@@ -470,7 +470,7 @@ func TestRunEndToEnd(t *testing.T) {
 		DryRun:      false,
 	}
 
-	stats := Run(context.Background(), cfg)
+	stats := Run(context.Background(), cfg).Counters
 
 	if stats.TotalFound != 1 {
 		t.Errorf("Expected 1 audio file found, got %d", stats.TotalFound)
@@ -566,7 +566,7 @@ func TestRunDryRunLeavesCompanions(t *testing.T) {
 		Destination: filepath.Join(tmpDir, "dest"),
 		Workers:     2,
 		DryRun:      true,
-	})
+	}).Counters
 
 	if stats.OtherFound != 2 || stats.OtherMoved != 2 {
 		t.Errorf("Expected 2 non-audio files counted, got %d found, %d moved",
@@ -599,7 +599,7 @@ func TestRunDefaultsWorkers(t *testing.T) {
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    filepath.Join(tmpDir, "untagged"),
 		Workers:     0,
-	})
+	}).Counters
 
 	if stats.TotalFound != 1 {
 		t.Fatalf("Expected 1 audio file found, got %d", stats.TotalFound)
@@ -641,7 +641,7 @@ func TestRunPreservesCollidingFiles(t *testing.T) {
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
 		Workers:     8,
-	})
+	}).Counters
 
 	if stats.Errors != 0 {
 		t.Errorf("Expected no errors, got %d", stats.Errors)
@@ -703,7 +703,7 @@ func TestRunIsIdempotent(t *testing.T) {
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
 		Workers:     2,
-	})
+	}).Counters
 
 	if stats.InPlace != 1 {
 		t.Errorf("Expected 1 file reported as already in place, got %d (organized %d, untagged %d, skipped %d)",
@@ -975,7 +975,7 @@ func TestRunReorganizesLibrary(t *testing.T) {
 	writeTestFile(t, filepath.Join(lib, "Hand Placed", "track.mp3"), "no tags here")
 
 	cfg := Options{Source: lib, Destination: lib, Workers: 2}
-	stats := Run(context.Background(), cfg)
+	stats := Run(context.Background(), cfg).Counters
 
 	if stats.Errors != 0 {
 		t.Fatalf("Expected no errors, got %d", stats.Errors)
@@ -1007,7 +1007,7 @@ func TestRunReorganizesLibrary(t *testing.T) {
 	}
 
 	// A second pass finds everything in place and leaves the cue alone.
-	again := Run(context.Background(), cfg)
+	again := Run(context.Background(), cfg).Counters
 	if again.Organized != 0 || again.OtherMoved != 0 || again.CueRewritten != 0 {
 		t.Errorf("Expected a second reorganize to change nothing, got organized %d, non-audio %d, cues %d",
 			again.Organized, again.OtherMoved, again.CueRewritten)
@@ -1029,7 +1029,7 @@ func TestReorganizePullsTaggedFilesFromUntagged(t *testing.T) {
 	}, "audio")
 	writeTestFile(t, filepath.Join(untagged, "still broken.mp3"), "no tags")
 
-	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Untagged: untagged, Workers: 2})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Untagged: untagged, Workers: 2}).Counters
 
 	readTestFile(t, filepath.Join(lib, "Singer", "Album", "01 - Fixed.mp3"))
 	readTestFile(t, filepath.Join(untagged, "still broken.mp3"))
@@ -1051,7 +1051,7 @@ func TestReorganizeSwapGetsCleanNames(t *testing.T) {
 	writeTaggedMP3(t, filepath.Join(album, "01 - A.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
 	writeTaggedMP3(t, filepath.Join(album, "02 - B.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
 
-	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1}).Counters
 
 	if stats.Errors != 0 {
 		t.Fatalf("Expected no errors, got %d", stats.Errors)
@@ -1083,7 +1083,7 @@ func TestCueLeftAloneWhenAudioIsElsewhere(t *testing.T) {
 	writeTestFile(t, filepath.Join(rip, "album.cue"), cue)
 
 	other := filepath.Join(tmpDir, "other")
-	stats := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1})
+	stats := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1}).Counters
 
 	moved := filepath.Join(other, "rip", "album.cue")
 	if got := readTestFile(t, moved); got != cue {
@@ -1123,7 +1123,7 @@ func TestReorganizeGathersCompilation(t *testing.T) {
 		}, fmt.Sprintf("audio %d", i))
 	}
 
-	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 2})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 2}).Counters
 
 	if stats.Errors != 0 || stats.Organized != 2 {
 		t.Fatalf("Expected 2 organized files and no errors, got %d and %d", stats.Organized, stats.Errors)
@@ -1148,7 +1148,7 @@ func TestPicardCompilationM4AGoesToCompilations(t *testing.T) {
 	dest := filepath.Join(tmpDir, "lib")
 	writeTestFile(t, filepath.Join(source, "va.m4a"), readTestFile(t, fixtures.Path(fixtures.TaggedVAM4A)))
 
-	stats := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 1})
+	stats := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 1}).Counters
 
 	if stats.Organized != 1 || stats.Errors != 0 {
 		t.Fatalf("Expected 1 organized file and no errors, got %d and %d", stats.Organized, stats.Errors)

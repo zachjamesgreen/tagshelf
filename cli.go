@@ -9,6 +9,26 @@ import (
 	"tagshelf/internal/engine"
 )
 
+// Process exit codes.
+const (
+	exitOK          = 0   // the run finished without file errors
+	exitErrors      = 1   // the run finished, but some files failed
+	exitCannotStart = 2   // bad flags or config, nothing was touched
+	exitInterrupted = 130 // Ctrl-C stopped the run
+)
+
+// exitCode maps how a run ended to the process exit code.
+func exitCode(s engine.RunState) int {
+	switch s {
+	case engine.StateErrors:
+		return exitErrors
+	case engine.StateInterrupted:
+		return exitInterrupted
+	default:
+		return exitOK
+	}
+}
+
 // cliSink prints a run's events as log lines. Per-file lines other than
 // duplicates, errors and warnings are printed only when verbose.
 type cliSink struct {
@@ -59,6 +79,9 @@ func (s *cliSink) handle(e engine.Event) {
 		s.progress(e)
 	case engine.RunFinished:
 		s.summary(e.Counters)
+		if e.State == engine.StateInterrupted {
+			s.lg.Println("Run interrupted: the remaining files were left where they are and empty folders were not cleaned up.")
+		}
 	}
 }
 

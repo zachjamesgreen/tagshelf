@@ -121,7 +121,9 @@ type Progress struct {
 type RunState int
 
 const (
-	Completed RunState = iota
+	StateOK          RunState = iota // finished without file errors
+	StateErrors                      // finished, but some files failed
+	StateInterrupted                 // cancelled before finishing
 )
 
 // RunFinished closes every run.

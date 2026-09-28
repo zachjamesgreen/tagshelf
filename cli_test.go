@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +116,83 @@ Errors encountered:       1
 `
 	if got := strings.Join(lines[2:], "\n"); got != want {
 		t.Errorf("summary:\ngot\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestCLISinkInterruptedSummary(t *testing.T) {
+	var buf bytes.Buffer
+	sink := newCLISink(log.New(&buf, "", 0), false)
+	sink(engine.RunStarted{Kind: engine.KindOrganize})
+	sink(engine.RunFinished{State: engine.StateInterrupted})
+
+	want := "==================================================\nRun interrupted: the remaining files were left where they are and empty folders were not cleaned up.\n"
+	if got := buf.String(); !strings.HasSuffix(got, want) {
+		t.Errorf("summary does not end with the interrupted line:\n%s", got)
+	}
+}
+
+// TestRunExitCodes runs the CLI end to end. Every case passes an explicit empty
+// -config, so a config.yaml in the working directory is never picked up.
+func TestRunExitCodes(t *testing.T) {
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		args func(tmp string) []string
+		want int
+	}{
+		{"ok", context.Background(), func(tmp string) []string {
+			return []string{"-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib")}
+		}, exitOK},
+		{"file errors", context.Background(), func(tmp string) []string {
+			// The untagged folder is a file, so the untagged song cannot move.
+			writeFile(t, filepath.Join(tmp, "untagged"), "in the way")
+			return []string{"-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib"), "-untagged", filepath.Join(tmp, "untagged")}
+		}, exitErrors},
+		{"interrupted", cancelled, func(tmp string) []string {
+			return []string{"-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib")}
+		}, exitInterrupted},
+		{"no dest", context.Background(), func(tmp string) []string {
+			return []string{"-source", filepath.Join(tmp, "src")}
+		}, exitCannotStart},
+		{"missing config", context.Background(), func(tmp string) []string {
+			return []string{"-config", filepath.Join(tmp, "missing.yaml"), "-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib")}
+		}, exitCannotStart},
+		{"bad flag", context.Background(), func(tmp string) []string {
+			return []string{"-no-such-flag"}
+		}, exitCannotStart},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			song := filepath.Join(tmp, "src", "loose.mp3")
+			writeFile(t, song, "no tags")
+			config := filepath.Join(tmp, "empty.yaml")
+			writeFile(t, config, "")
+			args := append([]string{"-config", config}, tt.args(tmp)...)
+
+			if got := run(tt.ctx, args); got != tt.want {
+				t.Errorf("run(%q) = %d, want %d", args, got, tt.want)
+			}
+			_, err := os.Stat(song)
+			if moved := err != nil; moved != (tt.want == exitOK) {
+				t.Errorf("song moved = %t, want %t", moved, tt.want == exitOK)
+			}
+		})
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
 	}
 }

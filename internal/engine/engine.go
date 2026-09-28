@@ -539,11 +539,14 @@ func isSubdirectory(parent, sub string) bool {
 }
 
 // Run does one organize or reorganize pass, reporting to opts.Sink as it goes,
-// and returns the run's totals. RunStarted is always the first event and
-// RunFinished the last.
+// and returns the RunFinished it ends with. RunStarted is always the first
+// event and RunFinished the last.
 //
-// ctx is not honoured yet: graceful cancellation comes with Ctrl-C handling.
-func Run(ctx context.Context, opts Options) Counters {
+// Cancelling ctx stops the run from handing out new files: moves already under
+// way finish, the remaining files stay where they are, suffixed files are not
+// retried and emptied directories are not cleaned up. Cue sheets that did move
+// are still rewritten, since a later run would not revisit them.
+func Run(ctx context.Context, opts Options) RunFinished {
 	o := newOrganizer(opts)
 	cfg := o.cfg
 	stats := o.stats
@@ -578,7 +581,7 @@ func Run(ctx context.Context, opts Options) Counters {
 	var audio []string
 	var companions []companionFile
 	for _, root := range roots {
-		o.walk(root, roots, func(path string) {
+		o.walk(ctx, root, roots, func(path string) {
 			if isAudioFile(path) {
 				stats.TotalFound.Add(1)
 				audio = append(audio, path)
@@ -589,7 +592,7 @@ func Run(ctx context.Context, opts Options) Counters {
 		})
 	}
 
-	runJobs(cfg.Workers, audio, o.processFile)
+	runJobs(ctx, cfg.Workers, audio, o.processFile)
 
 	// Non-audio files go only after every audio file has been placed, because
 	// where they go depends on where their neighbours went.
@@ -601,9 +604,9 @@ func Run(ctx context.Context, opts Options) Counters {
 		// subtrees there would sweep artist-level images into an album.
 		tree = buildAlbumTree(cfg.Source, o.albums)
 	}
-	runJobs(cfg.Workers, companions, func(c companionFile) { o.processCompanion(c, tree) })
+	runJobs(ctx, cfg.Workers, companions, func(c companionFile) { o.processCompanion(c, tree) })
 
-	if cfg.Reorganizing() && !cfg.DryRun {
+	if cfg.Reorganizing() && !cfg.DryRun && ctx.Err() == nil {
 		o.retrySuffixed()
 	}
 
@@ -618,8 +621,10 @@ func Run(ctx context.Context, opts Options) Counters {
 	close(stopTicker)
 	<-tickerDone
 
+	interrupted := ctx.Err() != nil
+
 	// Clean up emptied directories if not in dry-run
-	if !cfg.DryRun {
+	if !cfg.DryRun && !interrupted {
 		excluded := []string{cfg.Destination, cfg.Untagged, cfg.Other}
 		if cfg.Reorganizing() {
 			// The walked roots are the library itself; roots are never removed.
@@ -628,9 +633,15 @@ func Run(ctx context.Context, opts Options) Counters {
 		cleanupEmptyDirectories(roots, excluded, func(dir string) { o.emit(DirRemoved{Path: dir}) }, &o.touched)
 	}
 
-	final := stats.snapshot()
-	o.emit(RunFinished{Counters: final, State: Completed})
-	return final
+	finish := RunFinished{Counters: stats.snapshot(), State: StateOK}
+	switch {
+	case interrupted:
+		finish.State = StateInterrupted
+	case finish.Counters.Errors > 0:
+		finish.State = StateErrors
+	}
+	o.emit(finish)
+	return finish
 }
 
 // companionFile is a non-audio file and the walk root it was found under.
@@ -671,13 +682,16 @@ func containsPath(paths []string, path string) bool {
 // walk lists the files under root, calling fn for each. A normal run skips the
 // output folders; a reorganize skips the other roots, which it walks on their
 // own.
-func (o *organizer) walk(root string, roots []string, fn func(path string)) {
+func (o *organizer) walk(ctx context.Context, root string, roots []string, fn func(path string)) {
 	skip := []string{o.cfg.Destination, o.cfg.Untagged, o.cfg.Other}
 	if o.cfg.Reorganizing() {
 		skip = roots
 	}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			o.fail(path, "", OpWalk, err)
 			return nil
@@ -697,8 +711,9 @@ func (o *organizer) walk(root string, roots []string, fn func(path string)) {
 }
 
 // runJobs runs fn over items on the given number of goroutines and waits for
-// them to finish.
-func runJobs[T any](workers int, items []T, fn func(T)) {
+// them to finish. Once ctx is cancelled no more items are handed out; the ones
+// already taken run to the end.
+func runJobs[T any](ctx context.Context, workers int, items []T, fn func(T)) {
 	jobs := make(chan T)
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -710,8 +725,16 @@ func runJobs[T any](workers int, items []T, fn func(T)) {
 			}
 		}()
 	}
+feed:
 	for _, item := range items {
-		jobs <- item
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case jobs <- item:
+		case <-ctx.Done():
+			break feed
+		}
 	}
 	close(jobs)
 	wg.Wait()

@@ -43,7 +43,7 @@ func TestRunReportsEvents(t *testing.T) {
 	writeTestFile(t, art, "art")
 
 	var c collector
-	counters := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 2, Sink: c.sink})
+	counters := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 2, Sink: c.sink}).Counters
 
 	if len(c.events) < 2 {
 		t.Fatalf("Expected at least RunStarted and RunFinished, got %d events", len(c.events))
@@ -60,8 +60,8 @@ func TestRunReportsEvents(t *testing.T) {
 	if !ok {
 		t.Fatalf("Last event must be RunFinished, got %T", c.events[len(c.events)-1])
 	}
-	if finish.State != Completed || finish.Counters != counters {
-		t.Errorf("RunFinished = %+v, want Completed with %+v", finish, counters)
+	if finish.State != StateOK || finish.Counters != counters {
+		t.Errorf("RunFinished = %+v, want StateOK with %+v", finish, counters)
 	}
 
 	wantPlaced := map[string]Outcome{tagged: Organized, loose: Untagged, art: Companion}
@@ -95,7 +95,7 @@ func TestRunReportsFileErrors(t *testing.T) {
 	counters := Run(context.Background(), Options{
 		Source: source, Destination: filepath.Join(tmpDir, "lib"), Untagged: filepath.Join(blocker, "untagged"),
 		Workers: 1, Sink: c.sink,
-	})
+	}).Counters
 
 	var errs []FileError
 	for _, e := range c.events {
