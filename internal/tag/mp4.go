@@ -264,7 +264,11 @@ func readCustomAtom(r io.ReadSeeker, size uint32) (_ string, data []string, _ er
 		case "mean", "name":
 			subNames[subName] = string(b[4:])
 		case "data":
-			data = append(data, string(b[4:]))
+			// Type indicator and locale, 4 bytes each, come before the
+			// value. A data atom too short for them is skipped.
+			if len(b) >= 8 {
+				data = append(data, string(b[8:]))
+			}
 		}
 	}
 

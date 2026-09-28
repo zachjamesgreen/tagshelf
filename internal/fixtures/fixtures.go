@@ -30,6 +30,9 @@ const (
 	// TaggedID3v2AAC is the ADTS file with a leading ID3v2 tag, as go-taglib
 	// writes it, instead of the APEv2 tag Picard appends.
 	TaggedID3v2AAC = "tagged-id3v2.aac"
+	// TaggedVAM4A is a Various Artists compilation as Picard tags one, but
+	// with no album artist name: only the album artist ID marks it.
+	TaggedVAM4A = "tagged-va.m4a"
 )
 
 // The tag values every tagged fixture carries, written under the key names

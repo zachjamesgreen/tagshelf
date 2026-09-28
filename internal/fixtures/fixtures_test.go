@@ -20,7 +20,7 @@ func allFixtures() []string {
 	for _, ext := range Extensions() {
 		names = append(names, "untagged"+ext, "tagged"+ext)
 	}
-	return append(names, UntaggedOddWAV, UntaggedSV8MPC, TaggedID3v2AAC)
+	return append(names, UntaggedOddWAV, UntaggedSV8MPC, TaggedID3v2AAC, TaggedVAM4A)
 }
 
 func readFixture(t *testing.T, name string) []byte {
@@ -87,6 +87,7 @@ func TestFormatSignatures(t *testing.T) {
 	}
 	check(UntaggedOddWAV, byExt(".wav"))
 	check(TaggedID3v2AAC, byExt(".aac"))
+	check(TaggedVAM4A, byExt(".m4a"))
 	check(UntaggedSV8MPC, func(b []byte) bool { return string(b[:4]) == "MPCK" })
 }
 
@@ -108,25 +109,9 @@ func TestReadableTags(t *testing.T) {
 			if n, total := m.Disc(); n != Disc || total != DiscTotal {
 				t.Errorf("disc %d/%d, want %d/%d", n, total, Disc, DiscTotal)
 			}
-			// The recording and release track IDs are not checked: mbz
-			// mixes them up for Vorbis until the reader fix. That fix also
-			// strips the 4-byte locale MP4 freeform values still carry, so
-			// until then MP4 IDs only have to end with the right value.
-			isMP4 := m.Format() == tag.MP4
-			ids := mbz.Extract(m)
-			for key, want := range map[string]string{
-				mbz.Artist:       ArtistID,
-				mbz.AlbumArtist:  AlbumArtistID,
-				mbz.Album:        ReleaseID,
-				mbz.ReleaseGroup: ReleaseGroupID,
-			} {
-				got := ids.Get(key)
-				if isMP4 && strings.HasSuffix(got, want) {
-					continue
-				}
-				if got != want {
-					t.Errorf("%s = %q, want %q", key, got, want)
-				}
+			// Every ID per format is checked in the mbz tests.
+			if got := mbz.Extract(m).AlbumID; got != ReleaseID {
+				t.Errorf("release ID = %q, want %q", got, ReleaseID)
 			}
 		})
 	}

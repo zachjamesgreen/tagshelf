@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"tagshelf/internal/fixtures"
 	"tagshelf/internal/rules"
 )
 
@@ -1134,5 +1135,27 @@ func TestReorganizeGathersCompilation(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(lib, artist)); !os.IsNotExist(err) {
 			t.Errorf("Expected the scattered %q folder to be cleaned up", artist)
 		}
+	}
+}
+
+// TestPicardCompilationM4AGoesToCompilations is the regression test for MP4
+// MusicBrainz IDs, which used to read with four leading NULs, so an M4A known
+// as Various Artists only by its album artist ID stayed out of the
+// compilations folder.
+func TestPicardCompilationM4AGoesToCompilations(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "src")
+	dest := filepath.Join(tmpDir, "lib")
+	writeTestFile(t, filepath.Join(source, "va.m4a"), readTestFile(t, fixtures.Path(fixtures.TaggedVAM4A)))
+
+	stats := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 1})
+
+	if stats.Organized != 1 || stats.Errors != 0 {
+		t.Fatalf("Expected 1 organized file and no errors, got %d and %d", stats.Organized, stats.Errors)
+	}
+	album := filepath.Join(dest, rules.DefaultCompilations, fmt.Sprintf("%s (%d)", fixtures.Album, fixtures.Year))
+	entries, err := os.ReadDir(album)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("Expected the file in %q, got %v (%v)", album, entries, err)
 	}
 }

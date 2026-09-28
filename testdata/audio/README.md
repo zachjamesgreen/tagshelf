@@ -38,6 +38,7 @@ This runs `internal/fixtures/gen.go`, which needs ffmpeg on PATH (these were mad
 | `untagged.ogg`, `tagged.ogg` | ffmpeg, `libvorbis` | as FLAC; both also carry ffmpeg's `encoder` comment |
 | `untagged.m4a`, `tagged.m4a` | ffmpeg, `aac` in the `ipod` muxer, brand `M4A ` | `ilst` atoms by ffmpeg, then `----:com.apple.iTunes:MusicBrainz …` atoms added by `gen.go` |
 | `untagged.m4b`, `tagged.m4b` | as M4A, brand `M4B ` | as M4A |
+| `tagged-va.m4a` | as M4A, without an album artist name | as `tagged.m4a`, but the album artist ID is Various Artists (`89ad4ac3-39f7-470e-963a-56509c546377`) |
 | `untagged.wav` | ffmpeg, `pcm_s16le` 8 kHz mono | none |
 | `untagged-odd.wav` | ffmpeg, `pcm_u8` at 8001 Hz: an odd-sized `data` chunk plus its pad byte | none |
 | `tagged.wav` | `untagged.wav` with an `id3 ` chunk appended by `gen.go`, as mutagen/Picard write it | the ID3v2.4 tag from `tagged.mp3` |
@@ -51,7 +52,7 @@ This runs `internal/fixtures/gen.go`, which needs ffmpeg on PATH (these were mad
 | `untagged-sv8.mpc` | TagLib `tests/data/sv8_header.mpc` (Musepack SV8 header only), unchanged | none |
 | `tagged.mpc` | `untagged.mpc` with the APEv2 tag appended by `gen.go` | APEv2 as `tagged.aac` |
 
-ffmpeg makes its audio from the `lavfi` `anullsrc` silence source, so those files carry no third-party content. MP4 freeform values still read with 4 leading NUL bytes until the `internal/tag` reader fix; the fixtures themselves are correct.
+ffmpeg makes its audio from the `lavfi` `anullsrc` silence source, so those files carry no third-party content.
 
 ## TagLib files and license
 

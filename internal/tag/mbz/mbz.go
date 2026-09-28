@@ -3,112 +3,138 @@
 package mbz
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"tagshelf/internal/tag"
 )
 
-// Supported MusicBrainz tag names.
-const (
-	AcoustID          = "acoustid_id"
-	AcoustFingerprint = "acoustid_fingerprint"
-	Album             = "musicbrainz_albumid"
-	AlbumArtist       = "musicbrainz_albumartistid"
-	Artist            = "musicbrainz_artistid"
-	Disc              = "musicbrainz_discid"
-	Recording         = "musicbrainz_recordingid"
-	ReleaseGroup      = "musicbrainz_releasegroupid"
-	Track             = "musicbrainz_trackid"
-	TRM               = "musicbrainz_trmid"
-)
-
 // UFIDProviderURL is the URL that we match inside a UFID tag.
 const UFIDProviderURL = "http://musicbrainz.org"
 
-// Mapping between the internal picard tag names and aliases.
-var tags = map[string]string{
-	AcoustID:          "Acoustid Id",
-	AcoustFingerprint: "Acoustid Fingerprint",
-	Album:             "MusicBrainz Album Id",
-	AlbumArtist:       "MusicBrainz Album Artist Id",
-	Artist:            "MusicBrainz Artist Id",
-	Disc:              "MusicBrainz Disc Id",
-	Recording:         "MusicBrainz Track Id",
-	ReleaseGroup:      "MusicBrainz Release Group Id",
-	Track:             "MusicBrainz Release Track Id",
-	TRM:               "MusicBrainz TRM Id",
+// IDs are the MusicBrainz identifiers of one file, read the same way from
+// every format. Empty fields mean the file does not carry that ID.
+type IDs struct {
+	RecordingID    string
+	ReleaseTrackID string
+	AlbumID        string // the release
+	ReleaseGroupID string
+	ArtistIDs      []string
+	AlbumArtistIDs []string
 }
 
-// Info is a structure which contains MusicBrainz identifier information.
-type Info map[string]string
-
-// Get returns the value for the given MusicBrainz tag.
-func (i Info) Get(tag string) string {
-	return i[tag]
-}
-
-// set the MusicBrainz tag to the given value.
-func (i Info) set(t, v string) {
-	if _, ok := tags[t]; ok {
-		i[t] = v
-		return
+// one keeps the first ID of a value, which may still carry a NUL terminator
+// or further values.
+func one(value string) string {
+	if ids := splitIDs(value); len(ids) > 0 {
+		return ids[0]
 	}
+	return ""
+}
 
-	for k, tt := range tags {
-		if tt == t {
-			i[k] = v
-			return
+// setters maps lower-cased key names to the ID they hold. The Vorbis and
+// APEv2 names and the MP4 freeform and ID3 TXXX names never collide, so one
+// table serves every format. Both "track id" names are the recording: Picard
+// writes the release track under "release track id". In ID3 the recording
+// is normally a UFID frame, which Extract reads separately.
+var setters = map[string]func(ids *IDs, value string){
+	"musicbrainz_trackid":          setRecording,
+	"musicbrainz track id":         setRecording,
+	"musicbrainz_recordingid":      setRecording, // not Picard, but seen in the wild
+	"musicbrainz_releasetrackid":   func(ids *IDs, v string) { ids.ReleaseTrackID = one(v) },
+	"musicbrainz release track id": func(ids *IDs, v string) { ids.ReleaseTrackID = one(v) },
+	"musicbrainz_albumid":          func(ids *IDs, v string) { ids.AlbumID = one(v) },
+	"musicbrainz album id":         func(ids *IDs, v string) { ids.AlbumID = one(v) },
+	"musicbrainz_releasegroupid":   func(ids *IDs, v string) { ids.ReleaseGroupID = one(v) },
+	"musicbrainz release group id": func(ids *IDs, v string) { ids.ReleaseGroupID = one(v) },
+	"musicbrainz_artistid":         func(ids *IDs, v string) { ids.ArtistIDs = splitIDs(v) },
+	"musicbrainz artist id":        func(ids *IDs, v string) { ids.ArtistIDs = splitIDs(v) },
+	"musicbrainz_albumartistid":    func(ids *IDs, v string) { ids.AlbumArtistIDs = splitIDs(v) },
+	"musicbrainz album artist id":  func(ids *IDs, v string) { ids.AlbumArtistIDs = splitIDs(v) },
+}
+
+func setRecording(ids *IDs, v string) { ids.RecordingID = one(v) }
+
+// set records value under the ID that key names, if it names one. Keys match
+// case-insensitively: TagLib writes the TXXX descriptions in upper case.
+func (ids *IDs) set(key, value string) {
+	if f, ok := setters[strings.ToLower(strings.TrimSpace(key))]; ok {
+		f(ids, value)
+	}
+}
+
+// splitIDs splits a list of IDs as the readers hand it over: NUL-separated
+// (ID3v2.4), joined with "/" (Picard's ID3v2.3 default) or with ";" (the MP4
+// reader, for several data atoms). None of these can occur in an MBID.
+func splitIDs(value string) []string {
+	var ids []string
+	for _, id := range strings.FieldsFunc(value, func(r rune) bool { return r == 0 || r == '/' || r == ';' }) {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
 		}
 	}
+	return ids
 }
 
-// extractID3 attempts to extract MusicBrainz Picard tags from m.Raw(), where m.Format
-// is assumed to be a supported version of ID3.
-func extractID3(m tag.Metadata) Info {
+// extractID3 reads the TXXX frames and the MusicBrainz UFID frame.
+func extractID3(m tag.Metadata) IDs {
 	var txxx, ufid string
 	switch m.Format() {
 	case tag.ID3v2_2:
 		txxx, ufid = "TXX", "UFI"
-	case tag.ID3v2_3, tag.ID3v2_4:
+	default:
 		txxx, ufid = "TXXX", "UFID"
 	}
 
-	i := Info{}
-	for k, v := range m.Raw() {
+	var ids IDs
+	var ufidRecording string
+	raw := m.Raw()
+	for _, k := range sortedKeys(raw) {
+		v := raw[k]
 		switch {
 		case strings.HasPrefix(k, txxx):
-			if str, ok := v.(*tag.Comm); ok {
-				i.set(str.Description, str.Text)
+			if c, ok := v.(*tag.Comm); ok {
+				ids.set(c.Description, c.Text)
 			}
 		case strings.HasPrefix(k, ufid):
-			if id, ok := v.(*tag.UFID); ok {
-				if id.Provider == UFIDProviderURL {
-					i.set(Recording, string(id.Identifier))
-				}
+			if id, ok := v.(*tag.UFID); ok && id.Provider == UFIDProviderURL {
+				ufidRecording = one(string(id.Identifier))
 			}
 		}
 	}
-	return i
+	// The UFID frame is where Picard keeps the recording; a TXXX "track id"
+	// only stands in for a missing one, whatever order the frames come in.
+	if ufidRecording != "" {
+		ids.RecordingID = ufidRecording
+	}
+	return ids
 }
 
-// extractMP4Vorbis attempts to extract MusicBrainz Picard tags from m.Raw(), where m.Format
-// is assumed to be MP4 or VORBIS.
-func extractMP4Vorbis(m tag.Metadata) Info {
-	i := Info{}
-	for t, v := range m.Raw() {
-		if s, ok := v.(string); ok {
-			i.set(t, s)
+// extractKeyValue reads formats whose raw tags are plain key/value strings:
+// Vorbis comments and MP4 freeform atoms.
+func extractKeyValue(m tag.Metadata) IDs {
+	var ids IDs
+	raw := m.Raw()
+	for _, k := range sortedKeys(raw) {
+		if s, ok := raw[k].(string); ok {
+			ids.set(k, s)
 		}
 	}
-	return i
+	return ids
 }
 
-// Extract tags created by MusicBrainz Picard which can be used with with the MusicBrainz and LastFM APIs.
-// See https://picard.musicbrainz.org/docs/mappings/ for more information.
-func Extract(m tag.Metadata) Info {
+// sortedKeys fixes the order raw tags are read in, so that when two keys
+// name the same ID the same one wins on every run.
+func sortedKeys(raw map[string]any) []string {
+	return slices.Sorted(maps.Keys(raw))
+}
+
+// Extract returns the MusicBrainz IDs Picard (or TagLib) wrote into m.
+func Extract(m tag.Metadata) IDs {
 	switch m.Format() {
 	case tag.ID3v2_2, tag.ID3v2_3, tag.ID3v2_4:
 		return extractID3(m)
 	}
-	return extractMP4Vorbis(m)
+	return extractKeyValue(m)
 }

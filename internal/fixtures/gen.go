@@ -24,8 +24,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"tagshelf/internal/fixtures"
+	"tagshelf/internal/rules"
 )
 
 func main() {
@@ -104,8 +106,15 @@ func main() {
 	for _, f := range []struct{ name, brand string }{{"tagged.m4a", "M4A "}, {"tagged.m4b", "M4B "}} {
 		path := filepath.Join(dir, f.name)
 		ffmpeg(path, 8000, withMetadata(mp4, "-c:a", "aac", "-b:a", "16k", "-brand", f.brand, "-f", "ipod")...)
-		write(path, addMP4FreeForm(read(path)))
+		write(path, addMP4FreeForm(read(path), fixtures.AlbumArtistID))
 	}
+	// A Various Artists compilation known only by its album artist ID: no
+	// album artist name, which would mark it a compilation on its own.
+	va := filepath.Join(dir, fixtures.TaggedVAM4A)
+	ffmpeg(va, 8000, withMetadata(slices.DeleteFunc(slices.Clone(mp4), func(kv string) bool {
+		return strings.HasPrefix(kv, "album_artist=")
+	}), "-c:a", "aac", "-b:a", "16k", "-f", "ipod")...)
+	write(va, addMP4FreeForm(read(va), rules.VariousArtistsMBID))
 
 	// Tagged in Go.
 	id3 := id3v24()
@@ -235,14 +244,15 @@ func le32(n int) []byte {
 	return binary.LittleEndian.AppendUint32(nil, uint32(n))
 }
 
-// addMP4FreeForm appends Picard's "----" MusicBrainz atoms to moov/udta/meta/ilst.
+// addMP4FreeForm appends Picard's "----" MusicBrainz atoms to moov/udta/meta/ilst,
+// with albumArtistID as the album artist ID.
 // The file's mdat must come before moov, as ffmpeg writes it, so that growing
 // moov moves no audio and no chunk offset needs fixing.
-func addMP4FreeForm(mp4 []byte) []byte {
+func addMP4FreeForm(mp4 []byte, albumArtistID string) []byte {
 	var atoms []byte
 	for _, kv := range [][2]string{
 		{"MusicBrainz Artist Id", fixtures.ArtistID},
-		{"MusicBrainz Album Artist Id", fixtures.AlbumArtistID},
+		{"MusicBrainz Album Artist Id", albumArtistID},
 		{"MusicBrainz Album Id", fixtures.ReleaseID},
 		{"MusicBrainz Release Group Id", fixtures.ReleaseGroupID},
 		{"MusicBrainz Track Id", fixtures.RecordingID},

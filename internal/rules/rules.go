@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"tagshelf/internal/tag"
@@ -165,7 +166,9 @@ func isCompilation(m tag.Metadata) bool {
 	if albumArtist != "" {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(mbz.Extract(m).Get(mbz.AlbumArtist)), VariousArtistsMBID)
+	return slices.ContainsFunc(mbz.Extract(m).AlbumArtistIDs, func(id string) bool {
+		return strings.EqualFold(id, VariousArtistsMBID)
+	})
 }
 
 // LibraryPath is where an organized file belongs:
