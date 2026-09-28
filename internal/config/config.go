@@ -32,6 +32,9 @@ type Config struct {
 	// CueRewrite fixes the FILE lines of moved cue sheets. Nil means the
 	// default, which is on.
 	CueRewrite *bool `yaml:"cue_rewrite"`
+	// MusicBrainzContact is the email address or URL sent in the MusicBrainz
+	// User-Agent. MusicBrainz lookups are disabled while it is empty.
+	MusicBrainzContact string `yaml:"musicbrainz_contact"`
 }
 
 // RewriteCues reports whether moved cue sheets get their FILE lines fixed.
