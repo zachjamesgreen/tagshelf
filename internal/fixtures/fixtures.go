@@ -33,7 +33,28 @@ const (
 	// TaggedVAM4A is a Various Artists compilation as Picard tags one, but
 	// with no album artist name: only the album artist ID marks it.
 	TaggedVAM4A = "tagged-va.m4a"
+	// ManualNoAlbumFLAC is manual.flac without an album tag.
+	ManualNoAlbumFLAC = "manual-noalbum.flac"
+	// RipperFLAC has manual.flac's tags but no manual marker, as a ripper
+	// would leave them.
+	RipperFLAC = "ripper.flac"
 )
+
+// ManualMarker is the manual marker value the manual.<ext> fixtures carry.
+const ManualMarker = "hand 2026-09-27"
+
+// ManualExtensions lists the formats that have a manual.<ext> fixture: tagged
+// by hand in tagshelf, with the title, artist, album artist, album, year and
+// track below and the manual marker, but no MusicBrainz IDs. Each call
+// returns a new slice.
+func ManualExtensions() []string {
+	return []string{".mp3", ".flac", ".ogg", ".m4a"}
+}
+
+// Manual returns the path of the manual fixture for ext, such as ".flac".
+func Manual(ext string) string {
+	return Path("manual" + ext)
+}
 
 // The tag values every tagged fixture carries, written under the key names
 // MusicBrainz Picard uses for its format. The WMA fixture has no track total,

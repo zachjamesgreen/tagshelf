@@ -164,6 +164,49 @@ func TestLibraryPath(t *testing.T) {
 	}
 }
 
+func TestQualifies(t *testing.T) {
+	dest := filepath.Join("C:", "Lib")
+	mbid := map[string]interface{}{
+		"UFID": &tag.UFID{Provider: "http://musicbrainz.org", Identifier: []byte("c83984e7-47b2-4d76-8098-b80c10a48ad1")},
+	}
+	marked := map[string]interface{}{
+		"TXXX": &tag.Comm{Description: "TAGSHELF_MANUAL", Text: "hand 2026-09-27"},
+	}
+	oddMarker := map[string]interface{}{
+		"TXXX": &tag.Comm{Description: "TAGSHELF_MANUAL", Text: "whatever"},
+	}
+	emptyMarker := map[string]interface{}{
+		"TXXX": &tag.Comm{Description: "TAGSHELF_MANUAL", Text: ""},
+	}
+	song := filepath.Join(dest, "Singer", "Album", "01 - Song.mp3")
+	tests := []struct {
+		name string
+		m    *mockMetadata
+		want string
+		ok   bool
+	}{
+		{"MusicBrainz IDs", &mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 1, raw: mbid}, song, true},
+		{"manual marker", &mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 1, raw: marked}, song, true},
+		{"marker with an unknown method", &mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 1, raw: oddMarker}, song, true},
+		{"marker falls back to the track artist", &mockMetadata{artist: "Singer", album: "Album", title: "Song", track: 1, raw: marked}, song, true},
+		{"empty marker", &mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", raw: emptyMarker}, "", false},
+		{"ripper tags", &mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", raw: map[string]interface{}{}}, "", false},
+		{"marker without album", &mockMetadata{albumArtist: "Singer", title: "Song", raw: marked}, "", false},
+		{"marker without title", &mockMetadata{albumArtist: "Singer", album: "Album", raw: marked}, "", false},
+		{"marker without either artist", &mockMetadata{album: "Album", title: "Song", raw: marked}, "", false},
+		{"MusicBrainz IDs without album", &mockMetadata{albumArtist: "Singer", title: "Song", raw: mbid}, "", false},
+	}
+	for _, tt := range tests {
+		got, ok := Qualifies(dest, "Comps", tt.m, ".mp3")
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("%s: Qualifies = %q, %t; want %q, %t", tt.name, got, ok, tt.want, tt.ok)
+		}
+	}
+	if _, ok := Qualifies(dest, "Comps", nil, ".mp3"); ok {
+		t.Error("nil metadata must not qualify")
+	}
+}
+
 // vaIDRaw is the raw ID3 tag Picard writes for a Various Artists album artist.
 func vaIDRaw() map[string]interface{} {
 	return map[string]interface{}{

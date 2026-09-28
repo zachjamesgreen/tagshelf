@@ -1170,3 +1170,63 @@ func TestPicardCompilationM4AGoesToCompilations(t *testing.T) {
 		t.Fatalf("Expected the file in %q, got %v (%v)", album, entries, err)
 	}
 }
+
+// manualLibraryPath is where a manual.<ext> fixture (disc 1 of 2) belongs in
+// dest.
+func manualLibraryPath(dest, ext string) string {
+	return filepath.Join(dest, fixtures.AlbumArtist, fmt.Sprintf("%s (%d)", fixtures.Album, fixtures.Year),
+		fmt.Sprintf("%d-%02d - %s%s", fixtures.Disc, fixtures.Track, fixtures.Title, ext))
+}
+
+// TestManualMarkerQualifies covers files tagged by hand in tagshelf: with the
+// manual marker and an artist, album and title they organize like MusicBrainz
+// tagged files; without the album, or with ripper tags and no marker, they go
+// to _Untagged.
+func TestManualMarkerQualifies(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "src")
+	dest := filepath.Join(tmpDir, "lib")
+	untagged := filepath.Join(tmpDir, "untagged")
+	for _, ext := range fixtures.ManualExtensions() {
+		writeTestFile(t, filepath.Join(source, "hand"+ext), readTestFile(t, fixtures.Manual(ext)))
+	}
+	writeTestFile(t, filepath.Join(source, "noalbum.flac"), readTestFile(t, fixtures.Path(fixtures.ManualNoAlbumFLAC)))
+	writeTestFile(t, filepath.Join(source, "ripped.flac"), readTestFile(t, fixtures.Path(fixtures.RipperFLAC)))
+
+	stats := Run(context.Background(), Options{Source: source, Destination: dest, Untagged: untagged, Workers: 2}).Counters
+
+	if want := int64(len(fixtures.ManualExtensions())); stats.Organized != want || stats.Untagged != 2 || stats.Errors != 0 {
+		t.Errorf("Expected %d organized, 2 untagged and no errors, got %d, %d and %d",
+			want, stats.Organized, stats.Untagged, stats.Errors)
+	}
+	for _, ext := range fixtures.ManualExtensions() {
+		readTestFile(t, manualLibraryPath(dest, ext))
+	}
+	readTestFile(t, filepath.Join(untagged, "noalbum.flac"))
+	readTestFile(t, filepath.Join(untagged, "ripped.flac"))
+}
+
+// TestReorganizePullsManuallyTaggedFiles checks a reorganize applies the same
+// rule: a marked file in _Untagged joins the library once its tags are
+// complete, and one still missing its album stays put.
+func TestReorganizePullsManuallyTaggedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	lib := filepath.Join(tmpDir, "lib")
+	untagged := filepath.Join(tmpDir, "untagged")
+	if err := os.MkdirAll(lib, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(untagged, "hand.flac"), readTestFile(t, fixtures.Manual(".flac")))
+	writeTestFile(t, filepath.Join(untagged, "noalbum.flac"), readTestFile(t, fixtures.Path(fixtures.ManualNoAlbumFLAC)))
+	writeTestFile(t, filepath.Join(lib, "Loose", "ripped.flac"), readTestFile(t, fixtures.Path(fixtures.RipperFLAC)))
+
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Untagged: untagged, Workers: 2}).Counters
+
+	if stats.Organized != 1 || stats.LeftInPlace != 2 || stats.Errors != 0 {
+		t.Errorf("Expected 1 organized, 2 left and no errors, got %d, %d and %d",
+			stats.Organized, stats.LeftInPlace, stats.Errors)
+	}
+	readTestFile(t, manualLibraryPath(lib, ".flac"))
+	readTestFile(t, filepath.Join(untagged, "noalbum.flac"))
+	readTestFile(t, filepath.Join(lib, "Loose", "ripped.flac"))
+}

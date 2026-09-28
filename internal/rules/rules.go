@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"tagshelf/internal/marker"
 	"tagshelf/internal/tag"
 	"tagshelf/internal/tag/mbz"
 )
@@ -78,8 +79,8 @@ func isNonEmpty(v any) bool {
 }
 
 // HasMusicBrainzTags reports whether the tags carry a MusicBrainz track,
-// recording, album or release ID, which is what qualifies a file for the
-// library today.
+// recording, album or release ID, one of the two ways (with the manual
+// marker) a file can qualify for the library.
 func HasMusicBrainzTags(m tag.Metadata) bool {
 	if m == nil {
 		return false
@@ -212,6 +213,22 @@ func LibraryPath(dest, compilations string, m tag.Metadata, ext string) (string,
 		}
 	}
 	return filepath.Join(dest, artist, SanitizeName(album), name+ext), true
+}
+
+// Qualifies reports whether a file qualifies for the library, and if so its
+// LibraryPath. It qualifies when its tags carry MusicBrainz IDs or a manual
+// marker (any method), and an artist (album artist, falling back to track
+// artist), album and title. Ripper tags without the marker do not qualify.
+func Qualifies(dest, compilations string, m tag.Metadata, ext string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	if !HasMusicBrainzTags(m) {
+		if _, marked := marker.Read(m); !marked {
+			return "", false
+		}
+	}
+	return LibraryPath(dest, compilations, m, ext)
 }
 
 // PathKey normalizes a destination path for reservation lookups. Windows

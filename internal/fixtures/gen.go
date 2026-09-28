@@ -125,6 +125,62 @@ func main() {
 	write(filepath.Join(dir, fixtures.TaggedID3v2AAC), slices.Concat(id3, read(filepath.Join(dir, "untagged.aac"))))
 	write(filepath.Join(dir, "tagged.ape"), slices.Concat(read(filepath.Join(dir, "untagged.ape")), ape))
 	write(filepath.Join(dir, "tagged.mpc"), slices.Concat(read(filepath.Join(dir, "untagged.mpc")), ape))
+
+	manual(dir, vorbis, mp4)
+}
+
+// manual writes the hand-tagged fixtures: the fixture tags without
+// MusicBrainz IDs, plus the manual marker under each format's key, and the
+// FLAC variants without album and without marker.
+func manual(dir string, vorbis, mp4 []string) {
+	noIDs := slices.DeleteFunc(slices.Clone(vorbis), func(kv string) bool {
+		return strings.HasPrefix(kv, "MUSICBRAINZ_")
+	})
+	marked := append(slices.Clone(noIDs), "TAGSHELF_MANUAL="+fixtures.ManualMarker)
+	for _, f := range []struct {
+		name string
+		tags []string
+		args []string
+	}{
+		{"manual.flac", marked, []string{"-c:a", "flac", "-f", "flac"}},
+		{"manual.ogg", marked, []string{"-c:a", "libvorbis", "-q:a", "0", "-f", "ogg"}},
+		{fixtures.ManualNoAlbumFLAC, slices.DeleteFunc(slices.Clone(marked), func(kv string) bool {
+			return strings.HasPrefix(kv, "ALBUM=")
+		}), []string{"-c:a", "flac", "-f", "flac"}},
+		{fixtures.RipperFLAC, noIDs, []string{"-c:a", "flac", "-f", "flac"}},
+	} {
+		ffmpeg(filepath.Join(dir, f.name), 8000, withMetadata(f.tags, f.args...)...)
+	}
+
+	m4a := filepath.Join(dir, "manual.m4a")
+	ffmpeg(m4a, 8000, withMetadata(mp4, "-c:a", "aac", "-b:a", "16k", "-f", "ipod")...)
+	write(m4a, addMP4Atoms(read(m4a), [][2]string{{"TAGSHELF_MANUAL", fixtures.ManualMarker}}))
+
+	write(filepath.Join(dir, "manual.mp3"), slices.Concat(manualID3v24(), read(filepath.Join(dir, "untagged.mp3"))))
+}
+
+// manualID3v24 builds an ID3v2.4 tag with the fixture tags and the manual
+// marker in TXXX:TAGSHELF_MANUAL, but no MusicBrainz IDs.
+func manualID3v24() []byte {
+	var frames bytes.Buffer
+	frame := func(id string, data []byte) {
+		frames.WriteString(id)
+		frames.Write(synchsafe(len(data)))
+		frames.Write([]byte{0, 0})
+		frames.Write(data)
+	}
+	text := func(id, value string) { frame(id, slices.Concat([]byte{3}, []byte(value))) } // 3: UTF-8
+
+	text("TIT2", fixtures.Title)
+	text("TPE1", fixtures.Artist)
+	text("TPE2", fixtures.AlbumArtist)
+	text("TALB", fixtures.Album)
+	text("TDRC", strconv.Itoa(fixtures.Year))
+	text("TRCK", fmt.Sprintf("%d/%d", fixtures.Track, fixtures.TrackTotal))
+	text("TPOS", fmt.Sprintf("%d/%d", fixtures.Disc, fixtures.DiscTotal))
+	frame("TXXX", slices.Concat([]byte{3}, []byte("TAGSHELF_MANUAL"), []byte{0}, []byte(fixtures.ManualMarker)))
+
+	return slices.Concat([]byte{'I', 'D', '3', 4, 0, 0}, synchsafe(frames.Len()), frames.Bytes())
 }
 
 // ffmpeg encodes a second of mono silence at rate Hz into out.
@@ -249,15 +305,21 @@ func le32(n int) []byte {
 // The file's mdat must come before moov, as ffmpeg writes it, so that growing
 // moov moves no audio and no chunk offset needs fixing.
 func addMP4FreeForm(mp4 []byte, albumArtistID string) []byte {
-	var atoms []byte
-	for _, kv := range [][2]string{
+	return addMP4Atoms(mp4, [][2]string{
 		{"MusicBrainz Artist Id", fixtures.ArtistID},
 		{"MusicBrainz Album Artist Id", albumArtistID},
 		{"MusicBrainz Album Id", fixtures.ReleaseID},
 		{"MusicBrainz Release Group Id", fixtures.ReleaseGroupID},
 		{"MusicBrainz Track Id", fixtures.RecordingID},
 		{"MusicBrainz Release Track Id", fixtures.ReleaseTrackID},
-	} {
+	})
+}
+
+// addMP4Atoms appends a "----:com.apple.iTunes:<name>" atom for each name and
+// value to moov/udta/meta/ilst. The file's mdat must come before moov.
+func addMP4Atoms(mp4 []byte, kvs [][2]string) []byte {
+	var atoms []byte
+	for _, kv := range kvs {
 		mean := box("mean", slices.Concat(make([]byte, 4), []byte("com.apple.iTunes")))
 		name := box("name", slices.Concat(make([]byte, 4), []byte(kv[0])))
 		data := box("data", slices.Concat([]byte{0, 0, 0, 1}, make([]byte, 4), []byte(kv[1]))) // 1: UTF-8

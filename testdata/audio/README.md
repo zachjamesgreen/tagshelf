@@ -39,6 +39,11 @@ This runs `internal/fixtures/gen.go`, which needs ffmpeg on PATH (these were mad
 | `untagged.m4a`, `tagged.m4a` | ffmpeg, `aac` in the `ipod` muxer, brand `M4A ` | `ilst` atoms by ffmpeg, then `----:com.apple.iTunes:MusicBrainz …` atoms added by `gen.go` |
 | `untagged.m4b`, `tagged.m4b` | as M4A, brand `M4B ` | as M4A |
 | `tagged-va.m4a` | as M4A, without an album artist name | as `tagged.m4a`, but the album artist ID is Various Artists (`89ad4ac3-39f7-470e-963a-56509c546377`) |
+| `manual.flac`, `manual.ogg` | as `tagged.flac` / `tagged.ogg`, tagged by hand | the fixture tags without MusicBrainz IDs, plus the manual marker `TAGSHELF_MANUAL=hand 2026-09-27` |
+| `manual-noalbum.flac` | as `manual.flac` | as `manual.flac`, without `ALBUM` |
+| `ripper.flac` | as `manual.flac` | as `manual.flac`, without the manual marker: ripper tags |
+| `manual.m4a` | as `tagged.m4a`, without the MusicBrainz atoms | `ilst` atoms by ffmpeg, then a `----:com.apple.iTunes:TAGSHELF_MANUAL` atom added by `gen.go` |
+| `manual.mp3` | `untagged.mp3` with an ID3v2.4 tag prepended by `gen.go` | text frames as `tagged.mp3`, `TXXX:TAGSHELF_MANUAL`, no MusicBrainz frames |
 | `untagged.wav` | ffmpeg, `pcm_s16le` 8 kHz mono | none |
 | `untagged-odd.wav` | ffmpeg, `pcm_u8` at 8001 Hz: an odd-sized `data` chunk plus its pad byte | none |
 | `tagged.wav` | `untagged.wav` with an `id3 ` chunk appended by `gen.go`, as mutagen/Picard write it | the ID3v2.4 tag from `tagged.mp3` |
