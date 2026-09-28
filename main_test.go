@@ -9,31 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/tag"
+	"tagshelf/internal/config"
+	"tagshelf/internal/rules"
 )
-
-func TestSanitizeName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"Normal Name", "Normal Name"},
-		{"AC/DC", "AC_DC"},
-		{"What?*<>:|", "What______"},
-		{"Trailing Dot.", "Trailing Dot"},
-		{"  Spaces  ", "Spaces"},
-		{"", "Unknown"},
-		{"...", "Unknown"},
-		{"   ", "Unknown"},
-	}
-
-	for _, tt := range tests {
-		got := sanitizeName(tt.input)
-		if got != tt.expected {
-			t.Errorf("sanitizeName(%q) = %q, expected %q", tt.input, got, tt.expected)
-		}
-	}
-}
 
 func TestComputeSHA256(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -64,7 +42,7 @@ func TestComputeSHA256(t *testing.T) {
 // testOrganizer builds an organizer whose destinations live under dir, for
 // exercising destination resolution directly.
 func testOrganizer(dir string) *organizer {
-	return newOrganizer(Config{Source: dir, Destination: dir, Untagged: dir, Workers: 1})
+	return newOrganizer(config.Config{Source: dir, Destination: dir, Untagged: dir, Workers: 1})
 }
 
 func TestResolveDestinationNoCollision(t *testing.T) {
@@ -301,7 +279,7 @@ func TestReleaseRemovesUnusedReservation(t *testing.T) {
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Errorf("Expected the empty placeholder to be removed on release")
 	}
-	if _, taken := o.reserved.Load(reservationKey(target)); taken {
+	if _, taken := o.reserved.Load(rules.PathKey(target)); taken {
 		t.Errorf("Expected the in-memory reservation to be dropped on release")
 	}
 }
@@ -313,7 +291,7 @@ func TestResolveDestinationDryRunTouchesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	o := newOrganizer(Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true})
+	o := newOrganizer(config.Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true})
 	dstFile := filepath.Join(tmpDir, "out", "dst.mp3")
 	target, outcome, err := o.resolveDestination(srcFile, dstFile)
 	if err != nil {
@@ -458,239 +436,6 @@ func TestCleanupEmptyDirectories(t *testing.T) {
 	}
 }
 
-// Mock metadata for testing tag evaluation
-type mockMetadata struct {
-	title       string
-	album       string
-	artist      string
-	albumArtist string
-	year        int
-	track       int
-	disc, discs int
-	raw         map[string]interface{}
-}
-
-func (m *mockMetadata) Format() tag.Format          { return tag.ID3v2_3 }
-func (m *mockMetadata) FileType() tag.FileType      { return tag.MP3 }
-func (m *mockMetadata) Title() string               { return m.title }
-func (m *mockMetadata) Album() string               { return m.album }
-func (m *mockMetadata) Artist() string              { return m.artist }
-func (m *mockMetadata) AlbumArtist() string         { return m.albumArtist }
-func (m *mockMetadata) Composer() string            { return "" }
-func (m *mockMetadata) Year() int                   { return m.year }
-func (m *mockMetadata) Genre() string               { return "Rock" }
-func (m *mockMetadata) Track() (int, int)           { return m.track, 0 }
-func (m *mockMetadata) Disc() (int, int)            { return m.disc, m.discs }
-func (m *mockMetadata) Picture() *tag.Picture       { return nil }
-func (m *mockMetadata) Lyrics() string              { return "" }
-func (m *mockMetadata) Comment() string             { return "" }
-func (m *mockMetadata) Raw() map[string]interface{} { return m.raw }
-
-func TestHasMusicBrainzTags(t *testing.T) {
-	// Case 1: No tags
-	m1 := &mockMetadata{
-		title:  "Song",
-		album:  "Album",
-		artist: "Artist",
-		raw:    map[string]interface{}{},
-	}
-	if hasMusicBrainzTags(m1) {
-		t.Errorf("Expected false for mock without MB tags")
-	}
-
-	// Case 2: Raw tag with MusicBrainz track ID
-	m2 := &mockMetadata{
-		title:  "Song",
-		album:  "Album",
-		artist: "Artist",
-		raw: map[string]interface{}{
-			"MusicBrainz Track Id": "c83984e7-47b2-4d76-8098-b80c10a48ad1",
-		},
-	}
-	if !hasMusicBrainzTags(m2) {
-		t.Errorf("Expected true for mock with MusicBrainz Track Id in raw tags")
-	}
-
-	// Case 3: UFID tag with musicbrainz provider
-	m3 := &mockMetadata{
-		title:  "Song",
-		album:  "Album",
-		artist: "Artist",
-		raw: map[string]interface{}{
-			"UFID": tag.UFID{
-				Provider:   "http://musicbrainz.org",
-				Identifier: []byte("c83984e7-47b2-4d76-8098-b80c10a48ad1"),
-			},
-		},
-	}
-	if !hasMusicBrainzTags(m3) {
-		t.Errorf("Expected true for mock with UFID musicbrainz tag")
-	}
-}
-
-func TestLoadConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "test_config.yaml")
-	yamlContent := `
-source: "C:\\MusicSource"
-destination: "C:\\MusicDest"
-untagged: "C:\\MusicUntagged"
-other: "C:\\MusicOther"
-compilations: "Compilations"
-workers: 4
-dry_run: false
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Load without CLI flags override
-	cfg, err := loadConfig(configPath, cliOverrides{})
-	if err != nil {
-		t.Fatalf("loadConfig failed: %v", err)
-	}
-	if cfg.Source != "C:\\MusicSource" || cfg.Destination != "C:\\MusicDest" || cfg.Other != "C:\\MusicOther" ||
-		cfg.Compilations != "Compilations" || cfg.Workers != 4 {
-		t.Errorf("Config parsing failed: %+v", cfg)
-	}
-
-	// CLI flags override config file
-	dryRun := true
-	cfgOverride, err := loadConfig(configPath, cliOverrides{Source: "D:\\Overridden", Other: "D:\\Other", Compilations: "VA", Workers: 16, DryRun: &dryRun})
-	if err != nil {
-		t.Fatalf("loadConfig failed: %v", err)
-	}
-	if cfgOverride.Source != "D:\\Overridden" {
-		t.Errorf("Expected source overridden to D:\\Overridden, got %s", cfgOverride.Source)
-	}
-	if cfgOverride.Other != "D:\\Other" {
-		t.Errorf("Expected other overridden to D:\\Other, got %s", cfgOverride.Other)
-	}
-	if cfgOverride.Compilations != "VA" {
-		t.Errorf("Expected compilations overridden to VA, got %s", cfgOverride.Compilations)
-	}
-	if cfgOverride.Workers != 16 {
-		t.Errorf("Expected workers overridden to 16, got %d", cfgOverride.Workers)
-	}
-	if !cfgOverride.DryRun {
-		t.Errorf("Expected dry_run overridden to true")
-	}
-}
-
-func TestLoadConfigVerbose(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "verbose_config.yaml")
-	yamlContent := `
-source: "C:\\MusicSource"
-destination: "C:\\MusicDest"
-verbose: true
-dry_run: true
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := loadConfig(configPath, cliOverrides{})
-	if err != nil {
-		t.Fatalf("loadConfig failed: %v", err)
-	}
-	if !cfg.Verbose || !cfg.DryRun {
-		t.Errorf("Expected verbose and dry_run true from YAML, got %+v", cfg)
-	}
-
-	// An explicit -verbose=false / -dry-run=false must be able to turn the
-	// config file's setting back off.
-	off := false
-	cfgOff, err := loadConfig(configPath, cliOverrides{Verbose: &off, DryRun: &off})
-	if err != nil {
-		t.Fatalf("loadConfig failed: %v", err)
-	}
-	if cfgOff.Verbose {
-		t.Errorf("Expected -verbose=false to override verbose: true from YAML")
-	}
-	if cfgOff.DryRun {
-		t.Errorf("Expected -dry-run=false to override dry_run: true from YAML")
-	}
-
-	on := true
-	cfgOn, err := loadConfig(configPath, cliOverrides{Verbose: &on})
-	if err != nil {
-		t.Fatalf("loadConfig failed: %v", err)
-	}
-	if !cfgOn.Verbose {
-		t.Errorf("Expected verbose=true with CLI flag")
-	}
-}
-
-func TestLoadConfigMissingExplicitFileIsFatal(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does_not_exist.yaml")
-	if _, err := loadConfig(missing, cliOverrides{Source: "C:\\Src", Destination: "C:\\Dst"}); err == nil {
-		t.Errorf("Expected an error for an explicitly requested config file that cannot be read")
-	}
-}
-
-func TestLoadConfigMalformedExplicitFileIsFatal(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "broken.yaml")
-	if err := os.WriteFile(configPath, []byte("workers: not-a-number\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadConfig(configPath, cliOverrides{}); err == nil {
-		t.Errorf("Expected an error for an explicitly requested config file that cannot be parsed")
-	}
-}
-
-func TestLoadConfigForeignDiscoveredFileIsIgnored(t *testing.T) {
-	tmpDir := t.TempDir()
-	// An unrelated config.yaml belonging to some other program.
-	if err := os.WriteFile(filepath.Join(tmpDir, defaultConfigName), []byte("workers: [1, 2, 3]\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	prevDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(prevDir); err != nil {
-			t.Fatal(err)
-		}
-	}()
-
-	cfg, err := loadConfig("", cliOverrides{Source: "C:\\Src", Destination: "C:\\Dst"})
-	if err != nil {
-		t.Fatalf("A foreign config.yaml must not abort a flag-driven run: %v", err)
-	}
-	if cfg.Source != "C:\\Src" || cfg.Destination != "C:\\Dst" {
-		t.Errorf("Expected the CLI flags to stand on their own, got %+v", cfg)
-	}
-}
-
-func TestWithDefaults(t *testing.T) {
-	cfg := Config{Destination: filepath.Join("C:", "Out")}.withDefaults()
-	if cfg.Workers < 1 {
-		t.Errorf("Expected withDefaults to pick at least one worker, got %d", cfg.Workers)
-	}
-	expectedUntagged := filepath.Join("C:", "Out", "_Untagged")
-	if cfg.Untagged != expectedUntagged {
-		t.Errorf("Expected untagged %q, got %q", expectedUntagged, cfg.Untagged)
-	}
-	expectedOther := filepath.Join("C:", "Out", "_Other")
-	if cfg.Other != expectedOther {
-		t.Errorf("Expected other %q, got %q", expectedOther, cfg.Other)
-	}
-	if cfg.Compilations != "Various Artists" {
-		t.Errorf("Expected compilations to default to Various Artists, got %q", cfg.Compilations)
-	}
-
-	explicit := Config{Destination: "d", Untagged: "u", Other: "o", Compilations: "c", Workers: 3}.withDefaults()
-	if explicit.Untagged != "u" || explicit.Other != "o" || explicit.Compilations != "c" || explicit.Workers != 3 {
-		t.Errorf("withDefaults must not overwrite explicit values: %+v", explicit)
-	}
-}
-
 func TestRunOrganizerEndToEnd(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
@@ -715,7 +460,7 @@ func TestRunOrganizerEndToEnd(t *testing.T) {
 	}
 
 	otherDir := filepath.Join(tmpDir, "other")
-	cfg := Config{
+	cfg := config.Config{
 		Source:      sourceDir,
 		Destination: destDir,
 		Untagged:    untaggedDir,
@@ -815,7 +560,7 @@ func TestRunOrganizerDryRunLeavesCompanions(t *testing.T) {
 		}
 	}
 
-	stats := RunOrganizer(Config{
+	stats := RunOrganizer(config.Config{
 		Source:      filepath.Join(tmpDir, "source"),
 		Destination: filepath.Join(tmpDir, "dest"),
 		Workers:     2,
@@ -848,7 +593,7 @@ func TestRunOrganizerDefaultsWorkers(t *testing.T) {
 
 	// Workers: 0 is what the shipped config.yaml contains; RunOrganizer must
 	// normalize it rather than start no workers and drop every job.
-	stats := RunOrganizer(Config{
+	stats := RunOrganizer(config.Config{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    filepath.Join(tmpDir, "untagged"),
@@ -890,7 +635,7 @@ func TestRunOrganizerPreservesCollidingFiles(t *testing.T) {
 		}
 	}
 
-	stats := RunOrganizer(Config{
+	stats := RunOrganizer(config.Config{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
@@ -943,7 +688,7 @@ func TestRunOrganizerIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := Config{
+	cfg := config.Config{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
@@ -952,7 +697,7 @@ func TestRunOrganizerIsIdempotent(t *testing.T) {
 	RunOrganizer(cfg)
 
 	// Re-run over the untagged directory itself: every file is already in place.
-	stats := RunOrganizer(Config{
+	stats := RunOrganizer(config.Config{
 		Source:      untaggedDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
@@ -1110,7 +855,7 @@ func BenchmarkResolveDestinationCollision(b *testing.B) {
 
 	// Dry run so that resolution reserves names in memory only and each
 	// iteration measures the same work.
-	cfg := Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true}
+	cfg := config.Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1128,7 +873,7 @@ func BenchmarkProcessFile(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	cfg := Config{
+	cfg := config.Config{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dst"),
 		Untagged:    filepath.Join(tmpDir, "untagged"),
@@ -1147,77 +892,6 @@ func BenchmarkProcessFile(b *testing.B) {
 		// A fresh organizer per iteration: destination reservations are
 		// per-run state, so reusing one would walk the suffix chain.
 		newOrganizer(cfg).processFile(testFile)
-	}
-}
-
-func TestLibraryPath(t *testing.T) {
-	dest := filepath.Join("C:", "Lib")
-	tests := []struct {
-		name string
-		m    mockMetadata
-		want string
-		ok   bool
-	}{
-		{"album artist wins over featured artist",
-			mockMetadata{artist: "Singer feat. Guest", albumArtist: "Singer", album: "Album", title: "Song", year: 2001, track: 3, disc: 1, discs: 1},
-			filepath.Join(dest, "Singer", "Album (2001)", "03 - Song.mp3"), true},
-		{"falls back to track artist",
-			mockMetadata{artist: "Singer", album: "Album", title: "Song", year: 2001, track: 3},
-			filepath.Join(dest, "Singer", "Album (2001)", "03 - Song.mp3"), true},
-		{"no year",
-			mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 12},
-			filepath.Join(dest, "Singer", "Album", "12 - Song.mp3"), true},
-		{"no track number",
-			mockMetadata{albumArtist: "Singer", album: "Album", title: "Song"},
-			filepath.Join(dest, "Singer", "Album", "Song.mp3"), true},
-		{"multi-disc by total",
-			mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 4, disc: 1, discs: 2},
-			filepath.Join(dest, "Singer", "Album", "1-04 - Song.mp3"), true},
-		{"multi-disc by disc number without total",
-			mockMetadata{albumArtist: "Singer", album: "Album", title: "Song", track: 4, disc: 2},
-			filepath.Join(dest, "Singer", "Album", "2-04 - Song.mp3"), true},
-		{"sanitized album with year",
-			mockMetadata{albumArtist: "AC/DC", album: "Who?", title: "T.N.T.", year: 1975, track: 1},
-			filepath.Join(dest, "AC_DC", "Who_ (1975)", "01 - T.N.T.mp3"), true},
-		{"missing title", mockMetadata{albumArtist: "Singer", album: "Album"}, "", false},
-		{"missing album", mockMetadata{albumArtist: "Singer", title: "Song"}, "", false},
-		{"missing both artists", mockMetadata{album: "Album", title: "Song"}, "", false},
-
-		// Compilations
-		{"compilation by MusicBrainz ID",
-			mockMetadata{artist: "Singer feat. Guest", album: "Hits", title: "Song", year: 2012, track: 3, raw: vaIDRaw()},
-			filepath.Join(dest, "Comps", "Hits (2012)", "03 - Singer feat. Guest - Song.mp3"), true},
-		{"compilation by album artist name",
-			mockMetadata{artist: "Singer", albumArtist: "V.A.", album: "Hits", title: "Song", track: 3},
-			filepath.Join(dest, "Comps", "Hits", "03 - Singer - Song.mp3"), true},
-		{"compilation multi-disc",
-			mockMetadata{artist: "Singer", albumArtist: "various artists", album: "Hits", title: "Song", track: 3, disc: 2, discs: 2},
-			filepath.Join(dest, "Comps", "Hits", "2-03 - Singer - Song.mp3"), true},
-		{"compilation without track artist",
-			mockMetadata{albumArtist: "VA", album: "Hits", title: "Song", track: 3},
-			filepath.Join(dest, "Comps", "Hits", "03 - Song.mp3"), true},
-		{"real album artist wins over MusicBrainz ID",
-			mockMetadata{artist: "Singer", albumArtist: "Singer", album: "Hits", title: "Song", track: 3, raw: vaIDRaw()},
-			filepath.Join(dest, "Singer", "Hits", "03 - Song.mp3"), true},
-		{"a different MusicBrainz ID is not a compilation",
-			mockMetadata{artist: "Singer", album: "Hits", title: "Song", track: 3, raw: map[string]interface{}{
-				"TXXX": &tag.Comm{Description: "MusicBrainz Album Artist Id", Text: "c83984e7-47b2-4d76-8098-b80c10a48ad1"},
-			}},
-			filepath.Join(dest, "Singer", "Hits", "03 - Song.mp3"), true},
-	}
-	for _, tt := range tests {
-		m := tt.m
-		got, ok := libraryPath(dest, "Comps", &m, ".mp3")
-		if got != tt.want || ok != tt.ok {
-			t.Errorf("%s: libraryPath = %q, %t; want %q, %t", tt.name, got, ok, tt.want, tt.ok)
-		}
-	}
-}
-
-// vaIDRaw is the raw ID3 tag Picard writes for a Various Artists album artist.
-func vaIDRaw() map[string]interface{} {
-	return map[string]interface{}{
-		"TXXX": &tag.Comm{Description: "MusicBrainz Album Artist Id", Text: variousArtistsMBID},
 	}
 }
 
@@ -1300,7 +974,7 @@ func TestRunOrganizerReorganizesLibrary(t *testing.T) {
 	writeTestFile(t, filepath.Join(lib, "Singer feat. Guest", "artist.jpg"), "artist art")
 	writeTestFile(t, filepath.Join(lib, "Hand Placed", "track.mp3"), "no tags here")
 
-	cfg := Config{Source: lib, Destination: lib, Workers: 2}
+	cfg := config.Config{Source: lib, Destination: lib, Workers: 2}
 	stats := RunOrganizer(cfg)
 
 	if stats.Errors.Load() != 0 {
@@ -1355,7 +1029,7 @@ func TestReorganizePullsTaggedFilesFromUntagged(t *testing.T) {
 	}, "audio")
 	writeTestFile(t, filepath.Join(untagged, "still broken.mp3"), "no tags")
 
-	stats := RunOrganizer(Config{Source: lib, Destination: lib, Untagged: untagged, Workers: 2})
+	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Untagged: untagged, Workers: 2})
 
 	readTestFile(t, filepath.Join(lib, "Singer", "Album", "01 - Fixed.mp3"))
 	readTestFile(t, filepath.Join(untagged, "still broken.mp3"))
@@ -1377,7 +1051,7 @@ func TestReorganizeSwapGetsCleanNames(t *testing.T) {
 	writeTaggedMP3(t, filepath.Join(album, "01 - A.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
 	writeTaggedMP3(t, filepath.Join(album, "02 - B.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
 
-	stats := RunOrganizer(Config{Source: lib, Destination: lib, Workers: 1})
+	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 1})
 
 	if stats.Errors.Load() != 0 {
 		t.Fatalf("Expected no errors, got %d", stats.Errors.Load())
@@ -1409,7 +1083,7 @@ func TestCueLeftAloneWhenAudioIsElsewhere(t *testing.T) {
 	writeTestFile(t, filepath.Join(rip, "album.cue"), cue)
 
 	other := filepath.Join(tmpDir, "other")
-	stats := RunOrganizer(Config{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1})
+	stats := RunOrganizer(config.Config{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1})
 
 	moved := filepath.Join(other, "rip", "album.cue")
 	if got := readTestFile(t, moved); got != cue {
@@ -1431,7 +1105,7 @@ func TestCueRewriteCanBeDisabled(t *testing.T) {
 	writeTestFile(t, filepath.Join(album, "album.cue"), cue)
 
 	off := false
-	RunOrganizer(Config{Source: lib, Destination: lib, Workers: 1, CueRewrite: &off})
+	RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 1, CueRewrite: &off})
 
 	if got := readTestFile(t, filepath.Join(lib, "Singer", "Album", "album.cue")); got != cue {
 		t.Errorf("With cue_rewrite off the cue must be moved unchanged, got %q", got)
@@ -1446,11 +1120,11 @@ func TestReorganizeGathersCompilation(t *testing.T) {
 	for i, artist := range []string{"Singer A", "Singer B feat. C"} {
 		writeTaggedMP3(t, filepath.Join(lib, artist, "Hits", fmt.Sprintf("track%d.mp3", i)), id3Tags{
 			artist: artist, album: "Hits", title: fmt.Sprintf("Song %d", i+1), year: "2012",
-			track: fmt.Sprint(i + 1), albumArtistID: variousArtistsMBID,
+			track: fmt.Sprint(i + 1), albumArtistID: rules.VariousArtistsMBID,
 		}, fmt.Sprintf("audio %d", i))
 	}
 
-	stats := RunOrganizer(Config{Source: lib, Destination: lib, Workers: 2})
+	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 2})
 
 	if stats.Errors.Load() != 0 || stats.Organized.Load() != 2 {
 		t.Fatalf("Expected 2 organized files and no errors, got %d and %d", stats.Organized.Load(), stats.Errors.Load())

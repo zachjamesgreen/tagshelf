@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -20,63 +19,14 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"gopkg.in/yaml.v3"
-
+	"tagshelf/internal/config"
+	"tagshelf/internal/rules"
 	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
 )
-
-const defaultConfigName = "config.yaml"
 
 // maxCollisionSuffix bounds the " (n)" search so that a permanently unusable
 // destination name can never spin a worker forever.
 const maxCollisionSuffix = 10000
-
-type Config struct {
-	Source      string `yaml:"source"`
-	Destination string `yaml:"destination"`
-	Untagged    string `yaml:"untagged"`
-	Other       string `yaml:"other"`
-	// Compilations is the artist folder for Various Artists albums.
-	Compilations string `yaml:"compilations"`
-	Workers      int    `yaml:"workers"`
-	DryRun       bool   `yaml:"dry_run"`
-	Verbose      bool   `yaml:"verbose"`
-	// CueRewrite fixes the FILE lines of moved cue sheets. Nil means the
-	// default, which is on.
-	CueRewrite *bool `yaml:"cue_rewrite"`
-}
-
-func (c Config) cueRewrite() bool {
-	return c.CueRewrite == nil || *c.CueRewrite
-}
-
-// reorganizing reports whether this run re-sorts an existing library in place,
-// which is what a source equal to the destination means.
-func (c Config) reorganizing() bool {
-	return c.Source != "" && reservationKey(c.Source) == reservationKey(c.Destination)
-}
-
-// withDefaults fills in the values a run needs but the caller may have left at
-// zero. It is idempotent, so both main and RunOrganizer can apply it.
-func (c Config) withDefaults() Config {
-	if c.Untagged == "" && c.Destination != "" {
-		c.Untagged = filepath.Join(c.Destination, "_Untagged")
-	}
-	if c.Other == "" && c.Destination != "" {
-		c.Other = filepath.Join(c.Destination, "_Other")
-	}
-	if c.Compilations == "" {
-		c.Compilations = defaultCompilations
-	}
-	if c.Workers <= 0 {
-		c.Workers = runtime.NumCPU()
-	}
-	if c.Workers < 1 {
-		c.Workers = 1
-	}
-	return c
-}
 
 type Stats struct {
 	TotalFound atomic.Int64
@@ -119,7 +69,7 @@ func main() {
 	destFlag := flag.String("dest", "", "Destination directory for organized music")
 	untaggedFlag := flag.String("untagged", "", "Directory for untagged / incomplete files")
 	otherFlag := flag.String("other", "", "Directory for non-audio files that do not belong to a tagged album (default: <dest>/_Other)")
-	compilationsFlag := flag.String("compilations", "", "Artist folder name for Various Artists compilations (default: \""+defaultCompilations+"\")")
+	compilationsFlag := flag.String("compilations", "", "Artist folder name for Various Artists compilations (default: \""+rules.DefaultCompilations+"\")")
 	workersFlag := flag.Int("workers", 0, "Number of concurrent worker goroutines (default: NumCPU)")
 	dryRunFlag := flag.Bool("dry-run", false, "Preview actions without moving or deleting files")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose per-file logging")
@@ -133,7 +83,7 @@ func main() {
 	wasSet := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) { wasSet[f.Name] = true })
 
-	ov := cliOverrides{
+	ov := config.Overrides{
 		Source:       *sourceFlag,
 		Destination:  *destFlag,
 		Untagged:     *untaggedFlag,
@@ -158,7 +108,7 @@ func main() {
 		ov.Verbose = verboseFlag
 	}
 
-	cfg, err := loadConfig(*configPath, ov)
+	cfg, err := config.Load(*configPath, ov)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -170,7 +120,7 @@ func main() {
 		log.Fatal("Error: destination directory must be specified via -dest or config file")
 	}
 
-	cfg = cfg.withDefaults()
+	cfg = cfg.WithDefaults()
 
 	absSource, err := filepath.Abs(cfg.Source)
 	if err != nil {
@@ -195,7 +145,7 @@ func main() {
 	cfg.Other = absOther
 
 	log.Println("================ Music Organizer ================")
-	if cfg.reorganizing() {
+	if cfg.Reorganizing() {
 		log.Println("Mode:         reorganize library in place")
 	}
 	log.Printf("Source:       %s\n", cfg.Source)
@@ -206,7 +156,7 @@ func main() {
 	log.Printf("Workers:      %d\n", cfg.Workers)
 	log.Printf("Dry-Run:      %t\n", cfg.DryRun)
 	log.Printf("Verbose:      %t\n", cfg.Verbose)
-	log.Printf("Cue rewrite:  %t\n", cfg.cueRewrite())
+	log.Printf("Cue rewrite:  %t\n", cfg.RewriteCues())
 	log.Println("==================================================")
 
 	stats := RunOrganizer(cfg)
@@ -219,7 +169,7 @@ func main() {
 	log.Printf("Non-audio files moved:    %d\n", stats.OtherMoved.Load())
 	log.Printf("Duplicate files skipped:  %d\n", stats.Skipped.Load())
 	log.Printf("Already in place:         %d\n", stats.InPlace.Load())
-	if cfg.reorganizing() {
+	if cfg.Reorganizing() {
 		log.Printf("Not qualifying, left:     %d\n", stats.LeftInPlace.Load())
 		log.Printf("Moved to clean name:      %d\n", stats.Retried.Load())
 	}
@@ -228,215 +178,9 @@ func main() {
 	log.Println("==================================================")
 }
 
-// cliOverrides carries only the settings the user supplied on the command line.
-// DryRun and Verbose are pointers so that "not given" stays distinguishable from
-// an explicit false.
-type cliOverrides struct {
-	Source       string
-	Destination  string
-	Untagged     string
-	Other        string
-	Compilations string
-	Workers      int
-	DryRun       *bool
-	Verbose      *bool
-	CueRewrite   *bool
-}
-
-// loadConfig merges a YAML config file with the CLI overrides. configPath is the
-// path passed to -config; when it is empty a config.yaml in the working
-// directory is picked up if one happens to be there.
-//
-// A config file the user asked for by name is mandatory: failing to read or
-// parse it is an error, because its dry_run setting may be the only thing
-// standing between the user and a destructive run. A file merely discovered in
-// the working directory is advisory and is ignored (with a warning) if it turns
-// out to belong to some other program.
-func loadConfig(configPath string, ov cliOverrides) (Config, error) {
-	var cfg Config
-
-	explicit := configPath != ""
-	if !explicit {
-		if _, err := os.Stat(defaultConfigName); err == nil {
-			configPath = defaultConfigName
-		}
-	}
-
-	if configPath != "" {
-		data, err := os.ReadFile(configPath)
-		switch {
-		case err != nil && explicit:
-			return Config{}, fmt.Errorf("failed to read config file %q: %w", configPath, err)
-		case err != nil:
-			log.Printf("Warning: ignoring unreadable config file %q: %v\n", configPath, err)
-		default:
-			if err := yaml.Unmarshal(data, &cfg); err != nil {
-				if explicit {
-					return Config{}, fmt.Errorf("failed to parse config file %q: %w", configPath, err)
-				}
-				log.Printf("Warning: ignoring unparsable %s in working directory: %v\n", configPath, err)
-				cfg = Config{}
-			} else if !explicit {
-				abs, absErr := filepath.Abs(configPath)
-				if absErr != nil {
-					abs = configPath
-				}
-				log.Printf("Using config file discovered in working directory: %s\n", abs)
-			}
-		}
-	}
-
-	// CLI flags override config file
-	if ov.Source != "" {
-		cfg.Source = ov.Source
-	}
-	if ov.Destination != "" {
-		cfg.Destination = ov.Destination
-	}
-	if ov.Untagged != "" {
-		cfg.Untagged = ov.Untagged
-	}
-	if ov.Other != "" {
-		cfg.Other = ov.Other
-	}
-	if ov.Compilations != "" {
-		cfg.Compilations = ov.Compilations
-	}
-	if ov.Workers > 0 {
-		cfg.Workers = ov.Workers
-	}
-	if ov.DryRun != nil {
-		cfg.DryRun = *ov.DryRun
-	}
-	if ov.Verbose != nil {
-		cfg.Verbose = *ov.Verbose
-	}
-	if ov.CueRewrite != nil {
-		cfg.CueRewrite = ov.CueRewrite
-	}
-
-	return cfg, nil
-}
-
 func isAudioFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return supportedExtensions[ext]
-}
-
-func sanitizeName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "Unknown"
-	}
-
-	// Replace characters forbidden in Windows / general filesystems: <>:"/\|?*
-	invalidChars := `<>:"/\|?*`
-	var sb strings.Builder
-	for _, r := range name {
-		if strings.ContainsRune(invalidChars, r) || r < 32 {
-			sb.WriteRune('_')
-		} else {
-			sb.WriteRune(r)
-		}
-	}
-
-	cleaned := strings.TrimSpace(sb.String())
-	// Strip trailing periods or spaces which Windows forbids in file/dir names
-	cleaned = strings.TrimRight(cleaned, ". ")
-	if cleaned == "" {
-		return "Unknown"
-	}
-	return cleaned
-}
-
-func isMBZTrackOrAlbumKey(k string) bool {
-	if strings.Contains(k, "musicbrainz_trackid") ||
-		strings.Contains(k, "musicbrainz_recordingid") ||
-		strings.Contains(k, "musicbrainz_albumid") ||
-		strings.Contains(k, "musicbrainz track id") ||
-		strings.Contains(k, "musicbrainz release track id") ||
-		strings.Contains(k, "musicbrainz album id") {
-		return true
-	}
-	if strings.Contains(k, "musicbrainz") &&
-		(strings.Contains(k, "track") || strings.Contains(k, "recording") || strings.Contains(k, "album") || strings.Contains(k, "release")) {
-		return true
-	}
-	return false
-}
-
-func isNonEmpty(v any) bool {
-	switch val := v.(type) {
-	case string:
-		return strings.TrimSpace(val) != ""
-	case []byte:
-		return len(val) > 0
-	case *tag.Comm:
-		return val != nil && strings.TrimSpace(val.Text) != ""
-	case tag.Comm:
-		return strings.TrimSpace(val.Text) != ""
-	case *tag.UFID:
-		return val != nil && len(val.Identifier) > 0
-	case tag.UFID:
-		return len(val.Identifier) > 0
-	default:
-		return false
-	}
-}
-
-func hasMusicBrainzTags(m tag.Metadata) bool {
-	if m == nil {
-		return false
-	}
-
-	raw := m.Raw()
-	if len(raw) == 0 {
-		return false
-	}
-
-	for k, v := range raw {
-		kl := strings.ToLower(k)
-
-		// Check UFID frames (ID3)
-		if strings.HasPrefix(kl, "ufid") || strings.HasPrefix(kl, "ufi") {
-			switch u := v.(type) {
-			case *tag.UFID:
-				if u != nil && len(u.Identifier) > 0 && strings.Contains(strings.ToLower(u.Provider), "musicbrainz") {
-					return true
-				}
-			case tag.UFID:
-				if len(u.Identifier) > 0 && strings.Contains(strings.ToLower(u.Provider), "musicbrainz") {
-					return true
-				}
-			}
-		}
-
-		// Check TXXX frames (ID3 user defined text)
-		if strings.HasPrefix(kl, "txxx") || strings.HasPrefix(kl, "txx") {
-			var desc, text string
-			switch comm := v.(type) {
-			case *tag.Comm:
-				if comm != nil {
-					desc, text = comm.Description, comm.Text
-				}
-			case tag.Comm:
-				desc, text = comm.Description, comm.Text
-			}
-			if strings.TrimSpace(text) != "" {
-				descLower := strings.ToLower(desc)
-				if isMBZTrackOrAlbumKey(descLower) {
-					return true
-				}
-			}
-		}
-
-		// Direct tags (Vorbis, MP4, APE, or raw tag names)
-		if isMBZTrackOrAlbumKey(kl) && isNonEmpty(v) {
-			return true
-		}
-	}
-
-	return false
 }
 
 type DirectoryCache struct {
@@ -487,10 +231,10 @@ const (
 // per-run rather than in package globals means one run can never hand stale
 // directory or destination state to the next.
 type organizer struct {
-	cfg      Config
+	cfg      config.Config
 	stats    *Stats
 	dirCache DirectoryCache
-	reserved sync.Map // reservationKey(path) -> struct{}
+	reserved sync.Map // rules.PathKey(path) -> struct{}
 	touched  sync.Map // source directory -> struct{}
 
 	// albumsMu guards albums: source directory -> album directories its audio
@@ -498,7 +242,7 @@ type organizer struct {
 	albumsMu sync.Mutex
 	albums   map[string]map[string]struct{}
 
-	// placed maps reservationKey(source path) to where that file's content now
+	// placed maps rules.PathKey(source path) to where that file's content now
 	// lives: its new path, its unchanged path, or an identical copy. In a dry
 	// run it holds the planned paths. Cue rewriting resolves FILE lines with it.
 	placed sync.Map
@@ -513,9 +257,9 @@ type suffixedMove struct {
 	src, desired, final string
 }
 
-func newOrganizer(cfg Config) *organizer {
+func newOrganizer(cfg config.Config) *organizer {
 	return &organizer{
-		cfg:    cfg.withDefaults(),
+		cfg:    cfg.WithDefaults(),
 		stats:  &Stats{},
 		albums: make(map[string]map[string]struct{}),
 	}
@@ -523,86 +267,11 @@ func newOrganizer(cfg Config) *organizer {
 
 // placedAt reports where the file that was at src now lives.
 func (o *organizer) placedAt(src string) (string, bool) {
-	v, ok := o.placed.Load(reservationKey(src))
+	v, ok := o.placed.Load(rules.PathKey(src))
 	if !ok {
 		return "", false
 	}
 	return v.(string), true
-}
-
-const defaultCompilations = "Various Artists"
-
-// variousArtistsMBID is MusicBrainz's special "Various Artists" artist, which
-// Picard writes as the album artist ID of multi-artist compilations.
-const variousArtistsMBID = "89ad4ac3-39f7-470e-963a-56509c546377"
-
-// isVariousArtistsName reports whether an album artist tag spells out Various
-// Artists by hand.
-func isVariousArtistsName(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "various artists", "various", "va", "v.a.":
-		return true
-	}
-	return false
-}
-
-// isCompilation reports whether a track belongs to a Various Artists
-// compilation. A real album artist tag always wins, so the MusicBrainz ID only
-// counts when the album artist is empty or itself a Various Artists name. The
-// iTunes compilation flag is deliberately ignored: it is also set on
-// single-artist best-ofs and would pull them out of their artist's folder.
-func isCompilation(m tag.Metadata) bool {
-	albumArtist := strings.TrimSpace(m.AlbumArtist())
-	if isVariousArtistsName(albumArtist) {
-		return true
-	}
-	if albumArtist != "" {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(mbz.Extract(m).Get(mbz.AlbumArtist)), variousArtistsMBID)
-}
-
-// libraryPath is where an organized file belongs:
-// Album Artist/Album (Year)/[disc-]track - Title.ext, or for a compilation
-// compilations/Album (Year)/[disc-]track - Track Artist - Title.ext. It
-// reports false when the tags lack an artist, album or title.
-func libraryPath(dest, compilations string, m tag.Metadata, ext string) (string, bool) {
-	compilation := isCompilation(m)
-	var artist string
-	if compilation {
-		artist = sanitizeName(compilations)
-	} else {
-		artist = sanitizeName(m.AlbumArtist())
-		if artist == "Unknown" {
-			// No album artist tag: fall back to the track artist.
-			artist = sanitizeName(m.Artist())
-		}
-	}
-	album := m.Album()
-	title := sanitizeName(m.Title())
-	if artist == "Unknown" || sanitizeName(album) == "Unknown" || title == "Unknown" {
-		return "", false
-	}
-	if year := m.Year(); year > 0 {
-		album = fmt.Sprintf("%s (%d)", strings.TrimSpace(album), year)
-	}
-
-	name := title
-	if compilation {
-		// The folder no longer says who performs each track, so the name does.
-		if trackArtist := sanitizeName(m.Artist()); trackArtist != "Unknown" {
-			name = trackArtist + " - " + title
-		}
-	}
-	if track, _ := m.Track(); track > 0 {
-		disc, discs := m.Disc()
-		if disc > 0 && (discs > 1 || disc > 1) {
-			name = fmt.Sprintf("%d-%02d - %s", disc, track, name)
-		} else {
-			name = fmt.Sprintf("%02d - %s", track, name)
-		}
-	}
-	return filepath.Join(dest, artist, sanitizeName(album), name+ext), true
 }
 
 // recordAlbum notes where an audio file from srcDir went, so that the non-audio
@@ -675,17 +344,6 @@ func companionDir(source string, tree map[string]map[string]struct{}, dir string
 	}
 }
 
-// reservationKey normalizes a destination path for reservation lookups. Windows
-// paths are case-insensitive, so two spellings differing only in case name the
-// same file and must share a single reservation.
-func reservationKey(path string) string {
-	key := filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		key = strings.ToLower(key)
-	}
-	return key
-}
-
 // claim takes exclusive ownership of a destination path. It reports false (with
 // no error) when another worker or another process got there first.
 //
@@ -694,7 +352,7 @@ func reservationKey(path string) string {
 // both saw a free path would both rename into it and os.Rename would silently
 // overwrite the first file, which by then no longer exists at its source.
 func (o *organizer) claim(path string) (bool, error) {
-	key := reservationKey(path)
+	key := rules.PathKey(path)
 	if _, loaded := o.reserved.LoadOrStore(key, struct{}{}); loaded {
 		return false, nil
 	}
@@ -729,7 +387,7 @@ func (o *organizer) claim(path string) (bool, error) {
 // release gives up a claim that never got used, removing the empty placeholder
 // left behind by claim.
 func (o *organizer) release(path string) {
-	o.reserved.Delete(reservationKey(path))
+	o.reserved.Delete(rules.PathKey(path))
 	if o.cfg.DryRun {
 		return
 	}
@@ -781,7 +439,7 @@ func (o *organizer) resolveDestination(srcPath, desiredDst string) (string, coll
 		}
 
 		// Another worker owns this name; do not stat or hash its placeholder.
-		if _, taken := o.reserved.Load(reservationKey(candidate)); taken {
+		if _, taken := o.reserved.Load(rules.PathKey(candidate)); taken {
 			continue
 		}
 
@@ -908,7 +566,7 @@ func isSubdirectory(parent, sub string) bool {
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func RunOrganizer(cfg Config) *Stats {
+func RunOrganizer(cfg config.Config) *Stats {
 	// Normalized here as well as in main, because RunOrganizer is the exported
 	// entry point: a Config with Workers <= 0 would otherwise start no workers
 	// at all and silently discard every job.
@@ -977,7 +635,7 @@ func RunOrganizer(cfg Config) *Stats {
 	// Non-audio files go only after every audio file has been placed, because
 	// where they go depends on where their neighbours went.
 	tree := o.albums
-	if !o.cfg.reorganizing() {
+	if !o.cfg.Reorganizing() {
 		// A fresh rip may keep its audio in CD1/CD2 subfolders with the
 		// artwork above them, so match on whole subtrees. An organized
 		// library holds audio directly in album folders, and matching on
@@ -986,11 +644,11 @@ func RunOrganizer(cfg Config) *Stats {
 	}
 	runJobs(cfg.Workers, companions, func(c companionFile) { o.processCompanion(c, tree) })
 
-	if cfg.reorganizing() && !cfg.DryRun {
+	if cfg.Reorganizing() && !cfg.DryRun {
 		o.retrySuffixed()
 	}
 
-	if cfg.cueRewrite() {
+	if cfg.RewriteCues() {
 		for _, c := range companions {
 			if strings.EqualFold(filepath.Ext(c.path), ".cue") {
 				o.rewriteCue(c.path)
@@ -1004,7 +662,7 @@ func RunOrganizer(cfg Config) *Stats {
 	// Clean up emptied directories if not in dry-run
 	if !cfg.DryRun {
 		excluded := []string{cfg.Destination, cfg.Untagged, cfg.Other}
-		if cfg.reorganizing() {
+		if cfg.Reorganizing() {
 			// The walked roots are the library itself; roots are never removed.
 			excluded = nil
 		}
@@ -1023,7 +681,7 @@ type companionFile struct {
 // reorganize scans the library plus the untagged and other folders, wherever
 // they are, so that files tagged since the last run make it into the library.
 func (o *organizer) walkRoots() []string {
-	if !o.cfg.reorganizing() {
+	if !o.cfg.Reorganizing() {
 		return []string{o.cfg.Source}
 	}
 	roots := []string{o.cfg.Destination}
@@ -1040,9 +698,9 @@ func (o *organizer) walkRoots() []string {
 }
 
 func containsPath(paths []string, path string) bool {
-	key := reservationKey(path)
+	key := rules.PathKey(path)
 	for _, p := range paths {
-		if reservationKey(p) == key {
+		if rules.PathKey(p) == key {
 			return true
 		}
 	}
@@ -1054,7 +712,7 @@ func containsPath(paths []string, path string) bool {
 // own.
 func (o *organizer) walk(root string, roots []string, fn func(path string)) {
 	skip := []string{o.cfg.Destination, o.cfg.Untagged, o.cfg.Other}
-	if o.cfg.reorganizing() {
+	if o.cfg.Reorganizing() {
 		skip = roots
 	}
 
@@ -1150,8 +808,8 @@ func (o *organizer) processFile(path string) {
 	file.Close()
 
 	ext := filepath.Ext(path)
-	if tagErr == nil && metadata != nil && hasMusicBrainzTags(metadata) {
-		if desiredDst, ok := libraryPath(cfg.Destination, cfg.Compilations, metadata, ext); ok {
+	if tagErr == nil && metadata != nil && rules.HasMusicBrainzTags(metadata) {
+		if desiredDst, ok := rules.LibraryPath(cfg.Destination, cfg.Compilations, metadata, ext); ok {
 			o.recordAlbum(filepath.Dir(path), filepath.Dir(desiredDst))
 			o.place(path, desiredDst, kindOrganized)
 			return
@@ -1160,9 +818,9 @@ func (o *organizer) processFile(path string) {
 
 	o.recordAlbum(filepath.Dir(path), "")
 
-	if cfg.reorganizing() {
+	if cfg.Reorganizing() {
 		// A reorganize never pushes files out of the library.
-		o.placed.Store(reservationKey(path), path)
+		o.placed.Store(rules.PathKey(path), path)
 		if cfg.Verbose {
 			log.Printf("[LEFT] %q does not qualify for the library, leaving it in place\n", path)
 		}
@@ -1171,7 +829,7 @@ func (o *organizer) processFile(path string) {
 	}
 
 	// Route to untagged directory, flattened into root
-	baseName := sanitizeName(strings.TrimSuffix(filepath.Base(path), ext))
+	baseName := rules.SanitizeName(strings.TrimSuffix(filepath.Base(path), ext))
 	desiredDst := filepath.Join(cfg.Untagged, fmt.Sprintf("%s%s", baseName, ext))
 	o.place(path, desiredDst, kindUntagged)
 }
@@ -1186,8 +844,8 @@ func (o *organizer) processCompanion(c companionFile, tree map[string]map[string
 		return
 	}
 
-	if o.cfg.reorganizing() {
-		o.placed.Store(reservationKey(path), path)
+	if o.cfg.Reorganizing() {
+		o.placed.Store(rules.PathKey(path), path)
 		return
 	}
 
@@ -1213,12 +871,12 @@ func (o *organizer) place(path, desiredDst string, kind placeKind) {
 
 	switch outcome {
 	case outcomeDuplicate:
-		o.placed.Store(reservationKey(path), finalDst)
+		o.placed.Store(rules.PathKey(path), finalDst)
 		log.Printf("[SKIPPED] %q -> identical copy already at %q\n", path, finalDst)
 		stats.Skipped.Add(1)
 		return
 	case outcomeInPlace:
-		o.placed.Store(reservationKey(path), finalDst)
+		o.placed.Store(rules.PathKey(path), finalDst)
 		if cfg.Verbose {
 			log.Printf("[IN-PLACE] %q is already at its destination\n", path)
 		}
@@ -1227,7 +885,7 @@ func (o *organizer) place(path, desiredDst string, kind placeKind) {
 	}
 
 	if cfg.DryRun {
-		o.placed.Store(reservationKey(path), finalDst)
+		o.placed.Store(rules.PathKey(path), finalDst)
 		if cfg.Verbose {
 			log.Printf("[DRY-RUN] [%s] %q -> %q\n", kind.label(), path, finalDst)
 		}
@@ -1242,9 +900,9 @@ func (o *organizer) place(path, desiredDst string, kind placeKind) {
 		return
 	}
 
-	o.placed.Store(reservationKey(path), finalDst)
+	o.placed.Store(rules.PathKey(path), finalDst)
 	o.touched.Store(filepath.Dir(path), struct{}{})
-	if reservationKey(finalDst) != reservationKey(desiredDst) {
+	if rules.PathKey(finalDst) != rules.PathKey(desiredDst) {
 		o.suffixedMu.Lock()
 		o.suffixed = append(o.suffixed, suffixedMove{src: path, desired: desiredDst, final: finalDst})
 		o.suffixedMu.Unlock()
@@ -1278,7 +936,7 @@ func (o *organizer) retrySuffixed() {
 			o.stats.Errors.Add(1)
 			continue
 		}
-		o.placed.Store(reservationKey(s.src), s.desired)
+		o.placed.Store(rules.PathKey(s.src), s.desired)
 		if o.cfg.Verbose {
 			log.Printf("[RENAMED] %q -> %q\n", s.final, s.desired)
 		}
@@ -1391,7 +1049,7 @@ func (o *organizer) cueTarget(srcDir, cueDir, name string) (string, bool) {
 		return "", false // relative paths into other folders are left alone
 	}
 	if placed, ok := o.placedAt(filepath.Join(srcDir, name)); ok {
-		if reservationKey(filepath.Dir(placed)) != reservationKey(cueDir) {
+		if rules.PathKey(filepath.Dir(placed)) != rules.PathKey(cueDir) {
 			return "", false
 		}
 		return filepath.Base(placed), true
@@ -1453,7 +1111,7 @@ func cleanupEmptyDirectories(roots []string, excluded []string, touchedDirs ...*
 			return true
 		}
 		for _, out := range excluded {
-			if reservationKey(path) == reservationKey(out) || isSubdirectory(out, path) {
+			if rules.PathKey(path) == rules.PathKey(out) || isSubdirectory(out, path) {
 				return true
 			}
 		}
