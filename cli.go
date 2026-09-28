@@ -13,7 +13,7 @@ import (
 const (
 	exitOK          = 0   // the run finished without file errors
 	exitErrors      = 1   // the run finished, but some files failed
-	exitCannotStart = 2   // bad flags or config, nothing was touched
+	exitCannotStart = 2   // bad flags, config or database, nothing was touched
 	exitInterrupted = 130 // Ctrl-C stopped the run
 )
 
@@ -24,6 +24,8 @@ func exitCode(s engine.RunState) int {
 		return exitErrors
 	case engine.StateInterrupted:
 		return exitInterrupted
+	case engine.StateNotStarted:
+		return exitCannotStart
 	default:
 		return exitOK
 	}
@@ -80,6 +82,10 @@ func (s *cliSink) handle(e engine.Event) {
 	case engine.Progress:
 		s.progress(e)
 	case engine.RunFinished:
+		if e.State == engine.StateNotStarted {
+			s.lg.Printf("Error: could not record the run, nothing was touched: %v\n", e.Err)
+			return
+		}
 		s.summary(e.Counters)
 		if e.State == engine.StateInterrupted {
 			s.lg.Println("Run interrupted: the remaining files were left where they are and empty folders were not cleaned up.")
@@ -155,6 +161,8 @@ func (s *cliSink) fileError(e engine.FileError) {
 		s.lg.Printf("Error saving original of cue sheet %q: %v\n", e.Path, e.Err)
 	case engine.OpRewriteCue:
 		s.lg.Printf("Error rewriting cue sheet %q: %v\n", e.Path, e.Err)
+	case engine.OpRecord:
+		s.lg.Printf("Error recording %q in the database: %v\n", e.Path, e.Err)
 	default:
 		s.lg.Printf("Error with %q: %v\n", e.Path, e.Err)
 	}

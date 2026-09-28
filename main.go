@@ -12,6 +12,7 @@ import (
 	"tagshelf/internal/config"
 	"tagshelf/internal/engine"
 	"tagshelf/internal/rules"
+	"tagshelf/internal/store"
 )
 
 func main() {
@@ -50,6 +51,7 @@ func run(ctx context.Context, args []string) int {
 	verboseFlag := flags.Bool("verbose", false, "Enable verbose per-file logging")
 	reorganizeFlag := flags.String("reorganize", "", "Re-sort an already organized library in place (sets -source and -dest to this directory)")
 	noCueRewriteFlag := flags.Bool("no-cue-rewrite", false, "Do not rewrite the FILE lines of moved cue sheets")
+	dbFlag := flags.String("db", "", "Library database file (default: %LOCALAPPDATA%/tagshelf/libraries/<library-id>/tagshelf.db)")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -69,6 +71,7 @@ func run(ctx context.Context, args []string) int {
 		Untagged:     *untaggedFlag,
 		Other:        *otherFlag,
 		Compilations: *compilationsFlag,
+		Database:     *dbFlag,
 	}
 	if *reorganizeFlag != "" {
 		ov.Source = *reorganizeFlag
@@ -130,6 +133,27 @@ func run(ctx context.Context, args []string) int {
 	cfg.Destination = absDest
 	cfg.Untagged = absUntagged
 	cfg.Other = absOther
+	if cfg.Database != "" {
+		absDatabase, err := filepath.Abs(cfg.Database)
+		if err != nil {
+			log.Printf("Invalid database path: %v", err)
+			return exitCannotStart
+		}
+		cfg.Database = absDatabase
+	}
+
+	// The database opens before anything else is touched: a run that cannot
+	// be recorded does not start.
+	st, err := store.OpenLibrary(cfg.Destination, cfg.Database, cfg.DryRun)
+	if err != nil {
+		log.Printf("Error: cannot open the library database: %v", err)
+		return exitCannotStart
+	}
+	defer st.Close()
+	database := st.Path()
+	if database == "" {
+		database = "in memory (dry run on a library without an ID yet)"
+	}
 
 	log.Println("================ Music Organizer ================")
 	if cfg.Reorganizing() {
@@ -144,6 +168,7 @@ func run(ctx context.Context, args []string) int {
 	log.Printf("Dry-Run:      %t\n", cfg.DryRun)
 	log.Printf("Verbose:      %t\n", cfg.Verbose)
 	log.Printf("Cue rewrite:  %t\n", cfg.RewriteCues())
+	log.Printf("Database:     %s\n", database)
 	log.Println("==================================================")
 
 	finish := engine.Run(ctx, engine.Options{
@@ -156,6 +181,7 @@ func run(ctx context.Context, args []string) int {
 		DryRun:       cfg.DryRun,
 		NoCueRewrite: !cfg.RewriteCues(),
 		Sink:         newCLISink(log.Default(), cfg.Verbose),
+		Store:        st,
 	})
 	return exitCode(finish.State)
 }

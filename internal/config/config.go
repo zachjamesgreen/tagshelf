@@ -32,6 +32,9 @@ type Config struct {
 	// CueRewrite fixes the FILE lines of moved cue sheets. Nil means the
 	// default, which is on.
 	CueRewrite *bool `yaml:"cue_rewrite"`
+	// Database is the library's database file. Empty means the default
+	// location for the library's ID.
+	Database string `yaml:"database"`
 }
 
 // RewriteCues reports whether moved cue sheets get their FILE lines fixed.
@@ -79,6 +82,7 @@ type Overrides struct {
 	DryRun       *bool
 	Verbose      *bool
 	CueRewrite   *bool
+	Database     string
 }
 
 // Load merges a YAML config file with the CLI overrides. configPath is the
@@ -151,6 +155,9 @@ func Load(configPath string, ov Overrides) (Config, error) {
 	}
 	if ov.CueRewrite != nil {
 		cfg.CueRewrite = ov.CueRewrite
+	}
+	if ov.Database != "" {
+		cfg.Database = ov.Database
 	}
 
 	return cfg, nil
