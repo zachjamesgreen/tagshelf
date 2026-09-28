@@ -8,7 +8,7 @@ Issues, specs and wayfinder maps for tagshelf live in the user's Obsidian vault 
 - The spec is `tagshelf/<feature>/Spec.md`
 - Implementation issues are one note per ticket at `tagshelf/<feature>/Tickets/NN - <Title>.md`, numbered from `01`, never one combined tickets note
 - Every note has frontmatter: `project: tagshelf`, `status` (`todo` | `in-progress` | `done`), `created: YYYY-MM-DD`
-- Set properties with `obsidian property:set`; link related notes with `[[wikilinks]]`
+- Set properties with `obsidian property:set`; link related notes with `[[wikilinks]]`. From Git Bash, bare `obsidian` runs the GUI `Obsidian.exe`, where `property:*` silently exits 127, so call `obsidian.com` for property commands. `obsidian.com` in turn silently drops `content=` of about 4,096 characters or more, so use bare `obsidian` for long `create`/`append` calls, or split the content. The `obsidian-cli` skill has the details.
 - Other folders in the vault share note names like `Map`, so link tagshelf notes by path: `[[tagshelf/TUI/Map]]`, not `[[Map]]`
 - Comments and conversation history append to the bottom of the note under a `## Comments` heading
 
