@@ -6,12 +6,13 @@
 // parsing and artwork extraction.
 //
 // Detect and parse tag metadata from an io.ReadSeeker (i.e. an *os.File):
-// 	m, err := tag.ReadFrom(f)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	log.Print(m.Format()) // The detected format.
-// 	log.Print(m.Title())  // The title of the track (see Metadata interface for more details).
+//
+//	m, err := tag.ReadFrom(f)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	log.Print(m.Format()) // The detected format.
+//	log.Print(m.Title())  // The title of the track (see Metadata interface for more details).
 package tag
 
 import (
@@ -24,7 +25,8 @@ import (
 // cannot be identified.
 var ErrNoTagsFound = errors.New("no tags found")
 
-// ReadFrom detects and parses audio file metadata tags (currently supports ID3v1,2.{2,3,4}, MP4, FLAC/OGG).
+// ReadFrom detects and parses audio file metadata tags (currently supports ID3v1,2.{2,3,4}, MP4, FLAC/OGG,
+// DSF, WAV, and APEv2 in APE, MPC and AAC).
 // Returns non-nil error if the format of the given data could not be determined, or if there was a problem
 // parsing the data.
 func ReadFrom(r io.ReadSeeker) (Metadata, error) {
@@ -49,13 +51,19 @@ func ReadFrom(r io.ReadSeeker) (Metadata, error) {
 		return ReadAtoms(r)
 
 	case string(b[0:3]) == "ID3":
-		return ReadID3v2Tags(r)
+		return readID3v2File(r)
 
 	case string(b[0:4]) == "DSD ":
 		return ReadDSFTags(r)
 
 	case isASF(b):
 		return ReadASFTags(r)
+
+	case isWAV(b):
+		return ReadWAVTags(r)
+
+	case carriesAPEv2(audioFileType(b)):
+		return readAPEv2File(r)
 	}
 
 	m, err := ReadID3v1Tags(r)
@@ -81,6 +89,8 @@ const (
 	MP4           Format = "MP4"     // MP4 tag (atom) format (see http://www.ftyps.com/ for a full file type list)
 	VORBIS        Format = "VORBIS"  // Vorbis Comment tag format.
 	ASF           Format = "ASF"     // ASF (Windows Media) attribute format.
+	APEv2         Format = "APEv2"   // APEv2 tag format (APE, MPC, AAC).
+	INFO          Format = "INFO"    // RIFF LIST/INFO chunk (WAV without an ID3 chunk).
 )
 
 // FileType is an enumeration of the audio file types supported by this package, in particular
@@ -100,6 +110,10 @@ const (
 	OGG             FileType = "OGG"  // OGG file
 	DSF             FileType = "DSF"  // DSF file DSD Sony format see https://dsd-guide.com/sites/default/files/white-papers/DSFFileFormatSpec_E.pdf
 	WMA             FileType = "WMA"  // WMA file (ASF container)
+	WAV             FileType = "WAV"  // WAV (RIFF WAVE) file
+	APE             FileType = "APE"  // Monkey's Audio file
+	MPC             FileType = "MPC"  // Musepack file (SV7 or SV8)
+	AAC             FileType = "AAC"  // ADTS AAC file (.aac)
 )
 
 // Metadata is an interface which is used to describe metadata retrieved by this package.

@@ -94,7 +94,8 @@ func TestFormatSignatures(t *testing.T) {
 // TestReadableTags reads the tagged fixtures of the formats internal/tag
 // reads today, and checks the untagged ones carry no tags.
 func TestReadableTags(t *testing.T) {
-	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b"} {
+	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b",
+		"tagged.wav", "tagged.ape", "tagged.mpc", "tagged.aac", TaggedID3v2AAC} {
 		t.Run(name, func(t *testing.T) {
 			m := readTags(t, name)
 			if m == nil {
@@ -115,7 +116,8 @@ func TestReadableTags(t *testing.T) {
 			}
 		})
 	}
-	for _, name := range []string{"untagged.mp3", "untagged.flac", "untagged.ogg", "untagged.m4a", "untagged.m4b"} {
+	for _, name := range []string{"untagged.mp3", "untagged.flac", "untagged.ogg", "untagged.m4a", "untagged.m4b",
+		"untagged.wav", "untagged.ape", "untagged.mpc", "untagged.aac", UntaggedOddWAV, UntaggedSV8MPC} {
 		t.Run(name, func(t *testing.T) {
 			if m := readTags(t, name); m != nil && (m.Title() != "" || m.Artist() != "" || m.Album() != "") {
 				t.Errorf("untagged fixture has tags: %q / %q / %q", m.Title(), m.Artist(), m.Album())
@@ -142,8 +144,8 @@ func readTags(t *testing.T, name string) tag.Metadata {
 	return m
 }
 
-// TestTagLayouts checks where the tags sit in the formats internal/tag does
-// not read yet, and that the untagged fixtures have none.
+// TestTagLayouts checks where the tags sit in the WAV, WMA, APE, MPC and .aac
+// fixtures, and that the untagged fixtures have none.
 func TestTagLayouts(t *testing.T) {
 	for _, name := range []string{"tagged.aac", "tagged.ape", "tagged.mpc"} {
 		b := readFixture(t, name)
