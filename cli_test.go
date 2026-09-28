@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"tagshelf/internal/engine"
+	"tagshelf/internal/store"
 )
 
 // TestCLISinkLines pins the exact log line printed for every event, so that
@@ -64,6 +67,8 @@ func TestCLISinkLines(t *testing.T) {
 		{"read cue", organize, false, engine.FileError{Path: "a", Op: engine.OpReadCue, Err: boom}, `Error reading cue sheet "a": boom`},
 		{"save cue", organize, false, engine.FileError{Path: "a", Destination: "a.orig", Op: engine.OpSaveCueOriginal, Err: boom}, `Error saving original of cue sheet "a": boom`},
 		{"rewrite cue", organize, false, engine.FileError{Path: "a", Op: engine.OpRewriteCue, Err: boom}, `Error rewriting cue sheet "a": boom`},
+		{"record", organize, false, engine.FileError{Path: "a", Op: engine.OpRecord, Err: boom}, `Error recording "a" in the database: boom`},
+		{"not started", organize, false, engine.RunFinished{State: engine.StateNotStarted, Err: boom}, `Error: could not record the run, nothing was touched: boom`},
 		{"perm", organize, false, engine.Warning{Kind: engine.WarnPermissions, Path: "a", Err: boom}, `Warning: could not preserve permissions on "a": boom`},
 		{"mtime", organize, false, engine.Warning{Kind: engine.WarnModTime, Path: "a", Err: boom}, `Warning: could not preserve modification time on "a": boom`},
 		{"cue beside", organize, false, engine.Warning{Kind: engine.WarnCueNotBeside, Path: "a", Name: "n"}, `Warning: not rewriting cue sheet "a": "n" is not next to it after the move`},
@@ -176,10 +181,26 @@ func TestRunExitCodes(t *testing.T) {
 		{"bad flag", context.Background(), func(tmp string) []string {
 			return []string{"-no-such-flag"}
 		}, exitCannotStart},
+		{"database cannot open", context.Background(), func(tmp string) []string {
+			// The database's folder would have to be where a file is.
+			writeFile(t, filepath.Join(tmp, "blocker"), "in the way")
+			return []string{"-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib"), "-db", filepath.Join(tmp, "blocker", "tagshelf.db")}
+		}, exitCannotStart},
+		{"database newer", context.Background(), func(tmp string) []string {
+			db := filepath.Join(tmp, "newer.db")
+			s, err := store.Open(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Close()
+			setUserVersion(t, db, 1000)
+			return []string{"-source", filepath.Join(tmp, "src"), "-dest", filepath.Join(tmp, "lib"), "-db", db}
+		}, exitCannotStart},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmp := t.TempDir()
+			isolateDataDir(t)
 			song := filepath.Join(tmp, "src", "loose.mp3")
 			writeFile(t, song, "no tags")
 			config := filepath.Join(tmp, "empty.yaml")
@@ -194,6 +215,101 @@ func TestRunExitCodes(t *testing.T) {
 				t.Errorf("song moved = %t, want %t", moved, tt.want == exitOK)
 			}
 		})
+	}
+}
+
+// isolateDataDir points the default database location into a temp folder, so
+// that CLI tests never write the user's real application data.
+func isolateDataDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("LOCALAPPDATA", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+	return dir
+}
+
+// setUserVersion stamps the database at path with a schema version.
+func setUserVersion(t *testing.T, path string, v int) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunRecordsHistory(t *testing.T) {
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	data := isolateDataDir(t)
+	tmp := t.TempDir()
+	song := filepath.Join(tmp, "src", "loose.mp3")
+	writeFile(t, song, "no tags")
+	config := filepath.Join(tmp, "empty.yaml")
+	writeFile(t, config, "")
+	lib := filepath.Join(tmp, "lib")
+
+	if got := run(context.Background(), []string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib}); got != exitOK {
+		t.Fatalf("run = %d, want %d", got, exitOK)
+	}
+
+	id, err := store.ReadLibraryID(lib)
+	if err != nil || id == "" {
+		t.Fatalf("library ID = %q, %v; want one written by the first real run", id, err)
+	}
+	s, err := store.Open(filepath.Join(data, "tagshelf", "libraries", id, "tagshelf.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	runs, err := s.Runs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].State != store.StateOK || runs[0].Counters.Untagged != 1 {
+		t.Fatalf("runs = %+v, want one ok run with 1 untagged", runs)
+	}
+	moves, err := s.Moves(runs[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moves) != 1 || moves[0].From != song || moves[0].Reason != store.ReasonUntagged {
+		t.Errorf("moves = %+v, want the untagged move of %q", moves, song)
+	}
+}
+
+func TestRunDryRunOnUnidentifiedLibraryWritesNothing(t *testing.T) {
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	data := isolateDataDir(t)
+	tmp := t.TempDir()
+	song := filepath.Join(tmp, "src", "loose.mp3")
+	writeFile(t, song, "no tags")
+	config := filepath.Join(tmp, "empty.yaml")
+	writeFile(t, config, "")
+	lib := filepath.Join(tmp, "lib")
+	db := filepath.Join(tmp, "explicit.db")
+
+	for _, extra := range [][]string{nil, {"-db", db}} {
+		args := append([]string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib, "-dry-run"}, extra...)
+		if got := run(context.Background(), args); got != exitOK {
+			t.Fatalf("run(%q) = %d, want %d", args, got, exitOK)
+		}
+	}
+
+	if _, err := os.Stat(song); err != nil {
+		t.Errorf("a dry run moved the song: %v", err)
+	}
+	for _, path := range []string{lib, db} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("a dry run created %q: %v", path, err)
+		}
+	}
+	if entries, _ := os.ReadDir(data); len(entries) != 0 {
+		t.Errorf("a dry run wrote under the data folder: %v", entries)
 	}
 }
 

@@ -182,3 +182,26 @@ func TestLoadConfigMusicBrainzContact(t *testing.T) {
 		t.Errorf("MusicBrainzContact = %q, want me@example.com", cfg.MusicBrainzContact)
 	}
 }
+
+func TestLoadConfigDatabase(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "db_config.yaml")
+	if err := os.WriteFile(configPath, []byte(`database: "C:\\Data\\music.db"`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(configPath, Overrides{})
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Database != `C:\Data\music.db` {
+		t.Errorf("Expected database from YAML, got %q", cfg.Database)
+	}
+
+	cfg, err = Load(configPath, Overrides{Database: `D:\other.db`})
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Database != `D:\other.db` {
+		t.Errorf("Expected -db to override the database, got %q", cfg.Database)
+	}
+}

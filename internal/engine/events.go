@@ -67,7 +67,17 @@ const (
 	OpReadCue                          // reading a cue sheet
 	OpSaveCueOriginal                  // keeping a cue sheet's original as .orig
 	OpRewriteCue                       // writing a rewritten cue sheet
+	OpRecord                           // recording a move or the run in the database
 )
+
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record"}
+
+func (op Operation) String() string {
+	if op < 0 || int(op) >= len(opNames) {
+		return fmt.Sprintf("Operation(%d)", int(op))
+	}
+	return opNames[op]
+}
 
 // FileError reports a failure affecting one file. Destination is set for the
 // operations that have one.
@@ -167,12 +177,14 @@ const (
 	StateOK          RunState = iota // finished without file errors
 	StateErrors                      // finished, but some files failed
 	StateInterrupted                 // cancelled before finishing
+	StateNotStarted                  // the run could not be recorded, so nothing was touched
 )
 
-// RunFinished closes every run.
+// RunFinished closes every run. Err says why a run could not start.
 type RunFinished struct {
 	Counters Counters
 	State    RunState
+	Err      error
 }
 
 func (RunStarted) event()   {}

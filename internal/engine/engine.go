@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"tagshelf/internal/rules"
+	"tagshelf/internal/store"
 	"tagshelf/internal/tag"
 )
 
@@ -95,6 +96,8 @@ type Options struct {
 	DryRun       bool
 	NoCueRewrite bool // leave the FILE lines of moved cue sheets alone
 	Sink         Sink // may be nil
+	// Store records the run, its moves and its errors. Nil records nothing.
+	Store *store.Store
 }
 
 // Reorganizing reports whether the run re-sorts an existing library in place.
@@ -204,6 +207,7 @@ type organizer struct {
 	reserved sync.Map // rules.PathKey(path) -> struct{}
 	touched  sync.Map // source directory -> struct{}
 	phase    phaseTracker
+	runID    int64 // the run's row in cfg.Store
 
 	// albumsMu guards albums: source directory -> album directories its audio
 	// files were organized into. Untagged audio is recorded as "".
@@ -248,7 +252,41 @@ func (o *organizer) emit(e Event) {
 
 func (o *organizer) fail(path, dst string, op Operation, err error) {
 	o.stats.Errors.Add(1)
-	o.emit(FileError{Path: path, Destination: dst, Op: op, Err: err})
+	e := FileError{Path: path, Destination: dst, Op: op, Err: err}
+	if o.cfg.Store != nil && o.runID != 0 {
+		// A database that fails here has already failed the write being
+		// reported, or will fail FinishRun; either way the log has the error.
+		_ = o.cfg.Store.RecordError(o.runID, path, errorMessage(e))
+	}
+	o.emit(e)
+}
+
+// errorMessage is how a FileError is worded in the run's error log.
+func errorMessage(e FileError) string {
+	if e.Destination != "" {
+		return fmt.Sprintf("%s -> %s: %v", e.Op, e.Destination, e.Err)
+	}
+	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
+
+// recordMove logs a move the run made. A move that cannot be logged counts
+// as an error: undo would not know about it.
+func (o *organizer) recordMove(from, to string, reason store.MoveReason) {
+	if o.cfg.Store == nil {
+		return
+	}
+	if err := o.cfg.Store.RecordMove(o.runID, from, to, reason); err != nil {
+		o.fail(from, to, OpRecord, err)
+	}
+}
+
+// moveReasons maps the outcome of a move to why the database says it moved.
+var moveReasons = map[Outcome]store.MoveReason{
+	Organized: store.ReasonOrganized,
+	Untagged:  store.ReasonUntagged,
+	Other:     store.ReasonOther,
+	Companion: store.ReasonCompanion,
+	Renamed:   store.ReasonRenamed,
 }
 
 // placedAt reports where the file that was at src now lives.
@@ -579,6 +617,17 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	}
 	o.emit(RunStarted{Kind: kind, DryRun: cfg.DryRun, Source: cfg.Source, Destination: cfg.Destination, Roots: roots})
 
+	if cfg.Store != nil {
+		// A run that cannot be recorded does not touch any file.
+		id, err := cfg.Store.StartRun(storeKinds[kind], cfg.DryRun, cfg.Source, cfg.Destination, time.Now())
+		if err != nil {
+			finish := RunFinished{State: StateNotStarted, Err: err}
+			o.emit(finish)
+			return finish
+		}
+		o.runID = id
+	}
+
 	stopTicker := make(chan struct{})
 	tickerDone := make(chan struct{})
 	ticker := time.NewTicker(progressInterval)
@@ -679,16 +728,42 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	close(stopTicker)
 	<-tickerDone
 
-	finish := RunFinished{Counters: stats.snapshot(), State: StateOK}
+	finish := o.finish(interrupted)
+	if cfg.Store != nil {
+		if err := cfg.Store.FinishRun(o.runID, store.Counters(finish.Counters), storeStates[finish.State], time.Now()); err != nil {
+			o.fail(cfg.Store.Path(), "", OpRecord, err)
+			finish = o.finish(interrupted)
+		}
+	}
+	o.emit(finish)
+	return finish
+}
+
+// finish sums up how the run ended.
+func (o *organizer) finish(interrupted bool) RunFinished {
+	finish := RunFinished{Counters: o.stats.snapshot(), State: StateOK}
 	switch {
 	case interrupted:
 		finish.State = StateInterrupted
 	case finish.Counters.Errors > 0:
 		finish.State = StateErrors
 	}
-	o.emit(finish)
 	return finish
 }
+
+// storeKinds and storeStates map run kinds and end states to their database
+// names.
+var (
+	storeKinds = map[RunKind]store.RunKind{
+		KindOrganize:   store.KindOrganize,
+		KindReorganize: store.KindReorganize,
+	}
+	storeStates = map[RunState]store.RunState{
+		StateOK:          store.StateOK,
+		StateErrors:      store.StateErrors,
+		StateInterrupted: store.StateInterrupted,
+	}
+)
 
 // walkedFile is a file found by the walk, with its size.
 type walkedFile struct {
@@ -753,6 +828,11 @@ func (o *organizer) walk(ctx context.Context, root string, roots []string, fn fu
 			if path != root && containsPath(skip, path) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if d.Name() == store.LibraryIDFile {
+			// A library's identity stays in its root, and one found in a
+			// source belongs to some other library.
 			return nil
 		}
 		var size int64
@@ -911,6 +991,7 @@ func (o *organizer) place(path, desiredDst string, kind Outcome) {
 		return
 	}
 
+	o.recordMove(path, finalDst, moveReasons[kind])
 	o.placed.Store(rules.PathKey(path), finalDst)
 	o.touched.Store(filepath.Dir(path), struct{}{})
 	if rules.PathKey(finalDst) != rules.PathKey(desiredDst) {
@@ -949,6 +1030,7 @@ func (o *organizer) retryOne(s suffixedMove) {
 		o.fail(s.final, s.desired, OpRename, err)
 		return
 	}
+	o.recordMove(s.final, s.desired, store.ReasonRenamed)
 	o.placed.Store(rules.PathKey(s.src), s.desired)
 	o.emit(FilePlaced{Path: s.final, Destination: s.desired, Outcome: Renamed})
 	o.stats.Retried.Add(1)
@@ -1002,6 +1084,7 @@ func (o *organizer) fixCase(ctx context.Context) {
 			o.fail(f.src, f.desired, OpRename, err)
 		}
 		if changed || did {
+			o.recordMove(f.src, f.desired, store.ReasonRenamed)
 			o.emit(FilePlaced{Path: f.src, Destination: f.desired, Outcome: Renamed})
 			o.stats.Retried.Add(1)
 		}
@@ -1139,6 +1222,8 @@ func (o *organizer) rewriteCue(src string) {
 		o.fail(final, "", OpRewriteCue, err)
 		return
 	}
+	// Undo restores the cue sheet from its .orig.
+	o.recordMove(final, final+".orig", store.ReasonCueRewrite)
 	o.emit(CueRewritten{Path: final, Renames: renames})
 	o.stats.CueRewritten.Add(1)
 }

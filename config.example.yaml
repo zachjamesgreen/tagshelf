@@ -11,3 +11,4 @@ dry_run: true                          # preview only; set to false to move file
 verbose: false
 cue_rewrite: true                      # fix FILE lines in moved .cue files (keeps album.cue.orig)
 #musicbrainz_contact: "you@example.com" # email or URL MusicBrainz can reach you at; lookups are disabled until set
+#database: "C:\\tagshelf\\music.db"     # run history database (default: %LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db)
