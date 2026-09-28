@@ -35,6 +35,7 @@ type Store struct {
 	db        *sql.DB
 	path      string // "" in memory
 	libraryID string // "" in memory
+	lock      *Lock  // the library lock, when OpenLibrary took it
 }
 
 // Open opens the database file at path, creating it and its folder if needed,
@@ -90,9 +91,13 @@ func open(path string, ms []migration) (*Store, error) {
 	return &Store{db: db, path: path}, nil
 }
 
-// Close closes the database.
+// Close closes the database and gives up the library lock, if held.
 func (s *Store) Close() error {
-	return s.db.Close()
+	err := s.db.Close()
+	if lerr := s.lock.Release(); err == nil {
+		err = lerr
+	}
+	return err
 }
 
 // Path is the database file, or "" for a database in memory.

@@ -281,6 +281,45 @@ func TestRunRecordsHistory(t *testing.T) {
 	}
 }
 
+func TestRunRefusedWhileLibraryLocked(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	isolateDataDir(t)
+	tmp := t.TempDir()
+	song := filepath.Join(tmp, "src", "loose.mp3")
+	writeFile(t, song, "no tags")
+	config := filepath.Join(tmp, "empty.yaml")
+	writeFile(t, config, "")
+	lib := filepath.Join(tmp, "lib")
+
+	// Another run holds the library. The lock is per open file, so holding it
+	// in this process stands in for another process (internal/store tests the
+	// real thing).
+	holder, err := store.OpenLibrary(lib, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+
+	for _, extra := range [][]string{nil, {"-dry-run"}} {
+		out.Reset()
+		args := append([]string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib}, extra...)
+		if got := run(context.Background(), args); got != exitCannotStart {
+			t.Fatalf("run(%q) = %d, want %d", args, got, exitCannotStart)
+		}
+		if want := fmt.Sprintf("pid %d, started ", os.Getpid()); !strings.Contains(out.String(), want) {
+			t.Errorf("run(%q) printed %q, want the holder's %q", args, out.String(), want)
+		}
+	}
+	if _, err := os.Stat(song); err != nil {
+		t.Errorf("a refused run moved the song: %v", err)
+	}
+	if runs, err := holder.Runs(); err != nil || len(runs) != 0 {
+		t.Errorf("runs = %+v, %v; want none recorded by refused runs", runs, err)
+	}
+}
+
 func TestRunDryRunOnUnidentifiedLibraryWritesNothing(t *testing.T) {
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
