@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 
 	"tagshelf/internal/fixtures"
@@ -30,10 +31,10 @@ func sumBytes(t *testing.T, name string, b []byte) string {
 }
 
 // TestSumSurvivesRetag is the regression test for OGG and MP4 brands other
-// than "M4A ", which used to fall through to hashing the whole file, so a
-// retag changed their Sum.
+// than "M4A ", which used to fall through to hashing the whole file, and for
+// MP3, which used to hash its leading ID3v2 tag, so a retag changed their Sum.
 func TestSumSurvivesRetag(t *testing.T) {
-	for _, ext := range []string{".ogg", ".m4a", ".m4b"} {
+	for _, ext := range []string{".mp3", ".ogg", ".m4a", ".m4b"} {
 		untagged, tagged := "untagged"+ext, "tagged"+ext
 		if u, g := sumFile(t, untagged), sumFile(t, tagged); u != g {
 			t.Errorf("Sum(%s) = %s, Sum(%s) = %s, want equal", untagged, u, tagged, g)
@@ -79,14 +80,15 @@ func TestSumSurvivesRetagEveryMP4Brand(t *testing.T) {
 	}
 }
 
-// TestSumUnchangedFormats pins the sums of the formats whose hashing the
-// OGG and MP4 brand change must leave alone.
+// TestSumUnchangedFormats pins the sums of FLAC, MP3 and M4A, so a change to
+// another format's hashing cannot move them. The MP3 sum is that of the audio
+// frames alone.
 func TestSumUnchangedFormats(t *testing.T) {
 	for name, want := range map[string]string{
 		"untagged.flac": "5d27aa26206123cbfd8c1c605eebb6e52abc7dcc",
 		"tagged.flac":   "5d27aa26206123cbfd8c1c605eebb6e52abc7dcc",
-		"untagged.mp3":  "82b9891a4ee4b0f4ade1cfaa09a8997a77761d9e",
-		"tagged.mp3":    "8488ce22c145eaecb4448c04f90b4769a873947c",
+		"untagged.mp3":  "01d5feccb660677b896110f590ead8e40cab57fc",
+		"tagged.mp3":    "01d5feccb660677b896110f590ead8e40cab57fc",
 		"untagged.m4a":  "010ad04dd1cbb749db1986bbd9357e4e7323a7f6",
 		"tagged.m4a":    "010ad04dd1cbb749db1986bbd9357e4e7323a7f6",
 	} {
@@ -124,4 +126,67 @@ func TestSumAtomsMdatSizes(t *testing.T) {
 func atom(name string, body []byte) []byte {
 	b := binary.BigEndian.AppendUint32(nil, uint32(8+len(body)))
 	return append(append(b, name...), body...)
+}
+
+// TestSumMP3SkipsID3v1 appends an ID3v1 tag, as tagshelf's MP3 writes do, and
+// replaces it, since the old Sum always dropped the last 128 bytes whether or
+// not they were a tag.
+func TestSumMP3SkipsID3v1(t *testing.T) {
+	for _, name := range []string{"untagged.mp3", "tagged.mp3"} {
+		b, err := os.ReadFile(fixtures.Path(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := sumBytes(t, name, b)
+
+		withV1 := append(append([]byte{}, b...), id3v1("First")...)
+		if got := sumBytes(t, name+" + ID3v1", withV1); got != want {
+			t.Errorf("%s + ID3v1: Sum = %s, want %s", name, got, want)
+		}
+		copy(withV1[len(b):], id3v1("Second"))
+		if got := sumBytes(t, name+" + edited ID3v1", withV1); got != want {
+			t.Errorf("%s + edited ID3v1: Sum = %s, want %s", name, got, want)
+		}
+	}
+}
+
+// TestSumMP3ID3v2Layouts hashes synthetic MP3s whose ID3v2 tag has a v2.4
+// footer or an extended header, which the size must cover in full.
+func TestSumMP3ID3v2Layouts(t *testing.T) {
+	audio := append([]byte{0xff, 0xfb, 0x90, 0x00}, bytes.Repeat([]byte("frame"), 40)...)
+	want := fmt.Sprintf("%x", sha1.Sum(audio))
+	frame := slices.Concat([]byte("TIT2"), []byte{0, 0, 0, 6, 0, 0, 3}, []byte("Title"))
+
+	// A v2.4 footer is the header with "3DI" in place of "ID3"; it is not
+	// counted in the size.
+	footer := id3v2TagHeader(4, 0x10, len(frame))
+	copy(footer, "3DI")
+	withFooter := slices.Concat(id3v2TagHeader(4, 0x10, len(frame)), frame, footer)
+
+	// A v2.3 extended header (flag 0x40) is counted in the size.
+	ext := []byte{0, 0, 0, 6, 0, 0, 0, 0, 0, 0}
+	withExt := slices.Concat(id3v2TagHeader(3, 0x40, len(ext)+len(frame)), ext, frame)
+
+	for name, tag := range map[string][]byte{"v2.4 footer": withFooter, "v2.3 extended header": withExt} {
+		b := slices.Concat(tag, audio)
+		if got := sumBytes(t, name, b); got != want {
+			t.Errorf("%s: Sum = %s, want %s", name, got, want)
+		}
+	}
+
+	if got := sumBytes(t, "no tag", audio); got != want {
+		t.Errorf("no tag: Sum = %s, want %s", got, want)
+	}
+}
+
+func id3v2TagHeader(version, flags byte, size int) []byte {
+	return []byte{'I', 'D', '3', version, 0, flags,
+		byte(size >> 21 & 0x7f), byte(size >> 14 & 0x7f), byte(size >> 7 & 0x7f), byte(size & 0x7f)}
+}
+
+func id3v1(title string) []byte {
+	b := make([]byte, 128)
+	copy(b, "TAG")
+	copy(b[3:33], title)
+	return b
 }

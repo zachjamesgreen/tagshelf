@@ -149,69 +149,78 @@ func SumOGG(r io.ReadSeeker) (string, error) {
 	}
 }
 
-func sizeToEndOffset(r io.ReadSeeker, offset int64) (int64, error) {
-	n, err := r.Seek(-128, io.SeekEnd)
+// sumMP3Audio hashes the bytes from start to the end of the file, leaving out a trailing ID3v1
+// tag when there is one, so adding, editing or removing that tag keeps the hash.
+func sumMP3Audio(r io.ReadSeeker, start int64) (string, error) {
+	end, err := r.Seek(0, io.SeekEnd)
 	if err != nil {
-		return 0, fmt.Errorf("error seeking end offset (%d bytes): %v", offset, err)
+		return "", fmt.Errorf("error seeking to end of file: %v", err)
 	}
 
-	_, err = r.Seek(-n, io.SeekCurrent)
-	if err != nil {
-		return 0, fmt.Errorf("error seeking back to original position: %v", err)
+	if end-start >= 128 {
+		_, err = r.Seek(end-128, io.SeekStart)
+		if err != nil {
+			return "", fmt.Errorf("error seeking to ID3v1 tag: %v", err)
+		}
+		b, err := readBytes(r, 3)
+		if err != nil {
+			return "", fmt.Errorf("error reading ID3v1 tag: %v", err)
+		}
+		if string(b) == "TAG" {
+			end -= 128
+		}
 	}
-	return n, nil
-}
 
-// SumID3v1 constructs a checksum of MP3 audio file data (assumed to have ID3v1 tags) provided
-// by the io.ReadSeeker which is metadata invariant.
-func SumID3v1(r io.ReadSeeker) (string, error) {
-	n, err := sizeToEndOffset(r, 128)
-	if err != nil {
-		return "", fmt.Errorf("error determining read size to ID3v1 header: %v", err)
+	if start > end {
+		return "", fmt.Errorf("ID3v2 tag runs %d bytes past the end of the file", start-end)
 	}
 
-	// TODO: improve this check???
-	if n <= 0 {
-		return "", fmt.Errorf("file size must be greater than 128 bytes (ID3v1 header size) for MP3")
+	_, err = r.Seek(start, io.SeekStart)
+	if err != nil {
+		return "", fmt.Errorf("error seeking to audio data: %v", err)
 	}
 
 	h := sha1.New()
-	_, err = io.CopyN(h, r, n)
+	_, err = io.CopyN(h, r, end-start)
 	if err != nil {
-		return "", fmt.Errorf("error reading %v bytes: %v", n, err)
+		return "", fmt.Errorf("error reading %v bytes: %v", end-start, err)
 	}
 	return hashSum(h), nil
 }
 
-// SumID3v2 constructs a checksum of MP3 audio file data (assumed to have ID3v2 tags) provided by the
-// io.ReadSeeker which is metadata invariant.
+// SumID3v1 constructs a checksum of MP3 audio file data (which may end with an ID3v1 tag) provided
+// by the io.ReadSeeker which is metadata invariant.
+func SumID3v1(r io.ReadSeeker) (string, error) {
+	start, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return "", fmt.Errorf("error reading current position: %v", err)
+	}
+	return sumMP3Audio(r, start)
+}
+
+// SumID3v2 constructs a checksum of MP3 audio file data (assumed to start with an ID3v2 tag)
+// provided by the io.ReadSeeker which is metadata invariant. It skips the whole tag: the 10-byte
+// header, the synchsafe size (which covers any extended header and padding) and the 10-byte
+// footer that a v2.4 tag carries when flag 0x10 is set.
 func SumID3v2(r io.ReadSeeker) (string, error) {
-	header, _, err := readID3v2Header(r)
+	start, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return "", fmt.Errorf("error reading current position: %v", err)
+	}
+
+	b, err := readBytes(r, 10)
 	if err != nil {
 		return "", fmt.Errorf("error reading ID3v2 header: %v", err)
 	}
-
-	_, err = r.Seek(int64(header.Size), io.SeekCurrent)
-	if err != nil {
-		return "", fmt.Errorf("error seeking to end of ID3V2 header: %v", err)
+	if string(b[0:3]) != "ID3" {
+		return "", fmt.Errorf("expected to read \"ID3\"")
 	}
 
-	n, err := sizeToEndOffset(r, 128)
-	if err != nil {
-		return "", fmt.Errorf("error determining read size to ID3v1 header: %v", err)
+	size := 10 + int64(get7BitChunkedInt(b[6:10]))
+	if b[3] == 4 && getBit(b[5], 4) {
+		size += 10
 	}
-
-	// TODO: remove this check?????
-	if n < 0 {
-		return "", fmt.Errorf("file size must be greater than 128 bytes for MP3: %v bytes", n)
-	}
-
-	h := sha1.New()
-	_, err = io.CopyN(h, r, n)
-	if err != nil {
-		return "", fmt.Errorf("error reading %v bytes: %v", n, err)
-	}
-	return hashSum(h), nil
+	return sumMP3Audio(r, start+size)
 }
 
 // SumFLAC costructs a checksum of the FLAC audio file data provided by the io.ReadSeeker (ignores
