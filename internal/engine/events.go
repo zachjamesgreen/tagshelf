@@ -1,6 +1,9 @@
 package engine
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Event is something a run reports to its sink. Events are for display only:
 // nothing a run needs to remember is ever written through a sink.
@@ -111,10 +114,50 @@ type DirRemoved struct {
 	Path string
 }
 
-// Progress is sent periodically while a run is working.
+// Phase is one step of a run. Phases run one after another, in the order
+// listed; a run skips the ones it has no business with.
+type Phase int
+
+const (
+	PhaseWalk          Phase = iota // listing the files under the roots
+	PhaseAudio                      // placing audio files
+	PhaseCompanions                 // placing non-audio files
+	PhaseRetrySuffixed              // reorganize only: moving " (n)" files onto clean names
+	PhaseCue                        // rewriting the FILE lines of moved cue sheets
+	PhaseCleanup                    // removing emptied directories
+)
+
+var phaseNames = [...]string{"walk", "audio", "companions", "retry-suffixed", "cue", "cleanup"}
+
+func (p Phase) String() string {
+	if p < 0 || int(p) >= len(phaseNames) {
+		return fmt.Sprintf("Phase(%d)", int(p))
+	}
+	return phaseNames[p]
+}
+
+// PhaseStarted opens a phase. Files and Bytes are the phase's totals, or 0
+// when they are not known up front.
+type PhaseStarted struct {
+	Phase Phase
+	Files int64
+	Bytes int64
+}
+
+// Progress is sent periodically while a run is working. Files and Bytes count
+// what the current phase has done, against its totals from PhaseStarted. Rate
+// and ByteRate are per second since the phase started. ETA is 0 when unknown.
 type Progress struct {
-	Counters Counters
-	At       time.Time
+	Counters   Counters
+	Phase      Phase
+	Files      int64
+	FilesTotal int64
+	Bytes      int64
+	BytesTotal int64
+	Rate       float64
+	ByteRate   float64
+	ETA        time.Duration
+	At         time.Time
 }
 
 // RunState says how a run ended.
@@ -138,5 +181,6 @@ func (FileError) event()    {}
 func (Warning) event()      {}
 func (CueRewritten) event() {}
 func (DirRemoved) event()   {}
+func (PhaseStarted) event() {}
 func (Progress) event()     {}
 func (RunFinished) event()  {}

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -88,17 +89,26 @@ func TestCLISinkLines(t *testing.T) {
 func TestCLISinkProgressAndSummary(t *testing.T) {
 	var buf bytes.Buffer
 	sink := newCLISink(log.New(&buf, "", 0), false)
+	start := time.Now()
 	sink(engine.RunStarted{Kind: engine.KindReorganize})
 
-	start := time.Now()
 	c := engine.Counters{TotalFound: 20, Organized: 4, Untagged: 3, OtherFound: 9, OtherMoved: 2, Skipped: 1, InPlace: 5, LeftInPlace: 1, Retried: 2, CueRewritten: 1, Errors: 1}
-	sink(engine.Progress{Counters: engine.Counters{Organized: 2}, At: start.Add(time.Hour)}) // settles lastTime
-	sink(engine.Progress{Counters: c, At: start.Add(time.Hour + 2*time.Second)})
+	progress := func(after time.Duration) engine.Progress {
+		return engine.Progress{Counters: c, Phase: engine.PhaseAudio, Files: 17, FilesTotal: 40, Rate: 7.5, ETA: 3067 * time.Millisecond, At: start.Add(after)}
+	}
+	sink(engine.Progress{Counters: c, Phase: engine.PhaseWalk, Files: 29, At: start.Add(time.Second)}) // too soon
+	sink(engine.Progress{Counters: c, Phase: engine.PhaseWalk, Files: 29, Rate: 12.25, At: start.Add(2500 * time.Millisecond)})
+	sink(progress(3 * time.Second)) // too soon after the last line
+	sink(progress(4600 * time.Millisecond))
 	sink(engine.RunFinished{Counters: c})
 
 	lines := strings.Split(buf.String(), "\n")
-	if got, want := lines[1], "[PROGRESS] Processed: 17 (Organized: 4, Untagged: 3, Non-audio: 2, Skipped: 1, In-place: 6, Errors: 1) | 7.5 files/sec"; got != want {
-		t.Errorf("progress line:\ngot  %q\nwant %q", got, want)
+	wantProgress := []string{
+		"[PROGRESS] walk: 29 files (Organized: 4, Untagged: 3, Non-audio: 2, Skipped: 1, In-place: 6, Errors: 1) | 12.2 files/sec",
+		"[PROGRESS] audio: 17/40 files (Organized: 4, Untagged: 3, Non-audio: 2, Skipped: 1, In-place: 6, Errors: 1) | 7.5 files/sec | ETA 3s",
+	}
+	if got := lines[:2]; !reflect.DeepEqual(got, wantProgress) {
+		t.Errorf("progress lines:\ngot  %q\nwant %q", got, wantProgress)
 	}
 	want := `================= Process Summary =================
 Total audio files found:  20

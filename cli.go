@@ -39,10 +39,12 @@ type cliSink struct {
 	dryRun     bool
 	reorganize bool
 
-	// Only Progress events touch these, and they come one at a time.
-	lastProcessed int64
-	lastTime      time.Time
+	// Only Progress events touch this, and they come one at a time.
+	lastPrinted time.Time
 }
+
+// progressEvery is how often the CLI prints a progress line.
+const progressEvery = 2 * time.Second
 
 func newCLISink(lg *log.Logger, verbose bool) engine.Sink {
 	s := &cliSink{lg: lg, verbose: verbose}
@@ -54,7 +56,7 @@ func (s *cliSink) handle(e engine.Event) {
 	case engine.RunStarted:
 		s.dryRun = e.DryRun
 		s.reorganize = e.Kind == engine.KindReorganize
-		s.lastTime = time.Now()
+		s.lastPrinted = time.Now()
 	case engine.FilePlaced:
 		s.filePlaced(e)
 	case engine.FileError:
@@ -172,20 +174,22 @@ func (s *cliSink) warning(e engine.Warning) {
 }
 
 func (s *cliSink) progress(e engine.Progress) {
-	c := e.Counters
-	inPlace := c.InPlace + c.LeftInPlace
-	totalProcessed := c.Organized + c.Untagged + c.OtherMoved + c.Skipped + inPlace + c.Errors
-
-	elapsed := e.At.Sub(s.lastTime).Seconds()
-	rate := 0.0
-	if elapsed > 0 {
-		rate = float64(totalProcessed-s.lastProcessed) / elapsed
+	if e.At.Sub(s.lastPrinted) < progressEvery {
+		return
 	}
-	s.lastProcessed = totalProcessed
-	s.lastTime = e.At
+	s.lastPrinted = e.At
 
-	s.lg.Printf("[PROGRESS] Processed: %d (Organized: %d, Untagged: %d, Non-audio: %d, Skipped: %d, In-place: %d, Errors: %d) | %.1f files/sec\n",
-		totalProcessed, c.Organized, c.Untagged, c.OtherMoved, c.Skipped, inPlace, c.Errors, rate)
+	c := e.Counters
+	files := fmt.Sprintf("%d", e.Files)
+	if e.FilesTotal > 0 {
+		files = fmt.Sprintf("%d/%d", e.Files, e.FilesTotal)
+	}
+	eta := ""
+	if e.ETA > 0 {
+		eta = fmt.Sprintf(" | ETA %s", max(e.ETA.Round(time.Second), time.Second))
+	}
+	s.lg.Printf("[PROGRESS] %s: %s files (Organized: %d, Untagged: %d, Non-audio: %d, Skipped: %d, In-place: %d, Errors: %d) | %.1f files/sec%s\n",
+		e.Phase, files, c.Organized, c.Untagged, c.OtherMoved, c.Skipped, c.InPlace+c.LeftInPlace, c.Errors, e.Rate, eta)
 }
 
 func (s *cliSink) summary(c engine.Counters) {

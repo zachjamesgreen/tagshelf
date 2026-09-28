@@ -29,8 +29,8 @@ import (
 // destination name can never spin a worker forever.
 const maxCollisionSuffix = 10000
 
-// progressInterval is how often a run sends Progress.
-const progressInterval = 500 * time.Millisecond
+// progressInterval is how often a run sends Progress. Tests shorten it.
+var progressInterval = 250 * time.Millisecond
 
 // Counters are a run's totals.
 type Counters struct {
@@ -198,6 +198,7 @@ type organizer struct {
 	dirCache DirectoryCache
 	reserved sync.Map // rules.PathKey(path) -> struct{}
 	touched  sync.Map // source directory -> struct{}
+	phase    phaseTracker
 
 	// albumsMu guards albums: source directory -> album directories its audio
 	// files were organized into. Untagged audio is recorded as "".
@@ -570,7 +571,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			case <-stopTicker:
 				return
 			case now := <-ticker.C:
-				o.emit(Progress{Counters: stats.snapshot(), At: now})
+				o.sendProgress(now)
 			}
 		}
 	}()
@@ -578,21 +579,30 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	// The whole tree is listed before anything moves. A reorganize walks the
 	// very folders it moves files into, and a streaming walk would pick those
 	// files, or the placeholders claim leaves, up a second time.
-	var audio []string
+	o.startPhase(PhaseWalk, 0, 0)
+	var audio []walkedFile
 	var companions []companionFile
+	var audioBytes, companionBytes int64
 	for _, root := range roots {
-		o.walk(ctx, root, roots, func(path string) {
+		o.walk(ctx, root, roots, func(path string, size int64) {
 			if isAudioFile(path) {
 				stats.TotalFound.Add(1)
-				audio = append(audio, path)
+				audio = append(audio, walkedFile{path: path, size: size})
+				audioBytes += size
 			} else {
 				stats.OtherFound.Add(1)
-				companions = append(companions, companionFile{path: path, root: root})
+				companions = append(companions, companionFile{walkedFile: walkedFile{path: path, size: size}, root: root})
+				companionBytes += size
 			}
+			o.phase.advance(size)
 		})
 	}
 
-	runJobs(ctx, cfg.Workers, audio, o.processFile)
+	o.startPhase(PhaseAudio, int64(len(audio)), audioBytes)
+	runJobs(ctx, cfg.Workers, audio, func(f walkedFile) {
+		o.processFile(f.path)
+		o.phase.advance(f.size)
+	})
 
 	// Non-audio files go only after every audio file has been placed, because
 	// where they go depends on where their neighbours went.
@@ -604,22 +614,30 @@ func Run(ctx context.Context, opts Options) RunFinished {
 		// subtrees there would sweep artist-level images into an album.
 		tree = buildAlbumTree(cfg.Source, o.albums)
 	}
-	runJobs(ctx, cfg.Workers, companions, func(c companionFile) { o.processCompanion(c, tree) })
+	o.startPhase(PhaseCompanions, int64(len(companions)), companionBytes)
+	runJobs(ctx, cfg.Workers, companions, func(c companionFile) {
+		o.processCompanion(c, tree)
+		o.phase.advance(c.size)
+	})
 
 	if cfg.Reorganizing() && !cfg.DryRun && ctx.Err() == nil {
-		o.retrySuffixed()
+		o.startPhase(PhaseRetrySuffixed, int64(len(o.suffixed)), 0)
+		o.retrySuffixed(ctx)
 	}
 
 	if !cfg.NoCueRewrite {
+		var cues []string
 		for _, c := range companions {
 			if strings.EqualFold(filepath.Ext(c.path), ".cue") {
-				o.rewriteCue(c.path)
+				cues = append(cues, c.path)
 			}
 		}
+		o.startPhase(PhaseCue, int64(len(cues)), 0)
+		for _, cue := range cues {
+			o.rewriteCue(cue)
+			o.phase.advance(0)
+		}
 	}
-
-	close(stopTicker)
-	<-tickerDone
 
 	interrupted := ctx.Err() != nil
 
@@ -630,8 +648,15 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			// The walked roots are the library itself; roots are never removed.
 			excluded = nil
 		}
-		cleanupEmptyDirectories(roots, excluded, func(dir string) { o.emit(DirRemoved{Path: dir}) }, &o.touched)
+		o.startPhase(PhaseCleanup, 0, 0)
+		cleanupEmptyDirectories(roots, excluded, func(dir string) {
+			o.emit(DirRemoved{Path: dir})
+			o.phase.advance(0)
+		}, &o.touched)
 	}
+
+	close(stopTicker)
+	<-tickerDone
 
 	finish := RunFinished{Counters: stats.snapshot(), State: StateOK}
 	switch {
@@ -644,9 +669,16 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	return finish
 }
 
+// walkedFile is a file found by the walk, with its size.
+type walkedFile struct {
+	path string
+	size int64
+}
+
 // companionFile is a non-audio file and the walk root it was found under.
 type companionFile struct {
-	path, root string
+	walkedFile
+	root string
 }
 
 // walkRoots lists the directories to scan. A normal run scans the source. A
@@ -682,7 +714,7 @@ func containsPath(paths []string, path string) bool {
 // walk lists the files under root, calling fn for each. A normal run skips the
 // output folders; a reorganize skips the other roots, which it walks on their
 // own.
-func (o *organizer) walk(ctx context.Context, root string, roots []string, fn func(path string)) {
+func (o *organizer) walk(ctx context.Context, root string, roots []string, fn func(path string, size int64)) {
 	skip := []string{o.cfg.Destination, o.cfg.Untagged, o.cfg.Other}
 	if o.cfg.Reorganizing() {
 		skip = roots
@@ -702,7 +734,11 @@ func (o *organizer) walk(ctx context.Context, root string, roots []string, fn fu
 			}
 			return nil
 		}
-		fn(path)
+		var size int64
+		if info, err := d.Info(); err == nil {
+			size = info.Size()
+		}
+		fn(path, size)
 		return nil
 	})
 	if err != nil {
@@ -864,24 +900,32 @@ func (o *organizer) place(path, desiredDst string, kind Outcome) {
 // retrySuffixed gives files that landed on a " (n)" name a second chance at
 // their clean name. During a reorganize that name is often held by a file that
 // is itself about to move; once it has, the clean name is free.
-func (o *organizer) retrySuffixed() {
+func (o *organizer) retrySuffixed(ctx context.Context) {
 	for _, s := range o.suffixed {
-		if _, err := os.Lstat(s.desired); !errors.Is(err, fs.ErrNotExist) {
-			continue
+		if ctx.Err() != nil {
+			return
 		}
-		claimed, err := o.claim(s.desired)
-		if err != nil || !claimed {
-			continue
-		}
-		if err := o.moveFile(s.final, s.desired); err != nil {
-			o.release(s.desired)
-			o.fail(s.final, s.desired, OpRename, err)
-			continue
-		}
-		o.placed.Store(rules.PathKey(s.src), s.desired)
-		o.emit(FilePlaced{Path: s.final, Destination: s.desired, Outcome: Renamed})
-		o.stats.Retried.Add(1)
+		o.retryOne(s)
+		o.phase.advance(0)
 	}
+}
+
+func (o *organizer) retryOne(s suffixedMove) {
+	if _, err := os.Lstat(s.desired); !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	claimed, err := o.claim(s.desired)
+	if err != nil || !claimed {
+		return
+	}
+	if err := o.moveFile(s.final, s.desired); err != nil {
+		o.release(s.desired)
+		o.fail(s.final, s.desired, OpRename, err)
+		return
+	}
+	o.placed.Store(rules.PathKey(s.src), s.desired)
+	o.emit(FilePlaced{Path: s.final, Destination: s.desired, Outcome: Renamed})
+	o.stats.Retried.Add(1)
 }
 
 // cueFileLine matches a cue sheet FILE command: FILE "name" TYPE, or with an
