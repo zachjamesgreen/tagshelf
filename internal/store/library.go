@@ -12,9 +12,14 @@ import (
 	"strings"
 )
 
+// OwnFilePrefix starts the name of every file tagshelf keeps among the music:
+// the library ID file and the temp copies a tag save writes. Walks skip them,
+// so a copy left behind by a crashed save is never taken for a song.
+const OwnFilePrefix = ".tagshelf-"
+
 // LibraryIDFile holds a library's ID in its destination root. Walks and
 // cleanup leave it alone.
-const LibraryIDFile = ".tagshelf-library"
+const LibraryIDFile = OwnFilePrefix + "library"
 
 var libraryIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 

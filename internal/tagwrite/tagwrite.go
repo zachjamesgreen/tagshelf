@@ -443,6 +443,8 @@ func copyTemp(path string) (_ string, err error) {
 		return "", err
 	}
 	defer src.Close()
+	// The prefix is store.OwnFilePrefix, which runs skip, so a copy left by a
+	// crash is never organized as a song.
 	dst, err := os.CreateTemp(filepath.Dir(path), ".tagshelf-*"+filepath.Ext(path))
 	if err != nil {
 		return "", fmt.Errorf("copying before writing: %w", err)

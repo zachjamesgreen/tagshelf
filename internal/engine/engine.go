@@ -916,9 +916,10 @@ func (o *organizer) walk(ctx context.Context, root string, skip []string, fn fun
 			}
 			return nil
 		}
-		if d.Name() == store.LibraryIDFile {
+		if strings.HasPrefix(d.Name(), store.OwnFilePrefix) {
 			// A library's identity stays in its root, and one found in a
-			// source belongs to some other library.
+			// source belongs to some other library. Anything else with the
+			// prefix is a tag save's temp copy.
 			return nil
 		}
 		f := walkedFile{path: path}

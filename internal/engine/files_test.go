@@ -118,3 +118,21 @@ func TestNonASCIINames(t *testing.T) {
 		t.Errorf("State = %v, want StateOK (%+v)", finish.State, finish.Counters)
 	}
 }
+
+// A temp copy left behind by a tag save that crashed is tagshelf's own file,
+// not a song: runs leave it where it is.
+func TestRunSkipsTagshelfTempFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "src")
+	temp := filepath.Join(source, "Rip", ".tagshelf-123456.mp3")
+	writeTaggedMP3(t, temp, id3Tags{albumArtist: "Singer", album: "Album", title: "Song", track: "1"}, "half written")
+
+	counters := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "lib"), Workers: 1}).Counters
+
+	if counters.TotalFound != 0 || counters.OtherFound != 0 {
+		t.Errorf("counters = %+v, want the temp file not found at all", counters)
+	}
+	if _, err := os.Stat(temp); err != nil {
+		t.Errorf("temp file moved: %v", err)
+	}
+}
