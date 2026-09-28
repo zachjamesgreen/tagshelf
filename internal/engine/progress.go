@@ -50,9 +50,13 @@ func (p *phaseTracker) progress(c Counters, now time.Time) Progress {
 	}
 	pr.Rate = float64(pr.Files) / elapsed
 	pr.ByteRate = float64(pr.Bytes) / elapsed
-	// Moving a file is mostly a rename, whatever its size, so the ETA goes by
-	// files rather than bytes.
-	if left := pr.FilesTotal - pr.Files; left > 0 {
+	// Indexing reads every byte, so its ETA goes by bytes. Moving a file is
+	// mostly a rename, whatever its size, so other phases go by files.
+	if p.phase == PhaseIndex {
+		if left := pr.BytesTotal - pr.Bytes; left > 0 && pr.ByteRate > 0 {
+			pr.ETA = time.Duration(float64(left) / pr.ByteRate * float64(time.Second))
+		}
+	} else if left := pr.FilesTotal - pr.Files; left > 0 {
 		pr.ETA = time.Duration(float64(left) / pr.Rate * float64(time.Second))
 	}
 	return pr
@@ -64,6 +68,14 @@ func (o *organizer) startPhase(phase Phase, files, bytes int64) {
 	defer o.phase.mu.Unlock()
 	o.phase.set(phase, files, bytes, time.Now())
 	o.emit(PhaseStarted{Phase: phase, Files: files, Bytes: bytes})
+}
+
+// startIndexPhase begins the index phase; first says the index was empty.
+func (o *organizer) startIndexPhase(files, bytes int64, first bool) {
+	o.phase.mu.Lock()
+	defer o.phase.mu.Unlock()
+	o.phase.set(PhaseIndex, files, bytes, time.Now())
+	o.emit(PhaseStarted{Phase: PhaseIndex, Files: files, Bytes: bytes, First: first})
 }
 
 // sendProgress tells the sink how the current phase is going.

@@ -51,6 +51,8 @@ type Counters struct {
 	// Files moved onto their clean name after first landing on a " (n)" one.
 	Retried      int64
 	CueRewritten int64
+	// Audio files read into the index.
+	Indexed int64
 }
 
 // stats is the live, concurrently updated form of Counters.
@@ -66,6 +68,7 @@ type stats struct {
 	LeftInPlace  atomic.Int64
 	Retried      atomic.Int64
 	CueRewritten atomic.Int64
+	Indexed      atomic.Int64
 }
 
 func (s *stats) snapshot() Counters {
@@ -81,6 +84,7 @@ func (s *stats) snapshot() Counters {
 		LeftInPlace:  s.LeftInPlace.Load(),
 		Retried:      s.Retried.Load(),
 		CueRewritten: s.CueRewritten.Load(),
+		Indexed:      s.Indexed.Load(),
 	}
 }
 
@@ -91,18 +95,25 @@ type Options struct {
 	Destination  string
 	Untagged     string // default: <Destination>/_Untagged
 	Other        string // default: <Destination>/_Other
+	Duplicates   string // default: <Destination>/_Duplicates
 	Compilations string // default: rules.DefaultCompilations
 	Workers      int    // default: the number of CPUs
 	DryRun       bool
 	NoCueRewrite bool // leave the FILE lines of moved cue sheets alone
 	Sink         Sink // may be nil
-	// Store records the run, its moves and its errors. Nil records nothing.
+	// Store records the run, its moves and its errors, and keeps the index.
+	// Nil records nothing and keeps no index.
 	Store *store.Store
+	// Rescan re-reads every file into the index, not just new and changed ones.
+	Rescan bool
+	// IndexOnly brings the index of the library, untagged, other and
+	// duplicates folders up to date and moves nothing. Source is ignored.
+	IndexOnly bool
 }
 
 // Reorganizing reports whether the run re-sorts an existing library in place.
 func (o Options) Reorganizing() bool {
-	return o.Source != "" && rules.PathKey(o.Source) == rules.PathKey(o.Destination)
+	return !o.IndexOnly && o.Source != "" && rules.PathKey(o.Source) == rules.PathKey(o.Destination)
 }
 
 // withDefaults fills in the values a run needs but the caller may have left
@@ -113,6 +124,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Other == "" && o.Destination != "" {
 		o.Other = filepath.Join(o.Destination, "_Other")
+	}
+	if o.Duplicates == "" && o.Destination != "" {
+		o.Duplicates = filepath.Join(o.Destination, "_Duplicates")
 	}
 	if o.Compilations == "" {
 		o.Compilations = rules.DefaultCompilations
@@ -611,15 +625,29 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	stats := o.stats
 
 	roots := o.walkRoots()
+	indexRoots := o.indexRoots()
+	walkDirs := slices.Clone(roots)
+	for _, r := range indexRoots {
+		if !containsPath(walkDirs, r.path) {
+			walkDirs = append(walkDirs, r.path)
+		}
+	}
 	kind := KindOrganize
-	if cfg.Reorganizing() {
+	switch {
+	case cfg.IndexOnly:
+		kind = KindIndex
+	case cfg.Reorganizing():
 		kind = KindReorganize
 	}
-	o.emit(RunStarted{Kind: kind, DryRun: cfg.DryRun, Source: cfg.Source, Destination: cfg.Destination, Roots: roots})
+	source := cfg.Source
+	if cfg.IndexOnly {
+		source = ""
+	}
+	o.emit(RunStarted{Kind: kind, DryRun: cfg.DryRun, Source: source, Destination: cfg.Destination, Roots: walkDirs})
 
 	if cfg.Store != nil {
 		// A run that cannot be recorded does not touch any file.
-		id, err := cfg.Store.StartRun(storeKinds[kind], cfg.DryRun, cfg.Source, cfg.Destination, time.Now())
+		id, err := cfg.Store.StartRun(storeKinds[kind], cfg.DryRun, source, cfg.Destination, time.Now())
 		if err != nil {
 			finish := RunFinished{State: StateNotStarted, Err: err}
 			o.emit(finish)
@@ -647,24 +675,73 @@ func Run(ctx context.Context, opts Options) RunFinished {
 
 	// The whole tree is listed before anything moves. A reorganize walks the
 	// very folders it moves files into, and a streaming walk would pick those
-	// files, or the placeholders claim leaves, up a second time.
+	// files, or the placeholders claim leaves, up a second time. The folders
+	// the index covers are walked too, to find what changed in them.
 	o.startPhase(PhaseWalk, 0, 0)
 	var audio []walkedFile
 	var companions []companionFile
 	var audioBytes, companionBytes int64
-	for _, root := range roots {
-		o.walk(ctx, root, roots, func(path string, size int64) {
-			if isAudioFile(path) {
+	skip := append(slices.Clone(walkDirs), cfg.Destination, cfg.Untagged, cfg.Other, cfg.Duplicates)
+	for _, dir := range walkDirs {
+		isRunRoot := containsPath(roots, dir)
+		var idx *indexRoot
+		for _, r := range indexRoots {
+			if rules.PathKey(r.path) == rules.PathKey(dir) {
+				idx = r
+			}
+		}
+		if !isRunRoot {
+			// A folder only the index covers may not be there yet.
+			if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+				idx.complete = true
+				continue
+			}
+		}
+		complete := o.walk(ctx, dir, skip, func(f walkedFile) {
+			audioFile := isAudioFile(f.path)
+			if idx != nil && audioFile && f.infoOK {
+				idx.audio = append(idx.audio, f)
+				if cfg.IndexOnly {
+					stats.TotalFound.Add(1)
+				}
+			}
+			o.phase.advance(f.size)
+			if !isRunRoot {
+				return
+			}
+			if audioFile {
 				stats.TotalFound.Add(1)
-				audio = append(audio, walkedFile{path: path, size: size})
-				audioBytes += size
+				audio = append(audio, f)
+				audioBytes += f.size
 			} else {
 				stats.OtherFound.Add(1)
-				companions = append(companions, companionFile{walkedFile: walkedFile{path: path, size: size}, root: root})
-				companionBytes += size
+				companions = append(companions, companionFile{walkedFile: f, root: dir})
+				companionBytes += f.size
 			}
-			o.phase.advance(size)
 		})
+		if idx != nil {
+			idx.complete = complete
+		}
+	}
+
+	// Files the index lacks, or that changed since it read them, are read
+	// before anything moves, so every file the run looks at has a row.
+	if len(indexRoots) > 0 && ctx.Err() == nil {
+		jobs, first := o.refreshIndex(ctx, indexRoots)
+		if len(jobs) > 0 || cfg.IndexOnly {
+			var bytes int64
+			for _, j := range jobs {
+				bytes += j.size
+			}
+			o.startIndexPhase(int64(len(jobs)), bytes, first && len(jobs) > 0)
+			o.indexFiles(ctx, jobs)
+		}
+	}
+
+	if cfg.IndexOnly {
+		close(stopTicker)
+		<-tickerDone
+		return o.end(o.finish(ctx.Err() != nil))
 	}
 
 	o.startPhase(PhaseAudio, int64(len(audio)), audioBytes)
@@ -713,7 +790,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 
 	// Clean up emptied directories if not in dry-run
 	if !cfg.DryRun && !interrupted {
-		excluded := []string{cfg.Destination, cfg.Untagged, cfg.Other}
+		excluded := []string{cfg.Destination, cfg.Untagged, cfg.Other, cfg.Duplicates}
 		if cfg.Reorganizing() {
 			// The walked roots are the library itself; roots are never removed.
 			excluded = nil
@@ -728,11 +805,15 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	close(stopTicker)
 	<-tickerDone
 
-	finish := o.finish(interrupted)
-	if cfg.Store != nil {
-		if err := cfg.Store.FinishRun(o.runID, store.Counters(finish.Counters), storeStates[finish.State], time.Now()); err != nil {
-			o.fail(cfg.Store.Path(), "", OpRecord, err)
-			finish = o.finish(interrupted)
+	return o.end(o.finish(interrupted))
+}
+
+// end records how the run ended and sends its RunFinished.
+func (o *organizer) end(finish RunFinished) RunFinished {
+	if st := o.cfg.Store; st != nil {
+		if err := st.FinishRun(o.runID, store.Counters(finish.Counters), storeStates[finish.State], time.Now()); err != nil {
+			o.fail(st.Path(), "", OpRecord, err)
+			finish = o.finish(finish.State == StateInterrupted)
 		}
 	}
 	o.emit(finish)
@@ -757,6 +838,7 @@ var (
 	storeKinds = map[RunKind]store.RunKind{
 		KindOrganize:   store.KindOrganize,
 		KindReorganize: store.KindReorganize,
+		KindIndex:      store.KindIndex,
 	}
 	storeStates = map[RunState]store.RunState{
 		StateOK:          store.StateOK,
@@ -765,10 +847,13 @@ var (
 	}
 )
 
-// walkedFile is a file found by the walk, with its size.
+// walkedFile is a file found by the walk, with its size and modification
+// time. infoOK is false when they could not be read.
 type walkedFile struct {
-	path string
-	size int64
+	path    string
+	size    int64
+	modTime time.Time
+	infoOK  bool
 }
 
 // companionFile is a non-audio file and the walk root it was found under.
@@ -781,6 +866,9 @@ type companionFile struct {
 // reorganize scans the library plus the untagged and other folders, wherever
 // they are, so that files tagged since the last run make it into the library.
 func (o *organizer) walkRoots() []string {
+	if o.cfg.IndexOnly {
+		return nil
+	}
 	if !o.cfg.Reorganizing() {
 		return []string{o.cfg.Source}
 	}
@@ -807,20 +895,18 @@ func containsPath(paths []string, path string) bool {
 	return false
 }
 
-// walk lists the files under root, calling fn for each. A normal run skips the
-// output folders; a reorganize skips the other roots, which it walks on their
-// own.
-func (o *organizer) walk(ctx context.Context, root string, roots []string, fn func(path string, size int64)) {
-	skip := []string{o.cfg.Destination, o.cfg.Untagged, o.cfg.Other}
-	if o.cfg.Reorganizing() {
-		skip = roots
-	}
-
+// walk lists the files under root, calling fn for each, and reports whether
+// it listed all of them. Folders in skip below root are left out: the output
+// folders and the other walked folders, which are walked on their own.
+func (o *organizer) walk(ctx context.Context, root string, skip []string, fn func(f walkedFile)) bool {
+	complete := true
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
+			complete = false
 			return filepath.SkipAll
 		}
 		if err != nil {
+			complete = false
 			o.fail(path, "", OpWalk, err)
 			return nil
 		}
@@ -835,16 +921,21 @@ func (o *organizer) walk(ctx context.Context, root string, roots []string, fn fu
 			// source belongs to some other library.
 			return nil
 		}
-		var size int64
+		f := walkedFile{path: path}
 		if info, err := d.Info(); err == nil {
-			size = info.Size()
+			f.size, f.modTime, f.infoOK = info.Size(), info.ModTime(), true
+		} else {
+			// A file the index cannot check is kept as it is.
+			complete = false
 		}
-		fn(path, size)
+		fn(f)
 		return nil
 	})
 	if err != nil {
+		complete = false
 		o.fail(root, "", OpWalkRoot, err)
 	}
+	return complete
 }
 
 // runJobs runs fn over items on the given number of goroutines and waits for

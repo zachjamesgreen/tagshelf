@@ -40,6 +40,7 @@ type cliSink struct {
 	// Set by RunStarted, before any other event can arrive.
 	dryRun     bool
 	reorganize bool
+	index      bool // an index-only run
 
 	// Only Progress events touch this, and they come one at a time.
 	lastPrinted time.Time
@@ -58,7 +59,12 @@ func (s *cliSink) handle(e engine.Event) {
 	case engine.RunStarted:
 		s.dryRun = e.DryRun
 		s.reorganize = e.Kind == engine.KindReorganize
+		s.index = e.Kind == engine.KindIndex
 		s.lastPrinted = time.Now()
+	case engine.PhaseStarted:
+		if e.Phase == engine.PhaseIndex && e.First {
+			s.lg.Printf("First index: %d files, %s. Every file is read once; later runs only read changed files.\n", e.Files, formatBytes(e.Bytes))
+		}
 	case engine.FilePlaced:
 		s.filePlaced(e)
 	case engine.FileError:
@@ -84,6 +90,13 @@ func (s *cliSink) handle(e engine.Event) {
 	case engine.RunFinished:
 		if e.State == engine.StateNotStarted {
 			s.lg.Printf("Error: could not record the run, nothing was touched: %v\n", e.Err)
+			return
+		}
+		if s.index {
+			s.indexSummary(e.Counters)
+			if e.State == engine.StateInterrupted {
+				s.lg.Println("Index interrupted: the files already read are kept, and the next run reads the rest.")
+			}
 			return
 		}
 		s.summary(e.Counters)
@@ -163,6 +176,8 @@ func (s *cliSink) fileError(e engine.FileError) {
 		s.lg.Printf("Error rewriting cue sheet %q: %v\n", e.Path, e.Err)
 	case engine.OpRecord:
 		s.lg.Printf("Error recording %q in the database: %v\n", e.Path, e.Err)
+	case engine.OpIndex:
+		s.lg.Printf("Error reading %q into the index: %v\n", e.Path, e.Err)
 	default:
 		s.lg.Printf("Error with %q: %v\n", e.Path, e.Err)
 	}
@@ -196,6 +211,12 @@ func (s *cliSink) progress(e engine.Progress) {
 	if e.ETA > 0 {
 		eta = fmt.Sprintf(" | ETA %s", max(e.ETA.Round(time.Second), time.Second))
 	}
+	if e.Phase == engine.PhaseIndex {
+		// Indexing reads every byte, so its speed is in bytes.
+		s.lg.Printf("[PROGRESS] index: %s files (%s of %s) | %s/s | %.1f files/sec%s\n",
+			files, formatBytes(e.Bytes), formatBytes(e.BytesTotal), formatBytes(int64(e.ByteRate)), e.Rate, eta)
+		return
+	}
 	s.lg.Printf("[PROGRESS] %s: %s files (Organized: %d, Untagged: %d, Non-audio: %d, Skipped: %d, In-place: %d, Errors: %d) | %.1f files/sec%s\n",
 		e.Phase, files, c.Organized, c.Untagged, c.OtherMoved, c.Skipped, c.InPlace+c.LeftInPlace, c.Errors, e.Rate, eta)
 }
@@ -203,6 +224,7 @@ func (s *cliSink) progress(e engine.Progress) {
 func (s *cliSink) summary(c engine.Counters) {
 	s.lg.Println("================= Process Summary =================")
 	s.lg.Printf("Total audio files found:  %d\n", c.TotalFound)
+	s.lg.Printf("Files read into index:    %d\n", c.Indexed)
 	s.lg.Printf("Organized files moved:    %d\n", c.Organized)
 	s.lg.Printf("Untagged files moved:     %d\n", c.Untagged)
 	s.lg.Printf("Non-audio files found:    %d\n", c.OtherFound)
@@ -216,4 +238,26 @@ func (s *cliSink) summary(c engine.Counters) {
 	s.lg.Printf("Cue sheets rewritten:     %d\n", c.CueRewritten)
 	s.lg.Printf("Errors encountered:       %d\n", c.Errors)
 	s.lg.Println("==================================================")
+}
+
+func (s *cliSink) indexSummary(c engine.Counters) {
+	s.lg.Println("================= Index Summary ==================")
+	s.lg.Printf("Audio files found:        %d\n", c.TotalFound)
+	s.lg.Printf("Files read into index:    %d\n", c.Indexed)
+	s.lg.Printf("Errors encountered:       %d\n", c.Errors)
+	s.lg.Println("==================================================")
+}
+
+// formatBytes writes a byte count in decimal units, as disks are sold.
+func formatBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	value, exp := float64(n)/unit, 0
+	for value >= unit && exp < 3 {
+		value /= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", value, "kMGT"[exp])
 }

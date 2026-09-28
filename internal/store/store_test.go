@@ -236,7 +236,7 @@ func TestRunRecording(t *testing.T) {
 	}
 
 	end := start.Add(time.Minute)
-	c := Counters{TotalFound: 1, Organized: 2, Untagged: 3, Skipped: 4, InPlace: 5, Errors: 6, OtherFound: 7, OtherMoved: 8, LeftInPlace: 9, Retried: 10, CueRewritten: 11}
+	c := Counters{TotalFound: 1, Organized: 2, Untagged: 3, Skipped: 4, InPlace: 5, Errors: 6, OtherFound: 7, OtherMoved: 8, LeftInPlace: 9, Retried: 10, CueRewritten: 11, Indexed: 12}
 	if err := s.FinishRun(id, c, StateErrors, end); err != nil {
 		t.Fatal(err)
 	}

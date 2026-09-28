@@ -1,4 +1,4 @@
-// Package store keeps a library's database: its run history and, later, its
+// Package store keeps a library's database: its run history and its
 // index. The database is SQLite, one file per library, migrated forward on
 // open.
 package store
