@@ -18,14 +18,20 @@ const LibraryIDFile = ".tagshelf-library"
 
 var libraryIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// OpenLibrary opens the database of the library at destination. database is
-// the database file to use, or "" for the default location for the library's
-// ID.
+// OpenLibrary opens the database of the library at destination for a run.
+// database is the database file to use, or "" for the default location for the
+// library's ID.
+//
+// It first takes the library lock, without waiting: if another process holds
+// it, the error is a *LockedError (errors.Is ErrLocked) and nothing else is
+// touched. The Store holds the lock until Close. Holding it, OpenLibrary marks
+// runs left running as crashed: their process died without finishing them.
 //
 // A library without an ID file gets one, but only once its database has
 // opened, so a database that cannot be opened leaves the library untouched.
 // A dry run on such a library writes nothing at all: it gets a database in
-// memory, even when database names a file.
+// memory, even when database names a file, and takes no lock, as there is no
+// library database yet to guard.
 func OpenLibrary(destination, database string, dryRun bool) (*Store, error) {
 	id, err := ReadLibraryID(destination)
 	if err != nil {
@@ -46,15 +52,25 @@ func OpenLibrary(destination, database string, dryRun bool) (*Store, error) {
 			return nil, err
 		}
 	}
-	s, err := Open(path)
+	lock, err := AcquireLock(path)
 	if err != nil {
 		return nil, err
 	}
+	s, err := Open(path)
+	if err != nil {
+		lock.Release()
+		return nil, err
+	}
+	s.lock = lock
 	if fresh {
 		if err := writeLibraryID(destination, id); err != nil {
 			s.Close()
 			return nil, err
 		}
+	}
+	if err := s.markCrashed(); err != nil {
+		s.Close()
+		return nil, err
 	}
 	s.libraryID = id
 	return s, nil

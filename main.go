@@ -142,9 +142,15 @@ func run(ctx context.Context, args []string) int {
 		cfg.Database = absDatabase
 	}
 
-	// The database opens before anything else is touched: a run that cannot
-	// be recorded does not start.
+	// The library lock is taken and the database opened before anything else
+	// is touched: a run that cannot be recorded does not start, and neither
+	// does one while another process is changing the library.
 	st, err := store.OpenLibrary(cfg.Destination, cfg.Database, cfg.DryRun)
+	var locked *store.LockedError
+	if errors.As(err, &locked) {
+		log.Printf("Error: %v; try again when it has finished", err)
+		return exitCannotStart
+	}
 	if err != nil {
 		log.Printf("Error: cannot open the library database: %v", err)
 		return exitCannotStart

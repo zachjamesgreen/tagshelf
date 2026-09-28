@@ -106,6 +106,17 @@ func (s *Store) StartRun(kind RunKind, dryRun bool, source, destination string, 
 	return res.LastInsertId()
 }
 
+// markCrashed marks every run still recorded as running as crashed. Only the
+// holder of the library lock may call it: while the lock is ours no other
+// process is running, so those runs' processes died before finishing them.
+// Their end time stays unknown.
+func (s *Store) markCrashed() error {
+	if _, err := s.db.Exec(`UPDATE runs SET state = ? WHERE state = ?`, string(StateCrashed), string(StateRunning)); err != nil {
+		return fmt.Errorf("marking crashed runs: %w", err)
+	}
+	return nil
+}
+
 // FinishRun records how a run ended.
 func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) error {
 	res, err := s.db.Exec(`UPDATE runs SET ended_at = ?, state = ?,
