@@ -1,6 +1,7 @@
 package tag
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
 	"errors"
@@ -26,7 +27,10 @@ func Sum(r io.ReadSeeker) (string, error) {
 	case string(b[0:4]) == "fLaC":
 		return SumFLAC(r)
 
-	case string(b[4:11]) == "ftypM4A":
+	case string(b[0:4]) == "OggS":
+		return SumOGG(r)
+
+	case string(b[4:8]) == "ftyp":
 		return SumAtoms(r)
 
 	case string(b[0:3]) == "ID3":
@@ -71,6 +75,21 @@ func SumAtoms(r io.ReadSeeker) (string, error) {
 			return "", err
 		}
 
+		// Length of the atom body: size 1 means a 64-bit size follows the
+		// name, size 0 means the atom runs to the end of the file.
+		n := int64(size) - 8
+		toEOF := size == 0
+		if size == 1 {
+			var large uint64
+			if err := binary.Read(r, binary.BigEndian, &large); err != nil {
+				return "", err
+			}
+			n = int64(large) - 16
+		}
+		if n < 0 && !toEOF {
+			return "", fmt.Errorf("invalid '%v' atom size", name)
+		}
+
 		switch name {
 		case "meta":
 			// next_item_id (int32)
@@ -85,16 +104,47 @@ func SumAtoms(r io.ReadSeeker) (string, error) {
 
 		case "mdat": // stop when we get to the data
 			h := sha1.New()
-			_, err := io.CopyN(h, r, int64(size-8))
+			if toEOF {
+				_, err = io.Copy(h, r)
+			} else {
+				_, err = io.CopyN(h, r, n)
+			}
 			if err != nil {
 				return "", fmt.Errorf("error reading audio data: %v", err)
 			}
 			return hashSum(h), nil
 		}
 
-		_, err = r.Seek(int64(size-8), io.SeekCurrent)
+		if toEOF {
+			return "", fmt.Errorf("reached EOF before audio data")
+		}
+		_, err = r.Seek(n, io.SeekCurrent)
 		if err != nil {
 			return "", fmt.Errorf("error reading '%v' tag: %v", name, err)
+		}
+	}
+}
+
+// SumOGG constructs a checksum of the OGG audio file data provided by the io.ReadSeeker which is
+// metadata invariant. It hashes every packet except the Vorbis comment and OpusTags headers, so
+// the page layout (which changes when the comment grows or shrinks) does not matter.
+func SumOGG(r io.ReadSeeker) (string, error) {
+	h := sha1.New()
+	od := &oggDemuxer{}
+	for {
+		packets, err := od.Read(r)
+		if err == io.EOF {
+			return hashSum(h), nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("error reading OGG page: %v", err)
+		}
+
+		for _, p := range packets {
+			if bytes.HasPrefix(p, vorbisCommentPrefix) || bytes.HasPrefix(p, opusTagsPrefix) {
+				continue
+			}
+			h.Write(p)
 		}
 	}
 }
