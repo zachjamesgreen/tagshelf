@@ -1,0 +1,11 @@
+# Audio fixtures must never have their line endings touched.
+testdata/audio/*.mp3 binary
+testdata/audio/*.flac binary
+testdata/audio/*.ogg binary
+testdata/audio/*.m4a binary
+testdata/audio/*.m4b binary
+testdata/audio/*.wav binary
+testdata/audio/*.wma binary
+testdata/audio/*.aac binary
+testdata/audio/*.ape binary
+testdata/audio/*.mpc binary
