@@ -1,6 +1,7 @@
-package main
+package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/config"
 	"tagshelf/internal/rules"
 )
 
@@ -42,7 +42,7 @@ func TestComputeSHA256(t *testing.T) {
 // testOrganizer builds an organizer whose destinations live under dir, for
 // exercising destination resolution directly.
 func testOrganizer(dir string) *organizer {
-	return newOrganizer(config.Config{Source: dir, Destination: dir, Untagged: dir, Workers: 1})
+	return newOrganizer(Options{Source: dir, Destination: dir, Untagged: dir, Workers: 1})
 }
 
 func TestResolveDestinationNoCollision(t *testing.T) {
@@ -291,7 +291,7 @@ func TestResolveDestinationDryRunTouchesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	o := newOrganizer(config.Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true})
+	o := newOrganizer(Options{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true})
 	dstFile := filepath.Join(tmpDir, "out", "dst.mp3")
 	target, outcome, err := o.resolveDestination(srcFile, dstFile)
 	if err != nil {
@@ -360,7 +360,7 @@ func TestCopyFilePreservesAttributes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := copyFile(src, dst); err != nil {
+	if err := copyFile(src, dst, func(w Warning) { t.Errorf("unexpected warning: %+v", w) }); err != nil {
 		t.Fatalf("copyFile failed: %v", err)
 	}
 
@@ -426,7 +426,7 @@ func TestCleanupEmptyDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanupEmptyDirectories([]string{srcDir}, []string{destDir, untaggedDir})
+	cleanupEmptyDirectories([]string{srcDir}, []string{destDir, untaggedDir}, nil)
 
 	if _, err := os.Stat(emptySubDir); !os.IsNotExist(err) {
 		t.Errorf("Expected emptySubDir to be deleted")
@@ -436,7 +436,7 @@ func TestCleanupEmptyDirectories(t *testing.T) {
 	}
 }
 
-func TestRunOrganizerEndToEnd(t *testing.T) {
+func TestRunEndToEnd(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
 	destDir := filepath.Join(tmpDir, "dest")
@@ -460,7 +460,7 @@ func TestRunOrganizerEndToEnd(t *testing.T) {
 	}
 
 	otherDir := filepath.Join(tmpDir, "other")
-	cfg := config.Config{
+	cfg := Options{
 		Source:      sourceDir,
 		Destination: destDir,
 		Untagged:    untaggedDir,
@@ -469,16 +469,16 @@ func TestRunOrganizerEndToEnd(t *testing.T) {
 		DryRun:      false,
 	}
 
-	stats := RunOrganizer(cfg)
+	stats := Run(context.Background(), cfg)
 
-	if stats.TotalFound.Load() != 1 {
-		t.Errorf("Expected 1 audio file found, got %d", stats.TotalFound.Load())
+	if stats.TotalFound != 1 {
+		t.Errorf("Expected 1 audio file found, got %d", stats.TotalFound)
 	}
-	if stats.Untagged.Load() != 1 {
-		t.Errorf("Expected 1 untagged file moved, got %d", stats.Untagged.Load())
+	if stats.Untagged != 1 {
+		t.Errorf("Expected 1 untagged file moved, got %d", stats.Untagged)
 	}
-	if stats.Errors.Load() != 0 {
-		t.Errorf("Expected no errors, got %d", stats.Errors.Load())
+	if stats.Errors != 0 {
+		t.Errorf("Expected no errors, got %d", stats.Errors)
 	}
 
 	// Verify untagged file arrived in untaggedDir root
@@ -487,9 +487,9 @@ func TestRunOrganizerEndToEnd(t *testing.T) {
 		t.Errorf("Expected file at %q", expectedUntaggedFile)
 	}
 
-	if stats.OtherFound.Load() != 1 || stats.OtherMoved.Load() != 1 {
+	if stats.OtherFound != 1 || stats.OtherMoved != 1 {
 		t.Errorf("Expected 1 non-audio file found and moved, got %d found, %d moved",
-			stats.OtherFound.Load(), stats.OtherMoved.Load())
+			stats.OtherFound, stats.OtherMoved)
 	}
 
 	// cover.jpg keeps its path relative to source under Other
@@ -548,7 +548,7 @@ func TestCompanionDir(t *testing.T) {
 	}
 }
 
-func TestRunOrganizerDryRunLeavesCompanions(t *testing.T) {
+func TestRunDryRunLeavesCompanions(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source", "rip")
 	if err := os.MkdirAll(sourceDir, 0755); err != nil {
@@ -560,16 +560,16 @@ func TestRunOrganizerDryRunLeavesCompanions(t *testing.T) {
 		}
 	}
 
-	stats := RunOrganizer(config.Config{
+	stats := Run(context.Background(), Options{
 		Source:      filepath.Join(tmpDir, "source"),
 		Destination: filepath.Join(tmpDir, "dest"),
 		Workers:     2,
 		DryRun:      true,
 	})
 
-	if stats.OtherFound.Load() != 2 || stats.OtherMoved.Load() != 2 {
+	if stats.OtherFound != 2 || stats.OtherMoved != 2 {
 		t.Errorf("Expected 2 non-audio files counted, got %d found, %d moved",
-			stats.OtherFound.Load(), stats.OtherMoved.Load())
+			stats.OtherFound, stats.OtherMoved)
 	}
 	for _, name := range []string{"track.mp3", "album.cue", "cover.png"} {
 		if _, err := os.Stat(filepath.Join(sourceDir, name)); err != nil {
@@ -581,7 +581,7 @@ func TestRunOrganizerDryRunLeavesCompanions(t *testing.T) {
 	}
 }
 
-func TestRunOrganizerDefaultsWorkers(t *testing.T) {
+func TestRunDefaultsWorkers(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
 	if err := os.MkdirAll(sourceDir, 0755); err != nil {
@@ -591,31 +591,31 @@ func TestRunOrganizerDefaultsWorkers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Workers: 0 is what the shipped config.yaml contains; RunOrganizer must
+	// Workers: 0 is what the shipped config.yaml contains; Run must
 	// normalize it rather than start no workers and drop every job.
-	stats := RunOrganizer(config.Config{
+	stats := Run(context.Background(), Options{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    filepath.Join(tmpDir, "untagged"),
 		Workers:     0,
 	})
 
-	if stats.TotalFound.Load() != 1 {
-		t.Fatalf("Expected 1 audio file found, got %d", stats.TotalFound.Load())
+	if stats.TotalFound != 1 {
+		t.Fatalf("Expected 1 audio file found, got %d", stats.TotalFound)
 	}
-	if stats.Untagged.Load() != 1 {
+	if stats.Untagged != 1 {
 		t.Errorf("Expected the file to be processed with Workers=0, got Untagged=%d Errors=%d",
-			stats.Untagged.Load(), stats.Errors.Load())
+			stats.Untagged, stats.Errors)
 	}
 	if _, err := os.Stat(filepath.Join(tmpDir, "untagged", "track.mp3")); err != nil {
 		t.Errorf("Expected the file to arrive in the untagged directory: %v", err)
 	}
 }
 
-// TestRunOrganizerPreservesCollidingFiles is the regression test for the case
+// TestRunPreservesCollidingFiles is the regression test for the case
 // that used to destroy data: many distinct files that all flatten onto the same
 // untagged name, handled concurrently.
-func TestRunOrganizerPreservesCollidingFiles(t *testing.T) {
+func TestRunPreservesCollidingFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
 	untaggedDir := filepath.Join(tmpDir, "untagged")
@@ -635,18 +635,18 @@ func TestRunOrganizerPreservesCollidingFiles(t *testing.T) {
 		}
 	}
 
-	stats := RunOrganizer(config.Config{
+	stats := Run(context.Background(), Options{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
 		Workers:     8,
 	})
 
-	if stats.Errors.Load() != 0 {
-		t.Errorf("Expected no errors, got %d", stats.Errors.Load())
+	if stats.Errors != 0 {
+		t.Errorf("Expected no errors, got %d", stats.Errors)
 	}
-	if got := stats.Untagged.Load(); got != count {
-		t.Errorf("Expected %d untagged moves, got %d (skipped %d)", count, got, stats.Skipped.Load())
+	if got := stats.Untagged; got != count {
+		t.Errorf("Expected %d untagged moves, got %d (skipped %d)", count, got, stats.Skipped)
 	}
 
 	entries, err := os.ReadDir(untaggedDir)
@@ -675,9 +675,9 @@ func TestRunOrganizerPreservesCollidingFiles(t *testing.T) {
 	}
 }
 
-// TestRunOrganizerIsIdempotent checks that a second run over the same
+// TestRunIsIdempotent checks that a second run over the same
 // destination neither duplicates files nor strands them.
-func TestRunOrganizerIsIdempotent(t *testing.T) {
+func TestRunIsIdempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
 	untaggedDir := filepath.Join(tmpDir, "untagged")
@@ -688,25 +688,25 @@ func TestRunOrganizerIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := config.Config{
+	cfg := Options{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
 		Workers:     2,
 	}
-	RunOrganizer(cfg)
+	Run(context.Background(), cfg)
 
 	// Re-run over the untagged directory itself: every file is already in place.
-	stats := RunOrganizer(config.Config{
+	stats := Run(context.Background(), Options{
 		Source:      untaggedDir,
 		Destination: filepath.Join(tmpDir, "dest"),
 		Untagged:    untaggedDir,
 		Workers:     2,
 	})
 
-	if stats.InPlace.Load() != 1 {
+	if stats.InPlace != 1 {
 		t.Errorf("Expected 1 file reported as already in place, got %d (organized %d, untagged %d, skipped %d)",
-			stats.InPlace.Load(), stats.Organized.Load(), stats.Untagged.Load(), stats.Skipped.Load())
+			stats.InPlace, stats.Organized, stats.Untagged, stats.Skipped)
 	}
 	entries, err := os.ReadDir(untaggedDir)
 	if err != nil {
@@ -782,7 +782,7 @@ func TestTargetedDirectoryCleanup(t *testing.T) {
 	var touchedDirs sync.Map
 	touchedDirs.Store(touchedArtist, struct{}{})
 
-	cleanupEmptyDirectories([]string{sourceDir}, []string{destDir, untaggedDir}, &touchedDirs)
+	cleanupEmptyDirectories([]string{sourceDir}, []string{destDir, untaggedDir}, nil, &touchedDirs)
 
 	if _, err := os.Stat(touchedArtist); !os.IsNotExist(err) {
 		t.Errorf("Expected touchedArtist/album to be removed")
@@ -808,7 +808,7 @@ func TestTargetedDirectoryCleanupUnderDottedParent(t *testing.T) {
 	var touchedDirs sync.Map
 	touchedDirs.Store(dotted, struct{}{})
 
-	cleanupEmptyDirectories([]string{sourceDir}, []string{filepath.Join(tmpDir, "dest"), filepath.Join(tmpDir, "untagged")}, &touchedDirs)
+	cleanupEmptyDirectories([]string{sourceDir}, []string{filepath.Join(tmpDir, "dest"), filepath.Join(tmpDir, "untagged")}, nil, &touchedDirs)
 
 	if _, err := os.Stat(dotted); !os.IsNotExist(err) {
 		t.Errorf("Expected %q to be cleaned up", dotted)
@@ -855,7 +855,7 @@ func BenchmarkResolveDestinationCollision(b *testing.B) {
 
 	// Dry run so that resolution reserves names in memory only and each
 	// iteration measures the same work.
-	cfg := config.Config{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true}
+	cfg := Options{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -873,13 +873,12 @@ func BenchmarkProcessFile(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	cfg := config.Config{
+	cfg := Options{
 		Source:      sourceDir,
 		Destination: filepath.Join(tmpDir, "dst"),
 		Untagged:    filepath.Join(tmpDir, "untagged"),
 		Workers:     1,
 		DryRun:      true,
-		Verbose:     false,
 	}
 
 	testFile := filepath.Join(sourceDir, "test.mp3")
@@ -960,7 +959,7 @@ func readTestFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func TestRunOrganizerReorganizesLibrary(t *testing.T) {
+func TestRunReorganizesLibrary(t *testing.T) {
 	lib := t.TempDir()
 	oldAlbum := filepath.Join(lib, "Singer feat. Guest", "Album")
 	writeTaggedMP3(t, filepath.Join(oldAlbum, "Song.mp3"), id3Tags{
@@ -974,11 +973,11 @@ func TestRunOrganizerReorganizesLibrary(t *testing.T) {
 	writeTestFile(t, filepath.Join(lib, "Singer feat. Guest", "artist.jpg"), "artist art")
 	writeTestFile(t, filepath.Join(lib, "Hand Placed", "track.mp3"), "no tags here")
 
-	cfg := config.Config{Source: lib, Destination: lib, Workers: 2}
-	stats := RunOrganizer(cfg)
+	cfg := Options{Source: lib, Destination: lib, Workers: 2}
+	stats := Run(context.Background(), cfg)
 
-	if stats.Errors.Load() != 0 {
-		t.Fatalf("Expected no errors, got %d", stats.Errors.Load())
+	if stats.Errors != 0 {
+		t.Fatalf("Expected no errors, got %d", stats.Errors)
 	}
 	newAlbum := filepath.Join(lib, "Singer", "Album (2001)")
 	if readTestFile(t, filepath.Join(newAlbum, "03 - Song.mp3")) == "" {
@@ -994,8 +993,8 @@ func TestRunOrganizerReorganizesLibrary(t *testing.T) {
 	}
 	readTestFile(t, filepath.Join(lib, "Singer feat. Guest", "artist.jpg"))
 	readTestFile(t, filepath.Join(lib, "Hand Placed", "track.mp3"))
-	if stats.LeftInPlace.Load() != 1 {
-		t.Errorf("Expected 1 non-qualifying file left in place, got %d", stats.LeftInPlace.Load())
+	if stats.LeftInPlace != 1 {
+		t.Errorf("Expected 1 non-qualifying file left in place, got %d", stats.LeftInPlace)
 	}
 	if _, err := os.Stat(oldAlbum); !os.IsNotExist(err) {
 		t.Errorf("Expected the emptied old album folder to be removed")
@@ -1007,10 +1006,10 @@ func TestRunOrganizerReorganizesLibrary(t *testing.T) {
 	}
 
 	// A second pass finds everything in place and leaves the cue alone.
-	again := RunOrganizer(cfg)
-	if again.Organized.Load() != 0 || again.OtherMoved.Load() != 0 || again.CueRewritten.Load() != 0 {
+	again := Run(context.Background(), cfg)
+	if again.Organized != 0 || again.OtherMoved != 0 || again.CueRewritten != 0 {
 		t.Errorf("Expected a second reorganize to change nothing, got organized %d, non-audio %d, cues %d",
-			again.Organized.Load(), again.OtherMoved.Load(), again.CueRewritten.Load())
+			again.Organized, again.OtherMoved, again.CueRewritten)
 	}
 	if got := readTestFile(t, filepath.Join(newAlbum, "album.cue.orig")); got != originalCue {
 		t.Errorf("A later run must keep the first original, got %q", got)
@@ -1029,12 +1028,12 @@ func TestReorganizePullsTaggedFilesFromUntagged(t *testing.T) {
 	}, "audio")
 	writeTestFile(t, filepath.Join(untagged, "still broken.mp3"), "no tags")
 
-	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Untagged: untagged, Workers: 2})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Untagged: untagged, Workers: 2})
 
 	readTestFile(t, filepath.Join(lib, "Singer", "Album", "01 - Fixed.mp3"))
 	readTestFile(t, filepath.Join(untagged, "still broken.mp3"))
-	if stats.Organized.Load() != 1 || stats.LeftInPlace.Load() != 1 {
-		t.Errorf("Expected 1 organized and 1 left, got %d and %d", stats.Organized.Load(), stats.LeftInPlace.Load())
+	if stats.Organized != 1 || stats.LeftInPlace != 1 {
+		t.Errorf("Expected 1 organized and 1 left, got %d and %d", stats.Organized, stats.LeftInPlace)
 	}
 	if _, err := os.Stat(untagged); err != nil {
 		t.Errorf("The untagged folder itself must never be cleaned up: %v", err)
@@ -1051,10 +1050,10 @@ func TestReorganizeSwapGetsCleanNames(t *testing.T) {
 	writeTaggedMP3(t, filepath.Join(album, "01 - A.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
 	writeTaggedMP3(t, filepath.Join(album, "02 - B.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
 
-	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 1})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1})
 
-	if stats.Errors.Load() != 0 {
-		t.Fatalf("Expected no errors, got %d", stats.Errors.Load())
+	if stats.Errors != 0 {
+		t.Fatalf("Expected no errors, got %d", stats.Errors)
 	}
 	entries, err := os.ReadDir(album)
 	if err != nil {
@@ -1070,8 +1069,8 @@ func TestReorganizeSwapGetsCleanNames(t *testing.T) {
 	if got := readTestFile(t, filepath.Join(album, "02 - B.mp3")); !strings.HasSuffix(got, "really B") {
 		t.Errorf("02 - B.mp3 holds the wrong file: %q", got)
 	}
-	if stats.Retried.Load() != 1 {
-		t.Errorf("Expected 1 retried rename, got %d", stats.Retried.Load())
+	if stats.Retried != 1 {
+		t.Errorf("Expected 1 retried rename, got %d", stats.Retried)
 	}
 }
 
@@ -1083,7 +1082,7 @@ func TestCueLeftAloneWhenAudioIsElsewhere(t *testing.T) {
 	writeTestFile(t, filepath.Join(rip, "album.cue"), cue)
 
 	other := filepath.Join(tmpDir, "other")
-	stats := RunOrganizer(config.Config{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1})
+	stats := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1})
 
 	moved := filepath.Join(other, "rip", "album.cue")
 	if got := readTestFile(t, moved); got != cue {
@@ -1092,8 +1091,8 @@ func TestCueLeftAloneWhenAudioIsElsewhere(t *testing.T) {
 	if _, err := os.Stat(moved + ".orig"); !os.IsNotExist(err) {
 		t.Errorf("No .orig should be written when nothing was rewritten")
 	}
-	if stats.CueRewritten.Load() != 0 {
-		t.Errorf("Expected no cue rewrites, got %d", stats.CueRewritten.Load())
+	if stats.CueRewritten != 0 {
+		t.Errorf("Expected no cue rewrites, got %d", stats.CueRewritten)
 	}
 }
 
@@ -1104,8 +1103,7 @@ func TestCueRewriteCanBeDisabled(t *testing.T) {
 	cue := "FILE \"Song.mp3\" MP3\n"
 	writeTestFile(t, filepath.Join(album, "album.cue"), cue)
 
-	off := false
-	RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 1, CueRewrite: &off})
+	Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1, NoCueRewrite: true})
 
 	if got := readTestFile(t, filepath.Join(lib, "Singer", "Album", "album.cue")); got != cue {
 		t.Errorf("With cue_rewrite off the cue must be moved unchanged, got %q", got)
@@ -1124,10 +1122,10 @@ func TestReorganizeGathersCompilation(t *testing.T) {
 		}, fmt.Sprintf("audio %d", i))
 	}
 
-	stats := RunOrganizer(config.Config{Source: lib, Destination: lib, Workers: 2})
+	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 2})
 
-	if stats.Errors.Load() != 0 || stats.Organized.Load() != 2 {
-		t.Fatalf("Expected 2 organized files and no errors, got %d and %d", stats.Organized.Load(), stats.Errors.Load())
+	if stats.Errors != 0 || stats.Organized != 2 {
+		t.Fatalf("Expected 2 organized files and no errors, got %d and %d", stats.Organized, stats.Errors)
 	}
 	album := filepath.Join(lib, "Various Artists", "Hits (2012)")
 	readTestFile(t, filepath.Join(album, "01 - Singer A - Song 1.mp3"))
