@@ -1,0 +1,45 @@
+# tagshelf
+
+tagshelf sorts audio files into a music library by their tags, and keeps an index of that library for its TUI.
+
+## Language
+
+**Library**:
+The organized destination folder plus its `_Untagged`, `_Other` and `_Duplicates` folders, identified by the ID in `.tagshelf-library`.
+_Avoid_: collection, destination (when meaning the whole set)
+
+**Index**:
+tagshelf's cached record of every audio file in a library (tags, audio hash, format properties), rebuilt from the files whenever they change.
+_Avoid_: catalog, scan cache
+
+**Run**:
+One organize or reorganize pass over a library, started from the CLI or the TUI, dry or real.
+_Avoid_: job, session, pass
+
+**Manually tagged**:
+A file whose tags a person chose in tagshelf, either typed by hand or picked from a MusicBrainz lookup, as opposed to tags written by a ripper or Picard.
+_Avoid_: hand-tagged (when a MusicBrainz pick is meant too), user-tagged
+
+**Manual marker**:
+The tag in a file that records it as manually tagged, with how (hand or MusicBrainz) and when.
+_Avoid_: manual flag, tagshelf tag
+
+**Qualifies**:
+A file qualifies for the library when it has MusicBrainz IDs or a manual marker, and an artist, album and title; everything else belongs in `_Untagged`.
+_Avoid_: eligible, organizable
+
+**Accept tags**:
+Vouching for a file's existing tags as they are, which makes it manually tagged without changing any field.
+_Avoid_: approve, confirm tags
+
+**Release match**:
+Tagging several files at once from one MusicBrainz release, each file assigned to one of its tracks.
+_Avoid_: album lookup, batch tag
+
+**Undo**:
+Reversing a whole run or TUI action (its moves, cue rewrites and tag saves), skipping any file that has changed since; itself recorded as a run.
+_Avoid_: rollback, revert
+
+**Library lock**:
+The exclusive hold one process takes on a library before changing any of its files; only one process holds it at a time.
+_Avoid_: run lock, mutex
