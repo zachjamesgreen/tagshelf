@@ -1,0 +1,145 @@
+{
+  "created": "2026-09-28T10:00:00.000Z",
+  "count": 2,
+  "offset": 0,
+  "recordings": [
+    {
+      "id": "b1a9c0e9-d987-4042-ae91-78d6a3267d69",
+      "score": 100,
+      "title": "Blow Your Mind (Mwah)",
+      "length": 178583,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua"
+          }
+        }
+      ],
+      "first-release-date": "2016-08-26",
+      "releases": [
+        {
+          "id": "3e8d4c7b-8f3a-4b36-9b0c-1d0a6f7e2a11",
+          "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+          "count": 1,
+          "title": "Now That’s What I Call Music! 95",
+          "status": "Official",
+          "release-group": {
+            "id": "0c3e4c9a-7f2d-4d6b-9a8e-5b1f2c3d4e5f",
+            "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "title": "Now That’s What I Call Music! 95",
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"],
+            "secondary-type-ids": ["dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"]
+          },
+          "date": "2016-11-18",
+          "country": "GB",
+          "track-count": 44,
+          "media": [
+            {
+              "position": 1,
+              "format": "CD",
+              "track": [
+                {
+                  "id": "a0c1d2e3-f4a5-4b6c-8d7e-9f0a1b2c3d4e",
+                  "number": "14",
+                  "title": "Blow Your Mind (Mwah)",
+                  "length": 178000
+                }
+              ],
+              "track-count": 22,
+              "track-offset": 13
+            }
+          ]
+        },
+        {
+          "id": "8f1c5c16-7d4a-4c3b-9f3e-1a2b3c4d5e6f",
+          "status-id": "518ffc83-5cde-34df-8627-81bff5093d92",
+          "count": 1,
+          "title": "Dua Lipa",
+          "status": "Official",
+          "release-group": {
+            "id": "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c",
+            "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+            "title": "Dua Lipa",
+            "primary-type": "Album"
+          },
+          "date": "2017-06-02",
+          "country": "XW",
+          "track-count": 12,
+          "media": [
+            {
+              "position": 1,
+              "format": "Digital Media",
+              "track": [
+                {
+                  "id": "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f",
+                  "number": "6",
+                  "title": "Blow Your Mind (Mwah)",
+                  "length": 178583
+                }
+              ],
+              "track-count": 12,
+              "track-offset": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c7d8e9f0-1a2b-4c3d-9e4f-5a6b7c8d9e0f",
+      "score": 87,
+      "title": "Blow Your Mind (Mwah) (acoustic)",
+      "length": 191000,
+      "artist-credit": [
+        {
+          "name": "Dua Lipa",
+          "joinphrase": "",
+          "artist": {
+            "id": "6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f",
+            "name": "Dua Lipa",
+            "sort-name": "Lipa, Dua"
+          }
+        }
+      ],
+      "releases": [
+        {
+          "id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+          "count": 1,
+          "title": "Blow Your Mind (Mwah) (Remixes)",
+          "status": "Official",
+          "release-group": {
+            "id": "f0e1d2c3-b4a5-4968-8776-655443322110",
+            "title": "Blow Your Mind (Mwah) (Remixes)",
+            "primary-type": "Single"
+          },
+          "date": "2016",
+          "country": "XW",
+          "track-count": 4,
+          "media": [
+            {
+              "position": 1,
+              "format": "Digital Media",
+              "track": [
+                {
+                  "id": "11223344-5566-4778-8990-aabbccddeeff",
+                  "number": "4",
+                  "title": "Blow Your Mind (Mwah) (acoustic)",
+                  "length": 191000
+                }
+              ],
+              "track-count": 4,
+              "track-offset": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

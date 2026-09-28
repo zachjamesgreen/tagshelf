@@ -168,3 +168,17 @@ func TestWithDefaults(t *testing.T) {
 		t.Errorf("WithDefaults must not overwrite explicit values: %+v", explicit)
 	}
 }
+
+func TestLoadConfigMusicBrainzContact(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mb_config.yaml")
+	if err := os.WriteFile(configPath, []byte("musicbrainz_contact: \"me@example.com\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath, Overrides{})
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.MusicBrainzContact != "me@example.com" {
+		t.Errorf("MusicBrainzContact = %q, want me@example.com", cfg.MusicBrainzContact)
+	}
+}
