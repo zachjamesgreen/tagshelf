@@ -53,6 +53,9 @@ func ReadFrom(r io.ReadSeeker) (Metadata, error) {
 
 	case string(b[0:4]) == "DSD ":
 		return ReadDSFTags(r)
+
+	case isASF(b):
+		return ReadASFTags(r)
 	}
 
 	m, err := ReadID3v1Tags(r)
@@ -77,6 +80,7 @@ const (
 	ID3v2_4       Format = "ID3v2.4" // ID3v2.4 tag format.
 	MP4           Format = "MP4"     // MP4 tag (atom) format (see http://www.ftyps.com/ for a full file type list)
 	VORBIS        Format = "VORBIS"  // Vorbis Comment tag format.
+	ASF           Format = "ASF"     // ASF (Windows Media) attribute format.
 )
 
 // FileType is an enumeration of the audio file types supported by this package, in particular
@@ -95,6 +99,7 @@ const (
 	FLAC            FileType = "FLAC" // FLAC file
 	OGG             FileType = "OGG"  // OGG file
 	DSF             FileType = "DSF"  // DSF file DSD Sony format see https://dsd-guide.com/sites/default/files/white-papers/DSFFileFormatSpec_E.pdf
+	WMA             FileType = "WMA"  // WMA file (ASF container)
 )
 
 // Metadata is an interface which is used to describe metadata retrieved by this package.

@@ -56,6 +56,9 @@ func Identify(r io.ReadSeeker) (format Format, fileType FileType, err error) {
 			return
 		}
 		return format, MP3, nil
+
+	case isASF(b):
+		return ASF, WMA, nil
 	}
 
 	n, err := r.Seek(-128, io.SeekEnd)
