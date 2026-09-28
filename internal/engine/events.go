@@ -13,13 +13,14 @@ type Event interface{ event() }
 // so it must be safe for concurrent use and return quickly.
 type Sink func(Event)
 
-// RunKind says whether a run organizes a source into the library or re-sorts
-// the library in place.
+// RunKind says whether a run organizes a source into the library, re-sorts
+// the library in place, or only brings the index up to date.
 type RunKind int
 
 const (
 	KindOrganize RunKind = iota
 	KindReorganize
+	KindIndex
 )
 
 // RunStarted opens every run, before anything is walked.
@@ -68,9 +69,10 @@ const (
 	OpSaveCueOriginal                  // keeping a cue sheet's original as .orig
 	OpRewriteCue                       // writing a rewritten cue sheet
 	OpRecord                           // recording a move or the run in the database
+	OpIndex                            // reading an audio file into the index
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {
@@ -130,6 +132,7 @@ type Phase int
 
 const (
 	PhaseWalk          Phase = iota // listing the files under the roots
+	PhaseIndex                      // reading new and changed audio files into the index
 	PhaseAudio                      // placing audio files
 	PhaseCompanions                 // placing non-audio files
 	PhaseRetrySuffixed              // reorganize only: moving " (n)" files onto clean names
@@ -137,7 +140,7 @@ const (
 	PhaseCleanup                    // removing emptied directories
 )
 
-var phaseNames = [...]string{"walk", "audio", "companions", "retry-suffixed", "cue", "cleanup"}
+var phaseNames = [...]string{"walk", "index", "audio", "companions", "retry-suffixed", "cue", "cleanup"}
 
 func (p Phase) String() string {
 	if p < 0 || int(p) >= len(phaseNames) {
@@ -147,16 +150,20 @@ func (p Phase) String() string {
 }
 
 // PhaseStarted opens a phase. Files and Bytes are the phase's totals, or 0
-// when they are not known up front.
+// when they are not known up front. First is set on an index phase that
+// starts from an empty index, which reads every file once.
 type PhaseStarted struct {
 	Phase Phase
 	Files int64
 	Bytes int64
+	First bool
 }
 
 // Progress is sent periodically while a run is working. Files and Bytes count
 // what the current phase has done, against its totals from PhaseStarted. Rate
-// and ByteRate are per second since the phase started. ETA is 0 when unknown.
+// and ByteRate are per second since the phase started. ETA is 0 when unknown;
+// it goes by bytes while indexing, which reads every byte, and by files
+// otherwise.
 type Progress struct {
 	Counters   Counters
 	Phase      Phase

@@ -52,6 +52,8 @@ func run(ctx context.Context, args []string) int {
 	reorganizeFlag := flags.String("reorganize", "", "Re-sort an already organized library in place (sets -source and -dest to this directory)")
 	noCueRewriteFlag := flags.Bool("no-cue-rewrite", false, "Do not rewrite the FILE lines of moved cue sheets")
 	dbFlag := flags.String("db", "", "Library database file (default: %LOCALAPPDATA%/tagshelf/libraries/<library-id>/tagshelf.db)")
+	indexFlag := flags.Bool("index", false, "Only bring the library index up to date; move nothing (needs only -dest)")
+	rescanFlag := flags.Bool("rescan", false, "Re-read every file into the index, even if its size and modification time match")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -97,7 +99,11 @@ func run(ctx context.Context, args []string) int {
 		return exitCannotStart
 	}
 
-	if cfg.Source == "" {
+	if *indexFlag {
+		// An index run moves nothing, so it has nothing to preview and no
+		// source to organize; it keeps what it reads.
+		cfg.DryRun = false
+	} else if cfg.Source == "" {
 		log.Println("Error: source directory must be specified via -source or config file")
 		return exitCannotStart
 	}
@@ -108,10 +114,12 @@ func run(ctx context.Context, args []string) int {
 
 	cfg = cfg.WithDefaults()
 
-	absSource, err := filepath.Abs(cfg.Source)
-	if err != nil {
-		log.Printf("Invalid source path: %v", err)
-		return exitCannotStart
+	absSource := ""
+	if cfg.Source != "" {
+		if absSource, err = filepath.Abs(cfg.Source); err != nil {
+			log.Printf("Invalid source path: %v", err)
+			return exitCannotStart
+		}
 	}
 	absDest, err := filepath.Abs(cfg.Destination)
 	if err != nil {
@@ -159,13 +167,19 @@ func run(ctx context.Context, args []string) int {
 	database := st.Path()
 	if database == "" {
 		database = "in memory (dry run on a library without an ID yet)"
+		log.Println("No library index yet: this dry run indexes in memory and discards it. Run tagshelf -index first to keep it.")
 	}
 
 	log.Println("================ Music Organizer ================")
-	if cfg.Reorganizing() {
+	switch {
+	case *indexFlag:
+		log.Println("Mode:         index only, nothing moves")
+	case cfg.Reorganizing():
 		log.Println("Mode:         reorganize library in place")
 	}
-	log.Printf("Source:       %s\n", cfg.Source)
+	if !*indexFlag {
+		log.Printf("Source:       %s\n", cfg.Source)
+	}
 	log.Printf("Destination:  %s\n", cfg.Destination)
 	log.Printf("Untagged:     %s\n", cfg.Untagged)
 	log.Printf("Other:        %s\n", cfg.Other)
@@ -188,6 +202,8 @@ func run(ctx context.Context, args []string) int {
 		NoCueRewrite: !cfg.RewriteCues(),
 		Sink:         newCLISink(log.Default(), cfg.Verbose),
 		Store:        st,
+		Rescan:       *rescanFlag,
+		IndexOnly:    *indexFlag,
 	})
 	return exitCode(finish.State)
 }

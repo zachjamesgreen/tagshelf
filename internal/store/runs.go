@@ -55,6 +55,7 @@ type Counters struct {
 	LeftInPlace  int64
 	Retried      int64
 	CueRewritten int64
+	Indexed      int64 // files read into the index
 }
 
 // Run is a row of the run history. Ended is zero while it is running.
@@ -121,11 +122,11 @@ func (s *Store) markCrashed() error {
 func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) error {
 	res, err := s.db.Exec(`UPDATE runs SET ended_at = ?, state = ?,
 		total_found = ?, organized = ?, untagged = ?, skipped = ?, in_place = ?, errors = ?,
-		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?
+		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?
 		WHERE id = ?`,
 		formatTime(at), string(state),
 		c.TotalFound, c.Organized, c.Untagged, c.Skipped, c.InPlace, c.Errors,
-		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten,
+		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed,
 		id)
 	if err != nil {
 		return fmt.Errorf("recording the end of run %d: %w", id, err)
@@ -136,11 +137,25 @@ func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) er
 	return nil
 }
 
-// RecordMove records that a run moved a file.
+// RecordMove records that a run moved a file and, in the same transaction,
+// moves the file's index row with it. A cue rewrite keeps the cue sheet where
+// it is, so its row stays put.
 func (s *Store) RecordMove(runID int64, from, to string, reason MoveReason) error {
-	_, err := s.db.Exec(`INSERT INTO moves (run_id, from_path, to_path, reason, moved_at) VALUES (?, ?, ?, ?, ?)`,
-		runID, from, to, string(reason), formatTime(time.Now()))
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("recording the move of %q: %w", from, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO moves (run_id, from_path, to_path, reason, moved_at) VALUES (?, ?, ?, ?, ?)`,
+		runID, from, to, string(reason), formatTime(time.Now())); err != nil {
+		return fmt.Errorf("recording the move of %q: %w", from, err)
+	}
+	if reason != ReasonCueRewrite {
+		if err := moveFileRow(tx, from, to); err != nil {
+			return fmt.Errorf("moving %q in the index: %w", from, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("recording the move of %q: %w", from, err)
 	}
 	return nil
@@ -159,7 +174,7 @@ func (s *Store) RecordError(runID int64, path, message string) error {
 func (s *Store) Runs() ([]Run, error) {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
 		total_found, organized, untagged, skipped, in_place, errors,
-		other_found, other_moved, left_in_place, retried, cue_rewritten, state
+		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state
 		FROM runs ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -173,7 +188,7 @@ func (s *Store) Runs() ([]Run, error) {
 		c := &r.Counters
 		if err := rows.Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
 			&c.TotalFound, &c.Organized, &c.Untagged, &c.Skipped, &c.InPlace, &c.Errors,
-			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &state); err != nil {
+			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state); err != nil {
 			return nil, err
 		}
 		if r.Started, err = parseTime(started); err != nil {

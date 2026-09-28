@@ -97,7 +97,7 @@ func TestCLISinkProgressAndSummary(t *testing.T) {
 	start := time.Now()
 	sink(engine.RunStarted{Kind: engine.KindReorganize})
 
-	c := engine.Counters{TotalFound: 20, Organized: 4, Untagged: 3, OtherFound: 9, OtherMoved: 2, Skipped: 1, InPlace: 5, LeftInPlace: 1, Retried: 2, CueRewritten: 1, Errors: 1}
+	c := engine.Counters{TotalFound: 20, Indexed: 7, Organized: 4, Untagged: 3, OtherFound: 9, OtherMoved: 2, Skipped: 1, InPlace: 5, LeftInPlace: 1, Retried: 2, CueRewritten: 1, Errors: 1}
 	progress := func(after time.Duration) engine.Progress {
 		return engine.Progress{Counters: c, Phase: engine.PhaseAudio, Files: 17, FilesTotal: 40, Rate: 7.5, ETA: 3067 * time.Millisecond, At: start.Add(after)}
 	}
@@ -117,6 +117,7 @@ func TestCLISinkProgressAndSummary(t *testing.T) {
 	}
 	want := `================= Process Summary =================
 Total audio files found:  20
+Files read into index:    7
 Organized files moved:    4
 Untagged files moved:     3
 Non-audio files found:    9
