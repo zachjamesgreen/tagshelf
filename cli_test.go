@@ -46,7 +46,8 @@ func TestCLISinkLines(t *testing.T) {
 		{"dry companion", dryRun, true, placed(engine.Companion), `[DRY-RUN] [COMPANION] "a" -> "b"`},
 		{"dry other", dryRun, true, placed(engine.Other), `[DRY-RUN] [OTHER] "a" -> "b"`},
 		{"moved quiet", organize, false, placed(engine.Organized), ""},
-		{"duplicate", organize, false, placed(engine.Duplicate), `[SKIPPED] "a" -> identical copy already at "b"`},
+		{"duplicate", organize, false, placed(engine.Duplicate), `[DUPLICATE] "a" -> "b"`},
+		{"dry duplicate", dryRun, false, placed(engine.Duplicate), `[DRY-RUN] [DUPLICATE] "a" -> "b"`},
 		{"in place", organize, true, placed(engine.InPlace), `[IN-PLACE] "a" is already at its destination`},
 		{"in place quiet", organize, false, placed(engine.InPlace), ""},
 		{"left", organize, true, placed(engine.Left), `[LEFT] "a" does not qualify for the library, leaving it in place`},
@@ -97,7 +98,7 @@ func TestCLISinkProgressAndSummary(t *testing.T) {
 	start := time.Now()
 	sink(engine.RunStarted{Kind: engine.KindReorganize})
 
-	c := engine.Counters{TotalFound: 20, Indexed: 7, Organized: 4, Untagged: 3, OtherFound: 9, OtherMoved: 2, Skipped: 1, InPlace: 5, LeftInPlace: 1, Retried: 2, CueRewritten: 1, Errors: 1}
+	c := engine.Counters{TotalFound: 20, Indexed: 7, Organized: 4, Untagged: 3, OtherFound: 9, OtherMoved: 2, Duplicates: 1, InPlace: 5, LeftInPlace: 1, Retried: 2, CueRewritten: 1, Errors: 1}
 	progress := func(after time.Duration) engine.Progress {
 		return engine.Progress{Counters: c, Phase: engine.PhaseAudio, Files: 17, FilesTotal: 40, Rate: 7.5, ETA: 3067 * time.Millisecond, At: start.Add(after)}
 	}
@@ -109,8 +110,8 @@ func TestCLISinkProgressAndSummary(t *testing.T) {
 
 	lines := strings.Split(buf.String(), "\n")
 	wantProgress := []string{
-		"[PROGRESS] walk: 29 files (Organized: 4, Untagged: 3, Non-audio: 2, Skipped: 1, In-place: 6, Errors: 1) | 12.2 files/sec",
-		"[PROGRESS] audio: 17/40 files (Organized: 4, Untagged: 3, Non-audio: 2, Skipped: 1, In-place: 6, Errors: 1) | 7.5 files/sec | ETA 3s",
+		"[PROGRESS] walk: 29 files (Organized: 4, Untagged: 3, Non-audio: 2, Duplicates: 1, In-place: 6, Errors: 1) | 12.2 files/sec",
+		"[PROGRESS] audio: 17/40 files (Organized: 4, Untagged: 3, Non-audio: 2, Duplicates: 1, In-place: 6, Errors: 1) | 7.5 files/sec | ETA 3s",
 	}
 	if got := lines[:2]; !reflect.DeepEqual(got, wantProgress) {
 		t.Errorf("progress lines:\ngot  %q\nwant %q", got, wantProgress)
@@ -122,7 +123,7 @@ Organized files moved:    4
 Untagged files moved:     3
 Non-audio files found:    9
 Non-audio files moved:    2
-Duplicate files skipped:  1
+Duplicates moved:         1
 Already in place:         5
 Not qualifying, left:     1
 Moved to clean name:      2
@@ -144,6 +145,65 @@ func TestCLISinkInterruptedSummary(t *testing.T) {
 	want := "==================================================\nRun interrupted: the remaining files were left where they are and empty folders were not cleaned up.\n"
 	if got := buf.String(); !strings.HasSuffix(got, want) {
 		t.Errorf("summary does not end with the interrupted line:\n%s", got)
+	}
+}
+
+func TestCLISinkNeedReview(t *testing.T) {
+	for n, want := range map[int]string{
+		0: "",
+		1: "1 duplicate group needs review: run tagshelf tui\n",
+		3: "3 duplicate groups need review: run tagshelf tui\n",
+	} {
+		for _, kind := range []engine.RunKind{engine.KindOrganize, engine.KindIndex} {
+			var buf bytes.Buffer
+			sink := newCLISink(log.New(&buf, "", 0), false)
+			sink(engine.RunStarted{Kind: kind})
+			sink(engine.RunFinished{NeedReview: n})
+			got := strings.TrimPrefix(buf.String()[strings.LastIndex(buf.String(), "=====\n"):], "=====\n")
+			if got != want {
+				t.Errorf("kind %v, %d groups: after the summary got %q, want %q", kind, n, got, want)
+			}
+		}
+	}
+}
+
+// TestRunMovesDuplicates runs the CLI end to end over an incoming copy of a
+// song already in the library, with the duplicates folder moved by
+// -duplicates.
+func TestRunMovesDuplicates(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	isolateDataDir(t)
+	tmp := t.TempDir()
+	config := filepath.Join(tmp, "empty.yaml")
+	writeFile(t, config, "")
+	lib := filepath.Join(tmp, "lib")
+	audio := strings.Repeat("some audio ", 40)
+	writeFile(t, filepath.Join(lib, "_Untagged", "song.mp3"), audio)
+	dups := filepath.Join(tmp, "dups")
+	args := []string{"-config", config, "-dest", lib, "-duplicates", dups}
+	if got := run(context.Background(), append(args, "-index")); got != exitOK {
+		t.Fatalf("index run = %d", got)
+	}
+	copied := filepath.Join(tmp, "src", "Folder", "song.mp3")
+	writeFile(t, copied, audio)
+
+	out.Reset()
+	if got := run(context.Background(), append(args, "-source", filepath.Join(tmp, "src"))); got != exitOK {
+		t.Fatalf("run = %d, want %d:\n%s", got, exitOK, out.String())
+	}
+	moved := filepath.Join(dups, "Folder", "song.mp3")
+	if _, err := os.Stat(moved); err != nil {
+		t.Errorf("copy not moved to %q: %v", moved, err)
+	}
+	for _, want := range []string{fmt.Sprintf("[DUPLICATE] %q -> %q", copied, moved), "Duplicates moved:         1"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "need review") || strings.Contains(out.String(), "needs review") {
+		t.Errorf("output asks for a review:\n%s", out.String())
 	}
 }
 

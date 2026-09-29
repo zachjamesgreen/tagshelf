@@ -94,12 +94,14 @@ func (s *cliSink) handle(e engine.Event) {
 		}
 		if s.index {
 			s.indexSummary(e.Counters)
+			s.needReview(e.NeedReview)
 			if e.State == engine.StateInterrupted {
 				s.lg.Println("Index interrupted: the files already read are kept, and the next run reads the rest.")
 			}
 			return
 		}
 		s.summary(e.Counters)
+		s.needReview(e.NeedReview)
 		if e.State == engine.StateInterrupted {
 			s.lg.Println("Run interrupted: the remaining files were left where they are and empty folders were not cleaned up.")
 		}
@@ -109,7 +111,11 @@ func (s *cliSink) handle(e engine.Event) {
 func (s *cliSink) filePlaced(e engine.FilePlaced) {
 	switch e.Outcome {
 	case engine.Duplicate:
-		s.lg.Printf("[SKIPPED] %q -> identical copy already at %q\n", e.Path, e.Destination)
+		if s.dryRun {
+			s.lg.Printf("[DRY-RUN] [DUPLICATE] %q -> %q\n", e.Path, e.Destination)
+			return
+		}
+		s.lg.Printf("[DUPLICATE] %q -> %q\n", e.Path, e.Destination)
 		return
 	case engine.InPlace:
 		if s.verbose {
@@ -217,8 +223,8 @@ func (s *cliSink) progress(e engine.Progress) {
 			files, formatBytes(e.Bytes), formatBytes(e.BytesTotal), formatBytes(int64(e.ByteRate)), e.Rate, eta)
 		return
 	}
-	s.lg.Printf("[PROGRESS] %s: %s files (Organized: %d, Untagged: %d, Non-audio: %d, Skipped: %d, In-place: %d, Errors: %d) | %.1f files/sec%s\n",
-		e.Phase, files, c.Organized, c.Untagged, c.OtherMoved, c.Skipped, c.InPlace+c.LeftInPlace, c.Errors, e.Rate, eta)
+	s.lg.Printf("[PROGRESS] %s: %s files (Organized: %d, Untagged: %d, Non-audio: %d, Duplicates: %d, In-place: %d, Errors: %d) | %.1f files/sec%s\n",
+		e.Phase, files, c.Organized, c.Untagged, c.OtherMoved, c.Duplicates, c.InPlace+c.LeftInPlace, c.Errors, e.Rate, eta)
 }
 
 func (s *cliSink) summary(c engine.Counters) {
@@ -229,7 +235,7 @@ func (s *cliSink) summary(c engine.Counters) {
 	s.lg.Printf("Untagged files moved:     %d\n", c.Untagged)
 	s.lg.Printf("Non-audio files found:    %d\n", c.OtherFound)
 	s.lg.Printf("Non-audio files moved:    %d\n", c.OtherMoved)
-	s.lg.Printf("Duplicate files skipped:  %d\n", c.Skipped)
+	s.lg.Printf("Duplicates moved:         %d\n", c.Duplicates)
 	s.lg.Printf("Already in place:         %d\n", c.InPlace)
 	if s.reorganize {
 		s.lg.Printf("Not qualifying, left:     %d\n", c.LeftInPlace)
@@ -238,6 +244,16 @@ func (s *cliSink) summary(c engine.Counters) {
 	s.lg.Printf("Cue sheets rewritten:     %d\n", c.CueRewritten)
 	s.lg.Printf("Errors encountered:       %d\n", c.Errors)
 	s.lg.Println("==================================================")
+}
+
+// needReview points at the TUI when duplicate groups wait for a person.
+func (s *cliSink) needReview(n int) {
+	switch {
+	case n == 1:
+		s.lg.Println("1 duplicate group needs review: run tagshelf tui")
+	case n > 1:
+		s.lg.Printf("%d duplicate groups need review: run tagshelf tui\n", n)
+	}
 }
 
 func (s *cliSink) indexSummary(c engine.Counters) {

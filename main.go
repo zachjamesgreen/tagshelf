@@ -49,6 +49,7 @@ func run(ctx context.Context, args []string) int {
 	destFlag := flags.String("dest", "", "Destination directory for organized music")
 	untaggedFlag := flags.String("untagged", "", "Directory for untagged / incomplete files")
 	otherFlag := flags.String("other", "", "Directory for non-audio files that do not belong to a tagged album (default: <dest>/_Other)")
+	duplicatesFlag := flags.String("duplicates", "", "Directory the losing copies of duplicates are moved to (default: <dest>/_Duplicates)")
 	compilationsFlag := flags.String("compilations", "", "Artist folder name for Various Artists compilations (default: \""+rules.DefaultCompilations+"\")")
 	workersFlag := flags.Int("workers", 0, "Number of concurrent worker goroutines (default: NumCPU)")
 	dryRunFlag := flags.Bool("dry-run", false, "Preview actions without moving or deleting files")
@@ -76,6 +77,7 @@ func run(ctx context.Context, args []string) int {
 		Destination:  *destFlag,
 		Untagged:     *untaggedFlag,
 		Other:        *otherFlag,
+		Duplicates:   *duplicatesFlag,
 		Compilations: *compilationsFlag,
 		Database:     *dbFlag,
 	}
@@ -141,10 +143,17 @@ func run(ctx context.Context, args []string) int {
 		return exitCannotStart
 	}
 
+	absDuplicates, err := filepath.Abs(cfg.Duplicates)
+	if err != nil {
+		log.Printf("Invalid duplicates path: %v", err)
+		return exitCannotStart
+	}
+
 	cfg.Source = absSource
 	cfg.Destination = absDest
 	cfg.Untagged = absUntagged
 	cfg.Other = absOther
+	cfg.Duplicates = absDuplicates
 	if cfg.Database != "" {
 		absDatabase, err := filepath.Abs(cfg.Database)
 		if err != nil {
@@ -187,27 +196,31 @@ func run(ctx context.Context, args []string) int {
 	log.Printf("Destination:  %s\n", cfg.Destination)
 	log.Printf("Untagged:     %s\n", cfg.Untagged)
 	log.Printf("Other:        %s\n", cfg.Other)
+	log.Printf("Duplicates:   %s\n", cfg.Duplicates)
 	log.Printf("Compilations: %s\n", cfg.Compilations)
 	log.Printf("Workers:      %d\n", cfg.Workers)
 	log.Printf("Dry-Run:      %t\n", cfg.DryRun)
 	log.Printf("Verbose:      %t\n", cfg.Verbose)
 	log.Printf("Cue rewrite:  %t\n", cfg.RewriteCues())
+	log.Printf("Auto-resolve: %t\n", cfg.AutoResolvesExact())
 	log.Printf("Database:     %s\n", database)
 	log.Println("==================================================")
 
 	finish := engine.Run(ctx, engine.Options{
-		Source:       cfg.Source,
-		Destination:  cfg.Destination,
-		Untagged:     cfg.Untagged,
-		Other:        cfg.Other,
-		Compilations: cfg.Compilations,
-		Workers:      cfg.Workers,
-		DryRun:       cfg.DryRun,
-		NoCueRewrite: !cfg.RewriteCues(),
-		Sink:         newCLISink(log.Default(), cfg.Verbose),
-		Store:        st,
-		Rescan:       *rescanFlag,
-		IndexOnly:    *indexFlag,
+		Source:        cfg.Source,
+		Destination:   cfg.Destination,
+		Untagged:      cfg.Untagged,
+		Other:         cfg.Other,
+		Duplicates:    cfg.Duplicates,
+		Compilations:  cfg.Compilations,
+		Workers:       cfg.Workers,
+		DryRun:        cfg.DryRun,
+		NoCueRewrite:  !cfg.RewriteCues(),
+		NoAutoResolve: !cfg.AutoResolvesExact(),
+		Sink:          newCLISink(log.Default(), cfg.Verbose),
+		Store:         st,
+		Rescan:        *rescanFlag,
+		IndexOnly:     *indexFlag,
 	})
 	return exitCode(finish.State)
 }

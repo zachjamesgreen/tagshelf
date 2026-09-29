@@ -40,7 +40,7 @@ const (
 	Untagged                 // moved to the untagged folder
 	Other                    // non-audio file moved to the other folder
 	Companion                // non-audio file moved next to its album
-	Duplicate                // left alone: an identical copy is already at Destination
+	Duplicate                // moved to the duplicates folder: another copy is kept
 	InPlace                  // already at its destination
 	Left                     // reorganize only: does not qualify, stays where it is
 	Renamed                  // moved from a " (n)" name onto its clean name
@@ -188,10 +188,13 @@ const (
 )
 
 // RunFinished closes every run. Err says why a run could not start.
+// NeedReview counts the duplicate groups in the library waiting for a person
+// to review them; a dry run does not count them.
 type RunFinished struct {
-	Counters Counters
-	State    RunState
-	Err      error
+	Counters   Counters
+	State      RunState
+	Err        error
+	NeedReview int
 }
 
 func (RunStarted) event()   {}

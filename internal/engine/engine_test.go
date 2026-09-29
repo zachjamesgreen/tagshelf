@@ -15,32 +15,6 @@ import (
 	"tagshelf/internal/rules"
 )
 
-func TestComputeSHA256(t *testing.T) {
-	tmpDir := t.TempDir()
-	filePath := filepath.Join(tmpDir, "test.txt")
-	content := []byte("hello world audio test")
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	hash1, err := computeSHA256(filePath)
-	if err != nil {
-		t.Fatalf("computeSHA256 failed: %v", err)
-	}
-
-	hash2, err := computeSHA256(filePath)
-	if err != nil {
-		t.Fatalf("computeSHA256 failed on second run: %v", err)
-	}
-
-	if hash1 != hash2 {
-		t.Errorf("Hashes do not match: %s != %s", hash1, hash2)
-	}
-	if len(hash1) != 64 {
-		t.Errorf("Expected 64 char hex hash, got %d: %s", len(hash1), hash1)
-	}
-}
-
 // testOrganizer builds an organizer whose destinations live under dir, for
 // exercising destination resolution directly.
 func testOrganizer(dir string) *organizer {
@@ -57,7 +31,7 @@ func TestResolveDestinationNoCollision(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -75,9 +49,9 @@ func TestResolveDestinationNoCollision(t *testing.T) {
 
 func TestResolveDestinationIdenticalContentIsDuplicate(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcFile := filepath.Join(tmpDir, "src.mp3")
-	dstFile := filepath.Join(tmpDir, "dst.mp3")
-	data := []byte("audio data sample 1")
+	srcFile := filepath.Join(tmpDir, "src.jpg")
+	dstFile := filepath.Join(tmpDir, "dst.jpg")
+	data := []byte("art data sample 1")
 
 	if err := os.WriteFile(srcFile, data, 0644); err != nil {
 		t.Fatal(err)
@@ -87,7 +61,7 @@ func TestResolveDestinationIdenticalContentIsDuplicate(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, true)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -98,8 +72,34 @@ func TestResolveDestinationIdenticalContentIsDuplicate(t *testing.T) {
 		t.Errorf("Expected duplicate to report %q, got %q", dstFile, target)
 	}
 	// A second copy must not have been manufactured.
-	if _, err := os.Stat(filepath.Join(tmpDir, "dst (1).mp3")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(tmpDir, "dst (1).jpg")); !os.IsNotExist(err) {
 		t.Errorf("Expected no suffixed copy to be created for a duplicate")
+	}
+
+	// Audio is compared through the index, never byte for byte here: an
+	// identical file under the name is just a name collision.
+	target, outcome, err = o.resolveDestination(srcFile, dstFile, false)
+	if err != nil || outcome != outcomeMove || target != filepath.Join(tmpDir, "dst (1).jpg") {
+		t.Errorf("without comparing: %q, %v, %v; want a suffixed move", target, outcome, err)
+	}
+}
+
+func TestSameBytes(t *testing.T) {
+	dir := t.TempDir()
+	big := strings.Repeat("0123456789", 20000) // spans several buffers
+	files := map[string]string{"a": big, "b": big, "c": big[:len(big)-1] + "x", "d": big + "y", "e": "", "f": ""}
+	for name, body := range files {
+		writeTestFile(t, filepath.Join(dir, name), body)
+	}
+	tests := []struct {
+		a, b string
+		want bool
+	}{{"a", "b", true}, {"a", "c", false}, {"a", "d", false}, {"d", "a", false}, {"e", "f", true}, {"e", "a", false}}
+	for _, tt := range tests {
+		got, err := sameBytes(filepath.Join(dir, tt.a), filepath.Join(dir, tt.b))
+		if err != nil || got != tt.want {
+			t.Errorf("sameBytes(%s, %s) = %v, %v; want %v", tt.a, tt.b, got, err, tt.want)
+		}
 	}
 }
 
@@ -117,7 +117,7 @@ func TestResolveDestinationDifferentContentGetsSuffix(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestResolveDestinationDifferentSizeGetsSuffix(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestResolveDestinationSuffixSkipsOccupiedNames(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestResolveDestinationFileAlreadyInPlace(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, outcome, err := o.resolveDestination(srcFile, srcFile)
+	target, outcome, err := o.resolveDestination(srcFile, srcFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -228,11 +228,11 @@ func TestResolveDestinationReservesAcrossWorkers(t *testing.T) {
 	desired := filepath.Join(tmpDir, "out", "track.mp3")
 	o := testOrganizer(tmpDir)
 
-	targetA, outcomeA, err := o.resolveDestination(srcA, desired)
+	targetA, outcomeA, err := o.resolveDestination(srcA, desired, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	targetB, outcomeB, err := o.resolveDestination(srcB, desired)
+	targetB, outcomeB, err := o.resolveDestination(srcB, desired, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestResolveDestinationReportsUnusableParent(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	if _, _, err := o.resolveDestination(srcFile, filepath.Join(blocker, "dst.mp3")); err == nil {
+	if _, _, err := o.resolveDestination(srcFile, filepath.Join(blocker, "dst.mp3"), false); err == nil {
 		t.Errorf("Expected an error when the destination parent is a regular file")
 	}
 }
@@ -272,7 +272,7 @@ func TestReleaseRemovesUnusedReservation(t *testing.T) {
 	}
 
 	o := testOrganizer(tmpDir)
-	target, _, err := o.resolveDestination(srcFile, dstFile)
+	target, _, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestResolveDestinationDryRunTouchesNothing(t *testing.T) {
 
 	o := newOrganizer(Options{Source: tmpDir, Destination: tmpDir, Untagged: tmpDir, Workers: 1, DryRun: true})
 	dstFile := filepath.Join(tmpDir, "out", "dst.mp3")
-	target, outcome, err := o.resolveDestination(srcFile, dstFile)
+	target, outcome, err := o.resolveDestination(srcFile, dstFile, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestRunPreservesCollidingFiles(t *testing.T) {
 		t.Errorf("Expected no errors, got %d", stats.Errors)
 	}
 	if got := stats.Untagged; got != count {
-		t.Errorf("Expected %d untagged moves, got %d (skipped %d)", count, got, stats.Skipped)
+		t.Errorf("Expected %d untagged moves, got %d (duplicates %d)", count, got, stats.Duplicates)
 	}
 
 	entries, err := os.ReadDir(untaggedDir)
@@ -707,8 +707,8 @@ func TestRunIsIdempotent(t *testing.T) {
 	}).Counters
 
 	if stats.InPlace != 1 {
-		t.Errorf("Expected 1 file reported as already in place, got %d (organized %d, untagged %d, skipped %d)",
-			stats.InPlace, stats.Organized, stats.Untagged, stats.Skipped)
+		t.Errorf("Expected 1 file reported as already in place, got %d (organized %d, untagged %d, duplicates %d)",
+			stats.InPlace, stats.Organized, stats.Untagged, stats.Duplicates)
 	}
 	entries, err := os.ReadDir(untaggedDir)
 	if err != nil {
@@ -820,27 +820,6 @@ func TestTargetedDirectoryCleanupUnderDottedParent(t *testing.T) {
 	}
 }
 
-func BenchmarkComputeSHA256(b *testing.B) {
-	tmpDir := b.TempDir()
-	sampleFile := filepath.Join(tmpDir, "bench_sample.bin")
-	data := make([]byte, 1024*1024) // 1MB sample
-	for i := range data {
-		data[i] = byte(i % 256)
-	}
-	if err := os.WriteFile(sampleFile, data, 0644); err != nil {
-		b.Fatal(err)
-	}
-
-	b.ResetTimer()
-	b.SetBytes(int64(len(data)))
-	for i := 0; i < b.N; i++ {
-		_, err := computeSHA256(sampleFile)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 func BenchmarkResolveDestinationCollision(b *testing.B) {
 	tmpDir := b.TempDir()
 	srcFile := filepath.Join(tmpDir, "src.bin")
@@ -862,7 +841,7 @@ func BenchmarkResolveDestinationCollision(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		o := newOrganizer(cfg)
-		if _, _, err := o.resolveDestination(srcFile, dstFile); err != nil {
+		if _, _, err := o.resolveDestination(srcFile, dstFile, false); err != nil {
 			b.Fatal(err)
 		}
 	}
