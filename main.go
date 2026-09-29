@@ -37,8 +37,12 @@ func interruptContext() context.Context {
 	return ctx
 }
 
-// run parses args, does one run and returns the process exit code.
+// run parses args, does one run (or, for `tagshelf tui`, shows the TUI) and
+// returns the process exit code.
 func run(ctx context.Context, args []string) int {
+	if len(args) > 0 && args[0] == "tui" {
+		return runTUI(ctx, args[1:])
+	}
 	flags := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
 	configPath := flags.String("config", "", "Path to YAML configuration file")
 	sourceFlag := flags.String("source", "", "Source directory containing audio files")

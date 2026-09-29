@@ -34,6 +34,10 @@ const maxCollisionSuffix = 10000
 // progressInterval is how often a run sends Progress. Tests shorten it.
 var progressInterval = 250 * time.Millisecond
 
+// progressRecordInterval is how often a run records its progress in its runs
+// row, where another process (the TUI) can follow it. Tests shorten it.
+var progressRecordInterval = 2 * time.Second
+
 // Counters are a run's totals.
 type Counters struct {
 	TotalFound int64
@@ -659,16 +663,20 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	stopTicker := make(chan struct{})
 	tickerDone := make(chan struct{})
 	ticker := time.NewTicker(progressInterval)
+	recordTicker := time.NewTicker(progressRecordInterval)
 
 	go func() {
 		defer close(tickerDone)
 		defer ticker.Stop()
+		defer recordTicker.Stop()
 		for {
 			select {
 			case <-stopTicker:
 				return
 			case now := <-ticker.C:
 				o.sendProgress(now)
+			case now := <-recordTicker.C:
+				o.recordProgress(now)
 			}
 		}
 	}()

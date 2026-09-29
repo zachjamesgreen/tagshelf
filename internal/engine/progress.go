@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tagshelf/internal/store"
 )
 
 // phaseTracker follows the current phase and how far it has got.
@@ -83,4 +85,18 @@ func (o *organizer) sendProgress(now time.Time) {
 	o.phase.mu.Lock()
 	defer o.phase.mu.Unlock()
 	o.emit(o.phase.progress(o.stats.snapshot(), now))
+}
+
+// recordProgress writes the current phase and how far it has got into the
+// run's row, for other processes to follow. It is for display only, so a
+// failed write is not a file error; the next one may well succeed.
+func (o *organizer) recordProgress(now time.Time) {
+	st := o.cfg.Store
+	if st == nil || o.runID == 0 {
+		return
+	}
+	o.phase.mu.Lock()
+	p := store.RunProgress{Phase: o.phase.phase.String(), Done: o.phase.doneFiles.Load(), Total: o.phase.files, At: now}
+	o.phase.mu.Unlock()
+	_ = st.RecordProgress(o.runID, p)
 }
