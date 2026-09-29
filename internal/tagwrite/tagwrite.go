@@ -6,9 +6,10 @@
 // nothing, and is recorded in the tag history with the written fields'
 // values before and after.
 //
-// MP3, FLAC, OGG, the MP4 family (.m4a, .m4b, .m4r, .m4p), WAV, APE and MPC
-// can be tagged. WMA and .aac cannot yet: go-taglib drops the marker from
-// WMA, and .aac needs its APEv2 tag written too.
+// MP3, FLAC, OGG, the MP4 family (.m4a, .m4b, .m4r, .m4p), WAV, APE, MPC and
+// .aac can be tagged. WMA cannot yet: go-taglib drops the marker from WMA.
+// An .aac file is tagged on both sides: go-taglib writes ID3v2, internal/tag
+// the APEv2 tag Picard reads, and both must read back.
 package tagwrite
 
 import (
@@ -112,6 +113,7 @@ type Writer struct {
 // format is how one file extension is tagged.
 type format struct {
 	vorbis bool                    // Vorbis comments: track and disc totals are keys of their own
+	ape    bool                    // an APEv2 tag is written too, after go-taglib's ID3v2 tag
 	is     func(tag.Metadata) bool // whether internal/tag read the file as this format
 }
 
@@ -125,6 +127,7 @@ func isMP4(md tag.Metadata) bool { return md.Format() == tag.MP4 }
 
 var formats = map[string]format{
 	".mp3":  {is: fileType(tag.MP3)},
+	".aac":  {ape: true, is: fileType(tag.AAC)},
 	".flac": {vorbis: true, is: fileType(tag.FLAC)},
 	".ogg":  {vorbis: true, is: fileType(tag.OGG)},
 	".m4a":  {is: isMP4},
@@ -167,7 +170,7 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	before := fromKeys(f, current, named)
 	after := maps.Clone(want)
 	after[Marker] = []string{m.String()}
-	if len(before[Marker]) > 0 && equalExcept(before, after, Marker) {
+	if len(before[Marker]) > 0 && equalExcept(before, after, Marker) && (!f.ape || apeUpToDate(path, after)) {
 		return Result{Before: before, After: before}, nil
 	}
 
@@ -183,6 +186,11 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	}()
 	if err := taglib.WriteTags(tmp, toKeys(f, after), 0); err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	}
+	if f.ape {
+		if err := writeAPE(tmp, after); err != nil {
+			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		}
 	}
 	if err := verify(f, tmp, after, m); err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
@@ -492,7 +500,13 @@ func verify(f format, path string, want Values, m marker.Marker) error {
 	if got, ok := marker.Read(md); !ok || got.String() != m.String() {
 		return fmt.Errorf("%w: the marker reads as %q, want %q", ErrNotVerified, got.String(), m.String())
 	}
-	return verifyReader(md, want)
+	if err := verifyReader(md, want); err != nil {
+		return err
+	}
+	if f.ape {
+		return verifyAPE(path, want, m)
+	}
+	return nil
 }
 
 // verifyReader checks the fields internal/tag reads against want.
