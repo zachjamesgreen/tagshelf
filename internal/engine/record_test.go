@@ -259,3 +259,50 @@ func TestWalkSkipsLibraryIDFile(t *testing.T) {
 		}
 	})
 }
+
+func TestRunRecordsProgressForOtherProcesses(t *testing.T) {
+	old := progressRecordInterval
+	progressRecordInterval = time.Millisecond
+	t.Cleanup(func() { progressRecordInterval = old })
+
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "src")
+	dest := filepath.Join(tmpDir, "lib")
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		writeTestFile(t, filepath.Join(source, name), "no tags "+name)
+	}
+	st := openStore(t)
+
+	// While files are placed, read the run's row the way the TUI would.
+	var seen []store.RunProgress
+	sink := func(e Event) {
+		if _, ok := e.(FilePlaced); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+		a, err := st.ActiveRun(0)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if a == nil {
+			t.Error("no running run while files are being placed")
+			return
+		}
+		seen = append(seen, a.Progress)
+	}
+	Run(context.Background(), Options{Source: source, Destination: dest, Workers: 1, Store: st, Sink: sink})
+
+	var sawAudio bool
+	for _, p := range seen {
+		if p.Phase == "audio" {
+			sawAudio = true
+			if p.Total != 3 || p.Done > 3 || p.At.IsZero() {
+				t.Errorf("audio progress = %+v, want up to 3 of 3 files, with a time", p)
+			}
+		}
+	}
+	if !sawAudio {
+		t.Errorf("progress seen while running = %+v, want some from the audio phase", seen)
+	}
+}

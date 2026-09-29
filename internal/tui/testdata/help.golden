@@ -1,0 +1,32 @@
+ tagshelf  D:\Music  library 3f2a1b2c
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Keys
+  1-5    switch tab
+  tab    next tab (shift+tab previous)
+  R      reload the library now
+  ?      show or hide this help
+  esc    back
+  q      quit
+
+The view reloads by itself when another tagshelf changes the library.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+esc back  1-5 tabs  R reload  ? help  q quit
