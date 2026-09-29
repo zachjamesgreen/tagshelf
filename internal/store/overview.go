@@ -11,8 +11,8 @@ import (
 type Overview struct {
 	Library, Untagged, Other, Duplicates int64 // indexed audio files per folder
 
-	// ExactGroups counts sets of two or more files outside the duplicates
-	// folder with the same audio.
+	// ExactGroups counts the exact duplicate groups in the library, untagged
+	// and other folders that no review covers yet.
 	ExactGroups int64
 
 	// LastRun is the newest run that is no longer running, nil when there is
@@ -49,14 +49,11 @@ func (s *Store) Overview() (Overview, error) {
 		return o, err
 	}
 
-	err = s.db.QueryRow(`SELECT count(*) FROM (
-		SELECT f.audio_sum FROM files f JOIN roots r ON r.id = f.root_id
-		WHERE f.audio_sum IS NOT NULL AND r.kind IN (?, ?, ?)
-		GROUP BY f.audio_sum HAVING count(*) > 1)`,
-		string(RootLibrary), string(RootUntagged), string(RootOther)).Scan(&o.ExactGroups)
+	n, err := s.ExactGroupsNeedingReview()
 	if err != nil {
 		return o, fmt.Errorf("counting duplicate groups: %w", err)
 	}
+	o.ExactGroups = int64(n)
 
 	var id int64
 	err = s.db.QueryRow(`SELECT id FROM runs WHERE state <> ? ORDER BY id DESC LIMIT 1`, string(StateRunning)).Scan(&id)
@@ -79,10 +76,10 @@ func (s *Store) run(id int64) (*Run, error) {
 	var kind, state string
 	c := &r.Counters
 	err := s.db.QueryRow(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
-		total_found, organized, untagged, skipped, in_place, errors,
+		total_found, organized, untagged, duplicates, in_place, errors,
 		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state
 		FROM runs WHERE id = ?`, id).Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
-		&c.TotalFound, &c.Organized, &c.Untagged, &c.Skipped, &c.InPlace, &c.Errors,
+		&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
 		&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state)
 	if err != nil {
 		return nil, fmt.Errorf("reading run %d: %w", id, err)
