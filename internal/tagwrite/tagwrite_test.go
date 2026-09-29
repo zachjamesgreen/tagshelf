@@ -73,6 +73,7 @@ func musicBrainzSave() Values {
 var taggableExtensions = map[string]string{
 	".mp3": ".mp3", ".flac": ".flac", ".ogg": ".ogg", ".m4a": ".m4a", ".m4b": ".m4b",
 	".m4r": ".m4a", ".m4p": ".m4a", ".wav": ".wav", ".ape": ".ape", ".mpc": ".mpc",
+	".aac": ".aac",
 }
 
 // TestRoundTrip saves every field to each taggable format, from untagged and
@@ -187,6 +188,8 @@ func TestWrongExtensionFails(t *testing.T) {
 		{fixtures.Tagged(".mp3"), "song.wav"},   // caught before writing
 		{fixtures.Untagged(".mp3"), "song.wav"}, // no tags to tell: caught on reading back
 		{fixtures.Untagged(".mp3"), "song.ogg"},
+		{fixtures.Tagged(".mp3"), "song.aac"},
+		{fixtures.Untagged(".mp3"), "song.aac"},
 	} {
 		path := copyFixture(t, tt.src, tt.name)
 		orig, err := os.ReadFile(path)
@@ -211,7 +214,7 @@ func TestWrongExtensionFails(t *testing.T) {
 }
 
 func TestUnsupportedFormats(t *testing.T) {
-	for _, ext := range []string{".wma", ".aac"} {
+	for _, ext := range []string{".wma"} {
 		path := copyFixture(t, fixtures.Tagged(ext), "song"+ext)
 		orig, _ := os.ReadFile(path)
 		_, err := Writer{}.Save(path, Values{Title: {"X"}}, marker.New(marker.Hand, day))
@@ -377,7 +380,7 @@ func TestSaveRejectsBadValues(t *testing.T) {
 // TestClearFields checks that fields given no values are removed, including
 // the Vorbis totals.
 func TestClearFields(t *testing.T) {
-	for _, ext := range []string{".flac", ".mp3", ".m4a", ".ape"} {
+	for _, ext := range []string{".flac", ".mp3", ".m4a", ".ape", ".aac"} {
 		path := copyFixture(t, fixtures.Tagged(ext), "song"+ext)
 		if _, err := (Writer{}).Save(path, Values{Album: nil, Track: {}, ReleaseGroupID: {""}}, marker.New(marker.Hand, day)); err != nil {
 			t.Fatalf("%s: %v", ext, err)

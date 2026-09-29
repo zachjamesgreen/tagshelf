@@ -29,6 +29,7 @@ type trailingTags struct {
 	audioEnd int64 // the offset after the last audio byte
 
 	ape      bool   // there is an APEv2 tag
+	apeStart int64  // the offset of its header, or of its first item without one
 	apeItems int64  // the offset of its first item
 	apeSize  int64  // the bytes from its first item to the end of its footer
 	apeCount uint32 // its item count
@@ -69,6 +70,7 @@ func findTrailingTags(r io.ReadSeeker, start, end int64) (trailingTags, error) {
 	}
 
 	t.ape = true
+	t.apeStart = tagStart
 	t.apeItems = t.audioEnd - size
 	t.apeSize = size
 	t.apeCount = binary.LittleEndian.Uint32(b[16:20])
@@ -280,9 +282,17 @@ func ReadAPEv2Tags(r io.ReadSeeker) (Metadata, error) {
 
 var errAPEv2Item = errors.New("invalid APEv2 item")
 
-// readItems parses count items from b. A count larger than the items that
-// fit, which some writers leave, stops at the end of b.
-func (m *metadataAPEv2) readItems(b []byte, count uint32) error {
+// apev2Item is one item of an APEv2 tag as stored.
+type apev2Item struct {
+	key   string
+	flags uint32 // bits 2-1: 0 UTF-8 text, 1 binary, 2 external link; bit 0: read-only
+	value []byte
+}
+
+// parseAPEv2Items parses count items from b. A count larger than the items
+// that fit, which some writers leave, stops at the end of b.
+func parseAPEv2Items(b []byte, count uint32) ([]apev2Item, error) {
+	var items []apev2Item
 	for i := uint32(0); i < count && len(b) >= 8; i++ {
 		size := uint64(binary.LittleEndian.Uint32(b[0:4]))
 		flags := binary.LittleEndian.Uint32(b[4:8])
@@ -290,24 +300,34 @@ func (m *metadataAPEv2) readItems(b []byte, count uint32) error {
 
 		k := bytes.IndexByte(b, 0)
 		if k < 1 {
-			return errAPEv2Item
+			return nil, errAPEv2Item
 		}
 		key := string(b[:k])
 		b = b[k+1:]
 		if size > uint64(len(b)) {
-			return fmt.Errorf("%w: %q runs past the end of the tag", errAPEv2Item, key)
+			return nil, fmt.Errorf("%w: %q runs past the end of the tag", errAPEv2Item, key)
 		}
-		value := b[:size]
+		items = append(items, apev2Item{key: key, flags: flags, value: append([]byte(nil), b[:size]...)})
 		b = b[size:]
+	}
+	return items, nil
+}
 
+// readItems parses count items from b into m.
+func (m *metadataAPEv2) readItems(b []byte, count uint32) error {
+	items, err := parseAPEv2Items(b, count)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
 		var v interface{}
-		if flags>>1&3 == 1 { // binary
-			v = append([]byte(nil), value...)
+		if it.flags>>1&3 == 1 { // binary
+			v = it.value
 		} else { // UTF-8 text, or an external link
-			v = string(value)
+			v = string(it.value)
 		}
-		m.raw[key] = v
-		m.items[strings.ToLower(key)] = v
+		m.raw[it.key] = v
+		m.items[strings.ToLower(it.key)] = v
 	}
 	return nil
 }
