@@ -6,9 +6,11 @@
 // nothing, and is recorded in the tag history with the written fields'
 // values before and after.
 //
-// MP3, FLAC, OGG, the MP4 family (.m4a, .m4b, .m4r, .m4p), WAV, APE and MPC
-// can be tagged. WMA and .aac cannot yet: go-taglib drops the marker from
-// WMA, and .aac needs its APEv2 tag written too.
+// MP3, FLAC, OGG, the MP4 family (.m4a, .m4b, .m4r, .m4p), WAV, APE, MPC
+// and WMA can be tagged. .aac cannot yet: it needs its APEv2 tag written too.
+// go-taglib drops the marker from WMA, so internal/tag's ASF writer adds it,
+// and a WMA save checks that the audio's tag.Sum is unchanged. TagLib has no
+// ASF key for the compilation flag, so WMA saves leave it out.
 package tagwrite
 
 import (
@@ -112,6 +114,7 @@ type Writer struct {
 // format is how one file extension is tagged.
 type format struct {
 	vorbis bool                    // Vorbis comments: track and disc totals are keys of their own
+	asf    bool                    // WMA: internal/tag writes and reads the marker, which go-taglib drops
 	is     func(tag.Metadata) bool // whether internal/tag read the file as this format
 }
 
@@ -134,6 +137,7 @@ var formats = map[string]format{
 	".wav":  {is: fileType(tag.WAV)},
 	".ape":  {is: fileType(tag.APE)},
 	".mpc":  {is: fileType(tag.MPC)},
+	".wma":  {asf: true, is: fileType(tag.WMA)},
 }
 
 // Supported reports whether files with the extension of path can be tagged.
@@ -158,6 +162,11 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	if err := checkContent(f, path); err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
 	}
+	if f.asf {
+		// TagLib has no ASF key for the compilation flag, which tagshelf
+		// ignores when sorting anyway.
+		delete(want, Compilation)
+	}
 
 	current, err := taglib.ReadTags(path)
 	if err != nil {
@@ -165,6 +174,9 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	}
 	named := append(slices.Collect(maps.Keys(want)), Marker)
 	before := fromKeys(f, current, named)
+	if f.asf {
+		asfBefore(path, before)
+	}
 	after := maps.Clone(want)
 	after[Marker] = []string{m.String()}
 	if len(before[Marker]) > 0 && equalExcept(before, after, Marker) {
@@ -181,11 +193,25 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 			os.Remove(tmp)
 		}
 	}()
-	if err := taglib.WriteTags(tmp, toKeys(f, after), 0); err != nil {
+	keys := toKeys(f, after)
+	if f.asf {
+		delete(keys, marker.Key) // go-taglib would drop a new one; an old one it keeps is replaced below
+	}
+	if err := taglib.WriteTags(tmp, keys, 0); err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	}
+	if f.asf {
+		if err := writeASFMarker(tmp, m); err != nil {
+			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		}
 	}
 	if err := verify(f, tmp, after, m); err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	}
+	if f.asf {
+		if err := sameAudio(path, tmp); err != nil {
+			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		}
 	}
 
 	// The copy takes the original's permissions only now: go-taglib could
@@ -466,6 +492,95 @@ func copyTemp(path string) (_ string, err error) {
 	return dst.Name(), nil
 }
 
+// asfBefore fixes what go-taglib reads wrong from a WMA file, reading it with
+// internal/tag instead: the marker, which go-taglib never returns, and the
+// order of the artist ID lists. TagLib writes the first value of a list to
+// the Extended Content Description and the rest to the Metadata Library,
+// which comes first in the file, so go-taglib reads the list back rotated.
+func asfBefore(path string, before Values) {
+	before[Marker] = []string{}
+	md, err := readTags(path)
+	if err != nil {
+		return
+	}
+	for k, v := range md.Raw() {
+		if s, ok := v.(string); ok && strings.EqualFold(k, marker.Key) {
+			before[Marker] = clean(strings.Split(s, "\x00"))
+		}
+	}
+	ids := mbz.Extract(md)
+	if _, ok := before[ArtistIDs]; ok {
+		before[ArtistIDs] = clean(ids.ArtistIDs)
+	}
+	if _, ok := before[AlbumArtistIDs]; ok {
+		before[AlbumArtistIDs] = clean(ids.AlbumArtistIDs)
+	}
+}
+
+// writeASFMarker sets the marker in the WMA file at path, a temporary copy:
+// internal/tag's ASF writer copies it to a second temporary file beside it,
+// which then replaces it.
+func writeASFMarker(path string, m marker.Marker) (err error) {
+	src, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	defer src.Close()
+	dst, err := os.CreateTemp(filepath.Dir(path), ".tagshelf-*"+filepath.Ext(path))
+	if err != nil {
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			dst.Close()
+			os.Remove(dst.Name())
+		}
+	}()
+	if err := tag.WriteASFAttribute(dst, src, marker.Key, m.String()); err != nil {
+		if errors.Is(err, tag.ErrASFRefused) {
+			return err // says why already
+		}
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	if err := dst.Sync(); err != nil {
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	if err := dst.Close(); err != nil {
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	src.Close() // Windows renames over open files only with trouble
+	if err := os.Rename(dst.Name(), path); err != nil {
+		return fmt.Errorf("writing the marker: %w", err)
+	}
+	return nil
+}
+
+// sameAudio checks by tag.Sum that the written copy at tmp holds the audio
+// of the original at path.
+func sameAudio(path, tmp string) error {
+	a, err := sum(path)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrNotVerified, err)
+	}
+	b, err := sum(tmp)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrNotVerified, err)
+	}
+	if a != b {
+		return fmt.Errorf("%w: the audio changed", ErrNotVerified)
+	}
+	return nil
+}
+
+func sum(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	return tag.Sum(file)
+}
+
 // verify reads the written copy back with go-taglib, which must return
 // exactly the values written, and with internal/tag, the reader tagshelf
 // sorts and indexes by, which must find the file's format, the marker and
@@ -477,6 +592,17 @@ func verify(f format, path string, want Values, m marker.Marker) error {
 	}
 	got := fromKeys(f, keys, slices.Collect(maps.Keys(want)))
 	for field, vs := range want {
+		if f.asf && field == Marker {
+			continue // go-taglib never reads it; checked with internal/tag below
+		}
+		if f.asf && multiValued[field] {
+			// go-taglib reads the list rotated (see asfBefore); internal/tag
+			// checks the order below.
+			if !slices.Equal(slices.Sorted(slices.Values(got[field])), slices.Sorted(slices.Values(vs))) {
+				return fmt.Errorf("%w: %s is %q, want %q", ErrNotVerified, field, got[field], vs)
+			}
+			continue
+		}
 		if !slices.Equal(got[field], vs) {
 			return fmt.Errorf("%w: %s is %q, want %q", ErrNotVerified, field, got[field], vs)
 		}
