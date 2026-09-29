@@ -64,6 +64,12 @@ type Model struct {
 	readErr bool // the toast is a failed poll, cleared by the next good one
 
 	loc *time.Location // where times are shown
+
+	runner      Runner
+	run         *liveRun // the run this TUI started, nil when none is going
+	last        *lastRun // how the latest run this TUI started ended
+	confirmQuit bool     // asking whether to interrupt the run and quit
+	quitting    bool     // quit once the run has ended
 }
 
 // New returns a model reading from src.
@@ -134,6 +140,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.poll(false, true)
 	case refreshMsg:
 		return m, m.refreshed(msg)
+	case runDoneMsg:
+		return m, m.runEnded(msg.run)
+	case runTickMsg:
+		if m.run != nil {
+			return m, runTick()
+		}
 	case tea.KeyPressMsg:
 		return m, m.key(msg.String())
 	}
@@ -169,8 +181,47 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 
 func (m *Model) key(k string) tea.Cmd {
 	m.toast, m.readErr = "", false
+	if m.confirmQuit {
+		m.confirmQuit = false
+		switch k {
+		case "y", "Y":
+			m.quitting = true
+			m.interrupt()
+		case "ctrl+c":
+			m.interrupt()
+		}
+		return nil
+	}
+	if m.tab == TabHome && !m.help {
+		switch k {
+		case "o":
+			return m.startRun(RunOrganize)
+		case "r":
+			return m.startRun(RunReorganize)
+		case "i":
+			return m.startRun(RunIndex)
+		case "d":
+			m.header.DryRun = !m.header.DryRun
+			if m.header.DryRun {
+				m.setToast(true, "Dry run on: runs show what they would do and move nothing")
+			} else {
+				m.setToast(true, "Dry run off")
+			}
+			return nil
+		}
+	}
 	switch k {
-	case "q", "ctrl+c":
+	case "q":
+		if m.run != nil {
+			m.confirmQuit = true
+			return nil
+		}
+		return tea.Quit
+	case "ctrl+c":
+		if m.run != nil {
+			m.interrupt()
+			return nil
+		}
 		return tea.Quit
 	case "?":
 		m.help = !m.help

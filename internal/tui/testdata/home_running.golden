@@ -1,0 +1,32 @@
+ tagshelf  D:\Music  library 3f2a1b2c  [dry-run]
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Organize running (dry run)
+  audio      ██████████████████████████████░░░░░░░░░░░░░░░░░░░░ 1,234 / 2,050 files
+  Organized 1,200  Untagged 20  Non-audio 0  Duplicates 14  In place 0  Errors 0
+  41.3 files/s  ETA 20s
+  organized  Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac
+  duplicate  _Duplicates\Incoming\b.mp3
+
+Library
+  Library         18,204 files
+  _Untagged           12 files
+  _Other              96 files
+  _Duplicates         58 files
+
+Needs attention
+  12 untagged files                                          2 Untagged
+  3 duplicate groups to review                               3 Duplicates
+  2 errors in the last organize run of 2026-09-28 14:05      5 Runs
+
+
+
+
+
+
+
+
+
+
+
+ctrl+c interrupt the run  1-5 tabs  R reload  ? help  q quit

@@ -20,13 +20,19 @@ type Options struct {
 	Destination string // the library's root folder
 	LibraryID   string
 	DryRun      bool
+	// Runner does the runs started from Home; nil disables them.
+	Runner Runner
 }
 
 // Run shows the TUI until the user quits or ctx is cancelled.
 func Run(ctx context.Context, opts Options) error {
 	src := librarySource{st: opts.Store, pid: os.Getpid()}
 	m := New(src, Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: opts.DryRun})
+	m.runner = opts.Runner
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	// However the program ended, a run it started stops cleanly before the
+	// library's database closes.
+	m.stopRun()
 	return err
 }
 

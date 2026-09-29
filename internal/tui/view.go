@@ -220,6 +220,12 @@ func placeholder(name, summary string) string {
 func (m *Model) homeBody() string {
 	o := m.snap.Overview
 	var b strings.Builder
+	switch {
+	case m.run != nil:
+		b.WriteString(m.runView(m.run) + "\n")
+	case m.last != nil:
+		b.WriteString(m.lastRunView(m.last) + "\n")
+	}
 	b.WriteString(boldStyle.Render("Library") + "\n")
 	counts := []struct {
 		name string
@@ -270,6 +276,9 @@ func (m *Model) needsAttention() []attention {
 }
 
 func (m *Model) toastLine() string {
+	if m.confirmQuit {
+		return accentStyle.Render("Interrupt the run and quit? y interrupts and quits once the files already moving are done, n keeps it going")
+	}
 	if m.toast == "" {
 		return ""
 	}
@@ -284,12 +293,18 @@ func (m *Model) keyHelp() string {
 	if m.help {
 		return "esc back  " + help
 	}
-	if m.tab == TabHome && m.ReadOnly() {
+	switch {
+	case m.run != nil:
+		help = "ctrl+c interrupt the run  " + help
+	case m.tab != TabHome:
+	case m.ReadOnly():
 		if m.width >= 100 {
 			help = "read-only while another run holds the library lock   " + help
 		} else {
 			help = "read-only  " + help
 		}
+	default:
+		help = "o organize  r reorganize  i index  d dry run   " + help
 	}
 	return help
 }
@@ -298,6 +313,11 @@ func helpScreen() string {
 	keys := [][2]string{
 		{"1-5", "switch tab"},
 		{"tab", "next tab (shift+tab previous)"},
+		{"o", "organize the configured source (Home)"},
+		{"r", "reorganize the library in place (Home)"},
+		{"i", "bring the index up to date, moving nothing (Home)"},
+		{"d", "turn dry run on or off (Home)"},
+		{"ctrl+c", "interrupt the run going on"},
 		{"R", "reload the library now"},
 		{"?", "show or hide this help"},
 		{"esc", "back"},

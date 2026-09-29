@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -118,49 +119,9 @@ func run(ctx context.Context, args []string) int {
 		return exitCannotStart
 	}
 
-	cfg = cfg.WithDefaults()
-
-	absSource := ""
-	if cfg.Source != "" {
-		if absSource, err = filepath.Abs(cfg.Source); err != nil {
-			log.Printf("Invalid source path: %v", err)
-			return exitCannotStart
-		}
-	}
-	absDest, err := filepath.Abs(cfg.Destination)
-	if err != nil {
-		log.Printf("Invalid destination path: %v", err)
+	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
+		log.Printf("Error: %v", err)
 		return exitCannotStart
-	}
-	absUntagged, err := filepath.Abs(cfg.Untagged)
-	if err != nil {
-		log.Printf("Invalid untagged path: %v", err)
-		return exitCannotStart
-	}
-	absOther, err := filepath.Abs(cfg.Other)
-	if err != nil {
-		log.Printf("Invalid other path: %v", err)
-		return exitCannotStart
-	}
-
-	absDuplicates, err := filepath.Abs(cfg.Duplicates)
-	if err != nil {
-		log.Printf("Invalid duplicates path: %v", err)
-		return exitCannotStart
-	}
-
-	cfg.Source = absSource
-	cfg.Destination = absDest
-	cfg.Untagged = absUntagged
-	cfg.Other = absOther
-	cfg.Duplicates = absDuplicates
-	if cfg.Database != "" {
-		absDatabase, err := filepath.Abs(cfg.Database)
-		if err != nil {
-			log.Printf("Invalid database path: %v", err)
-			return exitCannotStart
-		}
-		cfg.Database = absDatabase
 	}
 
 	// The library lock is taken and the database opened before anything else
@@ -206,7 +167,41 @@ func run(ctx context.Context, args []string) int {
 	log.Printf("Database:     %s\n", database)
 	log.Println("==================================================")
 
-	finish := engine.Run(ctx, engine.Options{
+	opts := engineOptions(cfg)
+	opts.Sink = newCLISink(log.Default(), cfg.Verbose)
+	opts.Store = st
+	opts.Rescan = *rescanFlag
+	opts.IndexOnly = *indexFlag
+	finish := engine.Run(ctx, opts)
+	return exitCode(finish.State)
+}
+
+// absolutePaths makes the folders and database a run uses absolute, so that
+// they mean the same wherever the run is started from.
+func absolutePaths(cfg config.Config) (config.Config, error) {
+	for _, p := range []struct {
+		name string
+		path *string
+	}{
+		{"source", &cfg.Source}, {"destination", &cfg.Destination}, {"untagged", &cfg.Untagged},
+		{"other", &cfg.Other}, {"duplicates", &cfg.Duplicates}, {"database", &cfg.Database},
+	} {
+		if *p.path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(*p.path)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s path: %w", p.name, err)
+		}
+		*p.path = abs
+	}
+	return cfg, nil
+}
+
+// engineOptions are the engine's options for a run with cfg, without its
+// sink, store or index-only choices.
+func engineOptions(cfg config.Config) engine.Options {
+	return engine.Options{
 		Source:        cfg.Source,
 		Destination:   cfg.Destination,
 		Untagged:      cfg.Untagged,
@@ -217,10 +212,5 @@ func run(ctx context.Context, args []string) int {
 		DryRun:        cfg.DryRun,
 		NoCueRewrite:  !cfg.RewriteCues(),
 		NoAutoResolve: !cfg.AutoResolvesExact(),
-		Sink:          newCLISink(log.Default(), cfg.Verbose),
-		Store:         st,
-		Rescan:        *rescanFlag,
-		IndexOnly:     *indexFlag,
-	})
-	return exitCode(finish.State)
+	}
 }

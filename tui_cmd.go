@@ -5,9 +5,9 @@ import (
 	"errors"
 	"flag"
 	"log"
-	"path/filepath"
 
 	"tagshelf/internal/config"
+	"tagshelf/internal/engine"
 	"tagshelf/internal/store"
 	"tagshelf/internal/tui"
 )
@@ -16,6 +16,7 @@ import (
 func runTUI(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
 	configPath := flags.String("config", "", "Path to YAML configuration file")
+	sourceFlag := flags.String("source", "", "Source directory that o organizes into the library")
 	destFlag := flags.String("dest", "", "The library: the destination directory of organized music")
 	dbFlag := flags.String("db", "", "Library database file (default: %LOCALAPPDATA%/tagshelf/libraries/<library-id>/tagshelf.db)")
 	dryRunFlag := flags.Bool("dry-run", false, "Start with dry run on")
@@ -29,7 +30,7 @@ func runTUI(ctx context.Context, args []string) int {
 		log.Printf("Error: unexpected arguments %q", flags.Args())
 		return exitCannotStart
 	}
-	ov := config.Overrides{Destination: *destFlag, Database: *dbFlag}
+	ov := config.Overrides{Source: *sourceFlag, Destination: *destFlag, Database: *dbFlag}
 	flags.Visit(func(f *flag.Flag) {
 		if f.Name == "dry-run" {
 			ov.DryRun = dryRunFlag
@@ -44,18 +45,11 @@ func runTUI(ctx context.Context, args []string) int {
 		log.Println("Error: destination directory must be specified via -dest or config file")
 		return exitCannotStart
 	}
-	dest, err := filepath.Abs(cfg.Destination)
-	if err != nil {
-		log.Printf("Invalid destination path: %v", err)
+	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
+		log.Printf("Error: %v", err)
 		return exitCannotStart
 	}
-	database := cfg.Database
-	if database != "" {
-		if database, err = filepath.Abs(database); err != nil {
-			log.Printf("Invalid database path: %v", err)
-			return exitCannotStart
-		}
-	}
+	dest, database := cfg.Destination, cfg.Database
 
 	// The TUI only reads the library, so it takes no lock and can open while a
 	// run is going.
@@ -74,7 +68,7 @@ func runTUI(ctx context.Context, args []string) int {
 	}
 	defer st.Close()
 
-	err = tui.Run(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun})
+	err = tui.Run(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Runner: tuiRunner{cfg: cfg}})
 	if ctx.Err() != nil {
 		return exitInterrupted
 	}
@@ -83,4 +77,40 @@ func runTUI(ctx context.Context, args []string) int {
 		return exitErrors
 	}
 	return exitOK
+}
+
+// tuiRunner does the runs started from the TUI with the configuration it was
+// opened with. Each run takes the library lock for as long as it lasts, as a
+// CLI run does.
+type tuiRunner struct {
+	cfg config.Config // with absolute paths
+}
+
+func (r tuiRunner) Run(ctx context.Context, kind tui.RunKind, dryRun bool, sink engine.Sink) (engine.RunFinished, error) {
+	cfg := r.cfg
+	cfg.DryRun = dryRun
+	switch kind {
+	case tui.RunOrganize:
+		if cfg.Source == "" {
+			return engine.RunFinished{}, errors.New("no source directory is configured: set source in the config file or pass -source to tagshelf tui")
+		}
+	case tui.RunReorganize:
+		cfg.Source = cfg.Destination
+	case tui.RunIndex:
+		cfg.Source, cfg.DryRun = "", false
+	}
+	st, err := store.OpenLibrary(cfg.Destination, cfg.Database, cfg.DryRun)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(cfg)
+	opts.Sink = sink
+	opts.Store = st
+	opts.IndexOnly = kind == tui.RunIndex
+	finish := engine.Run(ctx, opts)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
 }
