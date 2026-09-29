@@ -183,6 +183,38 @@ func TestLoadConfigMusicBrainzContact(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDuplicates(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "dup_config.yaml")
+	if err := os.WriteFile(configPath, []byte("duplicates: \"C:\\\\Dups\"\nauto_resolve_exact: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath, Overrides{})
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Duplicates != `C:\Dups` || cfg.AutoResolvesExact() {
+		t.Errorf("config = %+v, want duplicates C:\\Dups and auto-resolve off", cfg)
+	}
+	cfg, err = Load(configPath, Overrides{Duplicates: `D:\Dups`})
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Duplicates != `D:\Dups` {
+		t.Errorf("Expected -duplicates to override, got %q", cfg.Duplicates)
+	}
+
+	def := Config{Destination: filepath.Join("C:", "Out")}.WithDefaults()
+	if want := filepath.Join("C:", "Out", "_Duplicates"); def.Duplicates != want {
+		t.Errorf("default duplicates = %q, want %q", def.Duplicates, want)
+	}
+	if !def.AutoResolvesExact() {
+		t.Error("auto_resolve_exact must default to on")
+	}
+	if explicit := (Config{Destination: "d", Duplicates: "x"}).WithDefaults(); explicit.Duplicates != "x" {
+		t.Errorf("WithDefaults overwrote duplicates: %q", explicit.Duplicates)
+	}
+}
+
 func TestLoadConfigDatabase(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "db_config.yaml")
 	if err := os.WriteFile(configPath, []byte(`database: "C:\\Data\\music.db"`+"\n"), 0644); err != nil {

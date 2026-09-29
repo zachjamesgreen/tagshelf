@@ -3,9 +3,8 @@
 package engine
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -39,11 +38,12 @@ type Counters struct {
 	TotalFound int64
 	Organized  int64
 	Untagged   int64
-	Skipped    int64
+	Duplicates int64 // files moved to the duplicates folder
 	InPlace    int64
 	Errors     int64
-	// Non-audio files (cue sheets, artwork, logs, ...). Their duplicates,
-	// in-place hits and errors are counted in Skipped, InPlace and Errors.
+	// Non-audio files (cue sheets, artwork, logs, ...). Those moved to the
+	// duplicates folder, in place or failing are counted in Duplicates,
+	// InPlace and Errors.
 	OtherFound int64
 	OtherMoved int64
 	// Reorganize only: audio that does not qualify for the library stays put.
@@ -60,7 +60,7 @@ type stats struct {
 	TotalFound   atomic.Int64
 	Organized    atomic.Int64
 	Untagged     atomic.Int64
-	Skipped      atomic.Int64
+	Duplicates   atomic.Int64
 	InPlace      atomic.Int64
 	Errors       atomic.Int64
 	OtherFound   atomic.Int64
@@ -76,7 +76,7 @@ func (s *stats) snapshot() Counters {
 		TotalFound:   s.TotalFound.Load(),
 		Organized:    s.Organized.Load(),
 		Untagged:     s.Untagged.Load(),
-		Skipped:      s.Skipped.Load(),
+		Duplicates:   s.Duplicates.Load(),
 		InPlace:      s.InPlace.Load(),
 		Errors:       s.Errors.Load(),
 		OtherFound:   s.OtherFound.Load(),
@@ -100,7 +100,10 @@ type Options struct {
 	Workers      int    // default: the number of CPUs
 	DryRun       bool
 	NoCueRewrite bool // leave the FILE lines of moved cue sheets alone
-	Sink         Sink // may be nil
+	// NoAutoResolve leaves exact duplicate groups the run adds a file to for
+	// review instead of resolving them.
+	NoAutoResolve bool
+	Sink          Sink // may be nil
 	// Store records the run, its moves and its errors, and keeps the index.
 	// Nil records nothing and keeps no index.
 	Store *store.Store
@@ -178,20 +181,40 @@ func (c *DirectoryCache) EnsureDir(dir string) error {
 	return nil
 }
 
-func computeSHA256(filePath string) (string, error) {
-	f, err := os.Open(filePath)
+// sameBytes reports whether the files at a and b hold the same bytes. Only
+// non-audio files are compared this way; audio is matched by its audio hash in
+// the index.
+func sameBytes(a, b string) (bool, error) {
+	fa, err := os.Open(a)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	defer f.Close()
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer fb.Close()
 
-	h := sha256.New()
-	// io.Copy takes *os.File's WriteTo fast path; an explicit buffer would only
-	// be ignored.
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	bufA, bufB := make([]byte, 64*1024), make([]byte, 64*1024)
+	for {
+		na, errA := io.ReadFull(fa, bufA)
+		nb, errB := io.ReadFull(fb, bufB)
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false, nil
+		}
+		endA := errors.Is(errA, io.EOF) || errors.Is(errA, io.ErrUnexpectedEOF)
+		endB := errors.Is(errB, io.EOF) || errors.Is(errB, io.ErrUnexpectedEOF)
+		if errA != nil && !endA {
+			return false, errA
+		}
+		if errB != nil && !endB {
+			return false, errB
+		}
+		if endA || endB {
+			return endA && endB, nil
+		}
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // collisionOutcome says what should happen to a source file once its
@@ -201,7 +224,8 @@ type collisionOutcome int
 const (
 	// outcomeMove: the returned path is reserved and the file should be moved there.
 	outcomeMove collisionOutcome = iota
-	// outcomeDuplicate: a byte-identical copy already sits at the returned path.
+	// outcomeDuplicate: a byte-identical non-audio file already sits at the
+	// returned path.
 	outcomeDuplicate
 	// outcomeInPlace: the source file already *is* the file at the returned path.
 	outcomeInPlace
@@ -242,6 +266,16 @@ type organizer struct {
 	// renames them onto the exact spelling once everything has moved.
 	caseFixesMu sync.Mutex
 	caseFixes   []caseFix
+
+	// firstIndex is set when the index was empty before this run.
+	firstIndex bool
+	// reread holds rules.PathKey of each file this run read into the index.
+	reread sync.Map
+	// vacated holds rules.PathKey of files a dry run plans to move to the
+	// duplicates folder, whose names are free for the rest of the preview.
+	vacated sync.Map
+	// needReview counts the exact duplicate groups left for review.
+	needReview int
 }
 
 type caseFix struct {
@@ -301,6 +335,7 @@ var moveReasons = map[Outcome]store.MoveReason{
 	Other:     store.ReasonOther,
 	Companion: store.ReasonCompanion,
 	Renamed:   store.ReasonRenamed,
+	Duplicate: store.ReasonDuplicate,
 }
 
 // placedAt reports where the file that was at src now lives.
@@ -436,34 +471,26 @@ func (o *organizer) release(path string) {
 
 // resolveDestination picks and reserves the path a source file should move to.
 //
-// Collisions are resolved by content, not by name: an identical copy already at
-// the destination means the source is a duplicate and is left alone, while a
-// *different* file under the same name gets the next free " (n)" suffix so it
-// still makes it into the library.
-func (o *organizer) resolveDestination(srcPath, desiredDst string) (string, collisionOutcome, error) {
+// A file already under the name gets the next free " (n)" suffix, so the
+// source still makes it into the library. Audio duplicates are dealt with
+// before this, through the index; with compareBytes set, a byte-identical
+// file at the destination reports outcomeDuplicate instead, which is how
+// non-audio duplicates are found.
+func (o *organizer) resolveDestination(srcPath, desiredDst string, compareBytes bool) (string, collisionOutcome, error) {
 	srcInfo, err := os.Stat(srcPath)
 	if err != nil {
 		return "", outcomeMove, fmt.Errorf("error stating source %q: %w", srcPath, err)
 	}
 
-	// Hashed at most once per source file, and only if some candidate is close
-	// enough in size to be worth comparing.
-	srcHash := ""
 	sameContent := func(candidate string, candInfo os.FileInfo) (bool, error) {
-		if candInfo.Size() != srcInfo.Size() {
+		if !compareBytes || candInfo.Size() != srcInfo.Size() {
 			return false, nil
 		}
-		if srcHash == "" {
-			srcHash, err = computeSHA256(srcPath)
-			if err != nil {
-				return false, fmt.Errorf("error hashing source %q: %w", srcPath, err)
-			}
-		}
-		candHash, err := computeSHA256(candidate)
+		same, err := sameBytes(srcPath, candidate)
 		if err != nil {
-			return false, fmt.Errorf("error hashing destination %q: %w", candidate, err)
+			return false, fmt.Errorf("error comparing %q with %q: %w", srcPath, candidate, err)
 		}
-		return srcHash == candHash, nil
+		return same, nil
 	}
 
 	dir := filepath.Dir(desiredDst)
@@ -482,6 +509,10 @@ func (o *organizer) resolveDestination(srcPath, desiredDst string) (string, coll
 		}
 
 		candInfo, statErr := os.Stat(candidate)
+		if _, gone := o.vacated.Load(rules.PathKey(candidate)); gone && o.cfg.DryRun {
+			// The preview has moved this file to the duplicates folder.
+			statErr = fs.ErrNotExist
+		}
 		switch {
 		case statErr == nil:
 			if os.SameFile(srcInfo, candInfo) {
@@ -728,6 +759,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	// before anything moves, so every file the run looks at has a row.
 	if len(indexRoots) > 0 && ctx.Err() == nil {
 		jobs, first := o.refreshIndex(ctx, indexRoots)
+		o.firstIndex = first
 		if len(jobs) > 0 || cfg.IndexOnly {
 			var bytes int64
 			for _, j := range jobs {
@@ -741,10 +773,16 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	if cfg.IndexOnly {
 		close(stopTicker)
 		<-tickerDone
+		o.countNeedReview()
 		return o.end(o.finish(ctx.Err() != nil))
 	}
 
 	o.startPhase(PhaseAudio, int64(len(audio)), audioBytes)
+	// Exact duplicates are settled first, so that a copy moving out of the
+	// way frees its name for the copy kept.
+	if ctx.Err() == nil {
+		audio = o.resolveDuplicates(ctx, audio)
+	}
 	runJobs(ctx, cfg.Workers, audio, func(f walkedFile) {
 		o.processFile(f.path)
 		o.phase.advance(f.size)
@@ -805,6 +843,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	close(stopTicker)
 	<-tickerDone
 
+	o.countNeedReview()
 	return o.end(o.finish(interrupted))
 }
 
@@ -822,7 +861,7 @@ func (o *organizer) end(finish RunFinished) RunFinished {
 
 // finish sums up how the run ended.
 func (o *organizer) finish(interrupted bool) RunFinished {
-	finish := RunFinished{Counters: o.stats.snapshot(), State: StateOK}
+	finish := RunFinished{Counters: o.stats.snapshot(), State: StateOK, NeedReview: o.needReview}
 	switch {
 	case interrupted:
 		finish.State = StateInterrupted
@@ -975,6 +1014,8 @@ func (o *organizer) countMoved(kind Outcome) {
 		o.stats.Organized.Add(1)
 	case Untagged:
 		o.stats.Untagged.Add(1)
+	case Duplicate:
+		o.stats.Duplicates.Add(1)
 	default:
 		o.stats.OtherMoved.Add(1)
 	}
@@ -998,7 +1039,7 @@ func (o *organizer) processFile(path string) {
 	if tagErr == nil {
 		if desiredDst, ok := rules.Qualifies(cfg.Destination, cfg.Compilations, metadata, ext); ok {
 			o.recordAlbum(filepath.Dir(path), filepath.Dir(desiredDst))
-			o.place(path, desiredDst, Organized)
+			o.place(path, "", desiredDst, Organized)
 			return
 		}
 	}
@@ -1016,7 +1057,7 @@ func (o *organizer) processFile(path string) {
 	// Route to untagged directory, flattened into root
 	baseName := rules.SanitizeName(strings.TrimSuffix(filepath.Base(path), ext))
 	desiredDst := filepath.Join(cfg.Untagged, fmt.Sprintf("%s%s", baseName, ext))
-	o.place(path, desiredDst, Untagged)
+	o.place(path, "", desiredDst, Untagged)
 }
 
 // processCompanion moves a non-audio file next to the album its folder's audio
@@ -1025,7 +1066,7 @@ func (o *organizer) processFile(path string) {
 func (o *organizer) processCompanion(c companionFile, tree map[string]map[string]struct{}) {
 	path := c.path
 	if dir, ok := companionDir(c.root, tree, filepath.Dir(path)); ok {
-		o.place(path, filepath.Join(dir, filepath.Base(path)), Companion)
+		o.place(path, c.root, filepath.Join(dir, filepath.Base(path)), Companion)
 		return
 	}
 
@@ -1039,25 +1080,33 @@ func (o *organizer) processCompanion(c companionFile, tree map[string]map[string
 		o.fail(path, "", OpRelPath, err)
 		return
 	}
-	o.place(path, filepath.Join(o.cfg.Other, rel), Other)
+	o.place(path, c.root, filepath.Join(o.cfg.Other, rel), Other)
 }
 
-// place resolves, reserves and moves path to desiredDst, recording the outcome.
-func (o *organizer) place(path, desiredDst string, kind Outcome) {
+// place resolves, reserves and moves path to desiredDst, recording the
+// outcome, and reports whether the file got there (or in a dry run would).
+//
+// root is the walked folder a non-audio file was found under, "" for audio.
+// A non-audio file finding a byte-identical copy at its destination goes to
+// the duplicates folder instead, under its path relative to root.
+func (o *organizer) place(path, root, desiredDst string, kind Outcome) bool {
 	cfg, stats := o.cfg, o.stats
 
-	finalDst, outcome, err := o.resolveDestination(path, desiredDst)
+	compareBytes := root != "" && !isSubdirectory(cfg.Duplicates, desiredDst)
+	finalDst, outcome, err := o.resolveDestination(path, desiredDst, compareBytes)
 	if err != nil {
 		o.fail(path, desiredDst, OpResolve, err)
-		return
+		return false
 	}
 
 	switch outcome {
 	case outcomeDuplicate:
-		o.placed.Store(rules.PathKey(path), finalDst)
-		o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: Duplicate})
-		stats.Skipped.Add(1)
-		return
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			o.fail(path, "", OpRelPath, err)
+			return false
+		}
+		return o.place(path, "", filepath.Join(cfg.Duplicates, rel), Duplicate)
 	case outcomeInPlace, outcomeCaseFix:
 		if outcome == outcomeCaseFix && !cfg.DryRun {
 			o.caseFixesMu.Lock()
@@ -1067,20 +1116,20 @@ func (o *organizer) place(path, desiredDst string, kind Outcome) {
 		o.placed.Store(rules.PathKey(path), finalDst)
 		o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: InPlace})
 		stats.InPlace.Add(1)
-		return
+		return true
 	}
 
 	if cfg.DryRun {
 		o.placed.Store(rules.PathKey(path), finalDst)
 		o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: kind})
 		o.countMoved(kind)
-		return
+		return true
 	}
 
 	if err := o.moveFile(path, finalDst); err != nil {
 		o.release(finalDst)
 		o.fail(path, finalDst, OpMove, err)
-		return
+		return false
 	}
 
 	o.recordMove(path, finalDst, moveReasons[kind])
@@ -1094,6 +1143,7 @@ func (o *organizer) place(path, desiredDst string, kind Outcome) {
 
 	o.emit(FilePlaced{Path: path, Destination: finalDst, Outcome: kind})
 	o.countMoved(kind)
+	return true
 }
 
 // retrySuffixed gives files that landed on a " (n)" name a second chance at

@@ -15,6 +15,7 @@ import (
 	"go.senan.xyz/taglib"
 
 	"tagshelf/internal/marker"
+	"tagshelf/internal/rules"
 	"tagshelf/internal/store"
 	"tagshelf/internal/tag"
 	"tagshelf/internal/tag/mbz"
@@ -178,6 +179,7 @@ func (o *organizer) indexFiles(ctx context.Context, jobs []indexJob) {
 		if err != nil {
 			o.fail(j.path, "", OpIndex, err)
 		} else {
+			o.reread.Store(rules.PathKey(j.path), struct{}{})
 			results <- f
 		}
 		o.phase.advance(j.size)

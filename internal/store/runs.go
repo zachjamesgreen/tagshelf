@@ -47,7 +47,7 @@ type Counters struct {
 	TotalFound   int64
 	Organized    int64
 	Untagged     int64
-	Skipped      int64
+	Duplicates   int64 // files moved to the duplicates folder
 	InPlace      int64
 	Errors       int64
 	OtherFound   int64
@@ -121,11 +121,11 @@ func (s *Store) markCrashed() error {
 // FinishRun records how a run ended.
 func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) error {
 	res, err := s.db.Exec(`UPDATE runs SET ended_at = ?, state = ?,
-		total_found = ?, organized = ?, untagged = ?, skipped = ?, in_place = ?, errors = ?,
+		total_found = ?, organized = ?, untagged = ?, duplicates = ?, in_place = ?, errors = ?,
 		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?
 		WHERE id = ?`,
 		formatTime(at), string(state),
-		c.TotalFound, c.Organized, c.Untagged, c.Skipped, c.InPlace, c.Errors,
+		c.TotalFound, c.Organized, c.Untagged, c.Duplicates, c.InPlace, c.Errors,
 		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed,
 		id)
 	if err != nil {
@@ -173,7 +173,7 @@ func (s *Store) RecordError(runID int64, path, message string) error {
 // Runs lists the run history, oldest first.
 func (s *Store) Runs() ([]Run, error) {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
-		total_found, organized, untagged, skipped, in_place, errors,
+		total_found, organized, untagged, duplicates, in_place, errors,
 		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state
 		FROM runs ORDER BY id`)
 	if err != nil {
@@ -187,7 +187,7 @@ func (s *Store) Runs() ([]Run, error) {
 		var kind, state string
 		c := &r.Counters
 		if err := rows.Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
-			&c.TotalFound, &c.Organized, &c.Untagged, &c.Skipped, &c.InPlace, &c.Errors,
+			&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
 			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state); err != nil {
 			return nil, err
 		}

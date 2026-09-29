@@ -126,6 +126,7 @@ func TestPutFilesRoundTripAndReplace(t *testing.T) {
 	want := f
 	want.ID = files[0].ID
 	want.Path = filepath.Join(root, f.RelPath)
+	want.RootKind = RootLibrary
 	if !files[0].ModTime.Equal(mtime) || !files[0].IndexedAt.Equal(indexed) {
 		t.Errorf("times = %v, %v; want %v, %v", files[0].ModTime, files[0].IndexedAt, mtime, indexed)
 	}

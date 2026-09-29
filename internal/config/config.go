@@ -24,6 +24,11 @@ type Config struct {
 	Destination string `yaml:"destination"`
 	Untagged    string `yaml:"untagged"`
 	Other       string `yaml:"other"`
+	// Duplicates is where the losing copies of duplicates go.
+	Duplicates string `yaml:"duplicates"`
+	// AutoResolveExact lets runs resolve exact duplicate groups they added a
+	// file to. Nil means the default, which is on.
+	AutoResolveExact *bool `yaml:"auto_resolve_exact"`
 	// Compilations is the artist folder for Various Artists albums.
 	Compilations string `yaml:"compilations"`
 	Workers      int    `yaml:"workers"`
@@ -46,6 +51,12 @@ func (c Config) RewriteCues() bool {
 	return c.CueRewrite == nil || *c.CueRewrite
 }
 
+// AutoResolvesExact reports whether runs resolve exact duplicate groups on
+// their own.
+func (c Config) AutoResolvesExact() bool {
+	return c.AutoResolveExact == nil || *c.AutoResolveExact
+}
+
 // Reorganizing reports whether this run re-sorts an existing library in place,
 // which is what a source equal to the destination means.
 func (c Config) Reorganizing() bool {
@@ -60,6 +71,9 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.Other == "" && c.Destination != "" {
 		c.Other = filepath.Join(c.Destination, "_Other")
+	}
+	if c.Duplicates == "" && c.Destination != "" {
+		c.Duplicates = filepath.Join(c.Destination, "_Duplicates")
 	}
 	if c.Compilations == "" {
 		c.Compilations = rules.DefaultCompilations
@@ -81,6 +95,7 @@ type Overrides struct {
 	Destination  string
 	Untagged     string
 	Other        string
+	Duplicates   string
 	Compilations string
 	Workers      int
 	DryRun       *bool
@@ -144,6 +159,9 @@ func Load(configPath string, ov Overrides) (Config, error) {
 	}
 	if ov.Other != "" {
 		cfg.Other = ov.Other
+	}
+	if ov.Duplicates != "" {
+		cfg.Duplicates = ov.Duplicates
 	}
 	if ov.Compilations != "" {
 		cfg.Compilations = ov.Compilations

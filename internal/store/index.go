@@ -27,13 +27,15 @@ type Root struct {
 	Path string
 }
 
-// File is an audio file's index row. Path is filled in by queries from the
-// root's current path; writes go by RootID and RelPath.
+// File is an audio file's index row. Path and RootKind are filled in by
+// queries from the root's current path and kind; writes go by RootID and
+// RelPath.
 type File struct {
-	ID      int64
-	RootID  int64
-	RelPath string
-	Path    string
+	ID       int64
+	RootID   int64
+	RootKind RootKind
+	RelPath  string
+	Path     string
 
 	Format      string // the tag reader's file type, e.g. MP3, FLAC
 	Artist      string
@@ -239,7 +241,7 @@ func (s *Store) RespellFile(id int64, relPath string) error {
 }
 
 // fileColumns are the columns scanFile reads, in order.
-const fileColumns = `f.id, f.root_id, f.rel_path, r.path, f.format,
+const fileColumns = `f.id, f.root_id, r.kind, f.rel_path, r.path, f.format,
 	f.artist, f.album_artist, f.album, f.title, f.track, f.track_total, f.disc, f.disc_total, f.year,
 	f.mb_release_id, f.mb_release_track_id, f.mb_recording_id, f.manual,
 	f.lossless, f.bitrate, f.sample_rate, f.bit_depth, f.channels, f.length_ms,
@@ -264,16 +266,17 @@ func (s *Store) queryFiles(query string, args ...any) ([]File, error) {
 	var files []File
 	for rows.Next() {
 		var f File
-		var root string
+		var root, kind string
 		var lengthMS, mtime int64
 		var sum, indexedAt sql.NullString
-		if err := rows.Scan(&f.ID, &f.RootID, &f.RelPath, &root, &f.Format,
+		if err := rows.Scan(&f.ID, &f.RootID, &kind, &f.RelPath, &root, &f.Format,
 			&f.Artist, &f.AlbumArtist, &f.Album, &f.Title, &f.Track, &f.TrackTotal, &f.Disc, &f.DiscTotal, &f.Year,
 			&f.ReleaseID, &f.ReleaseTrackID, &f.RecordingID, &f.Manual,
 			&f.Lossless, &f.Bitrate, &f.SampleRate, &f.BitDepth, &f.Channels, &lengthMS,
 			&sum, &f.Size, &mtime, &indexedAt, &f.TagsJSON, &f.ReadError); err != nil {
 			return nil, err
 		}
+		f.RootKind = RootKind(kind)
 		f.Path = filepath.Join(root, f.RelPath)
 		f.Length = time.Duration(lengthMS) * time.Millisecond
 		f.Sum = sum.String
