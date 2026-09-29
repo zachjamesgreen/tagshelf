@@ -287,10 +287,15 @@ func (m *Model) lastRunView(l *lastRun) string {
 
 // countersLine sums up a run's counters.
 func countersLine(kind RunKind, c engine.Counters) string {
-	if kind == RunIndex {
-		return fmt.Sprintf("Indexed %s  Errors %s", formatCount(c.Indexed), formatCount(c.Errors))
+	return countersText(kind == RunIndex, c.Organized, c.Untagged, c.OtherMoved, c.Duplicates, c.InPlace+c.LeftInPlace, c.Errors, c.Indexed)
+}
+
+// countersText sums up a run's counters, however they are held.
+func countersText(index bool, organized, untagged, other, duplicates, inPlace, errs, indexed int64) string {
+	if index {
+		return fmt.Sprintf("Indexed %s  Errors %s", formatCount(indexed), formatCount(errs))
 	}
 	return fmt.Sprintf("Organized %s  Untagged %s  Non-audio %s  Duplicates %s  In place %s  Errors %s",
-		formatCount(c.Organized), formatCount(c.Untagged), formatCount(c.OtherMoved),
-		formatCount(c.Duplicates), formatCount(c.InPlace+c.LeftInPlace), formatCount(c.Errors))
+		formatCount(organized), formatCount(untagged), formatCount(other),
+		formatCount(duplicates), formatCount(inPlace), formatCount(errs))
 }

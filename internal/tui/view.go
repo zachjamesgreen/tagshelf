@@ -28,6 +28,7 @@ var (
 	bannerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11"))
 	goodStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	badStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	plainStyle  = lipgloss.NewStyle()
 )
 
 // View draws the screen. Nothing is drawn until the terminal's size is known.
@@ -46,12 +47,7 @@ func (m *Model) render() string {
 		return fitLines(fmt.Sprintf("tagshelf needs a terminal of at least %dx%d (this one is %dx%d)", minWidth, minHeight, w, h), w, h)
 	}
 
-	var top []string
-	top = append(top, m.headerLine(), m.tabsLine(), dimStyle.Render(strings.Repeat("─", w)))
-	bottom := []string{m.toastLine(), dimStyle.Render(m.keyHelp())}
-	// The banner may use what the body can spare, but no more.
-	top = append(top, m.banner(h-len(top)-len(bottom)-4)...)
-
+	top, bottom := m.chrome()
 	var body string
 	switch {
 	case m.help:
@@ -59,11 +55,26 @@ func (m *Model) render() string {
 	case !m.loaded:
 		body = dimStyle.Render("Reading the library…")
 	default:
-		body = m.tabBody()
+		body = m.tabBody(h - len(top) - len(bottom))
 	}
 	return fitLines(strings.Join(top, "\n"), w, len(top)) + "\n" +
 		fitLines(body, w, h-len(top)-len(bottom)) + "\n" +
 		fitLines(strings.Join(bottom, "\n"), w, len(bottom))
+}
+
+// chrome is the lines above the tab's body and below it.
+func (m *Model) chrome() (top, bottom []string) {
+	top = []string{m.headerLine(), m.tabsLine(), dimStyle.Render(strings.Repeat("─", m.width))}
+	bottom = []string{m.toastLine(), dimStyle.Render(m.keyHelp())}
+	// The banner may use what the body can spare, but no more.
+	top = append(top, m.banner(m.height-len(top)-len(bottom)-4)...)
+	return top, bottom
+}
+
+// bodyHeight is how many lines the tab's body has.
+func (m *Model) bodyHeight() int {
+	top, bottom := m.chrome()
+	return max(m.height-len(top)-len(bottom), 0)
 }
 
 // fitLines cuts s to exactly h lines no wider than w.
@@ -193,7 +204,8 @@ func (m *Model) shortPath(path string) string {
 	return path
 }
 
-func (m *Model) tabBody() string {
+// tabBody draws the tab showing in h lines.
+func (m *Model) tabBody(h int) string {
 	switch m.tab {
 	case TabHome:
 		return m.homeBody()
@@ -204,7 +216,7 @@ func (m *Model) tabBody() string {
 	case TabLibrary:
 		return placeholder("Library", fmt.Sprintf("%s files in the library.", formatCount(m.snap.Overview.Library)))
 	case TabRuns:
-		return placeholder("Runs", "")
+		return m.runsBody(h)
 	}
 	return ""
 }
@@ -296,6 +308,10 @@ func (m *Model) keyHelp() string {
 	switch {
 	case m.run != nil:
 		help = "ctrl+c interrupt the run  " + help
+	case m.tab == TabRuns && m.runs.detail != nil:
+		help = "esc back  ↑↓ scroll  g/G top/end   " + help
+	case m.tab == TabRuns:
+		help = "↑↓ select  enter open   " + help
 	case m.tab != TabHome:
 	case m.ReadOnly():
 		if m.width >= 100 {

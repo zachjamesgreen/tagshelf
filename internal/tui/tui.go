@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"os"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -45,6 +46,8 @@ type Source interface {
 	Lock() (holder store.LockHolder, held bool, err error)
 	// Load reads everything the TUI shows.
 	Load() (Snapshot, error)
+	// RunDetail reads what one run did.
+	RunDetail(id int64) (RunDetail, error)
 }
 
 // Snapshot is what the TUI shows of the library, as read at one moment.
@@ -53,6 +56,8 @@ type Snapshot struct {
 	// Active is the run recorded as running, nil when there is none. It is
 	// only shown while its process holds the library lock.
 	Active *store.ActiveRun
+	// Runs is the run history, newest first.
+	Runs []store.Run
 }
 
 // recentMoves is how many of a locked run's latest moves the banner shows at
@@ -83,6 +88,22 @@ func (s librarySource) Load() (Snapshot, error) {
 	if snap.Overview, err = s.st.Overview(engine.PossibleKey); err != nil {
 		return snap, err
 	}
-	snap.Active, err = s.st.ActiveRun(recentMoves)
-	return snap, err
+	if snap.Active, err = s.st.ActiveRun(recentMoves); err != nil {
+		return snap, err
+	}
+	if snap.Runs, err = s.st.Runs(); err != nil {
+		return snap, err
+	}
+	slices.Reverse(snap.Runs)
+	return snap, nil
+}
+
+func (s librarySource) RunDetail(id int64) (RunDetail, error) {
+	var d RunDetail
+	var err error
+	if d.Moves, err = s.st.Moves(id); err != nil {
+		return d, err
+	}
+	d.Errors, err = s.st.RunErrors(id)
+	return d, err
 }

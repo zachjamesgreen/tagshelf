@@ -70,6 +70,8 @@ type Model struct {
 	last        *lastRun // how the latest run this TUI started ended
 	confirmQuit bool     // asking whether to interrupt the run and quit
 	quitting    bool     // quit once the run has ended
+
+	runs runsTab
 }
 
 // New returns a model reading from src.
@@ -142,6 +144,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshed(msg)
 	case runDoneMsg:
 		return m, m.runEnded(msg.run)
+	case runDetailMsg:
+		m.detailLoaded(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -175,6 +179,7 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	if r.snap != nil {
 		m.snap = *r.snap
 		m.loaded = true
+		return tea.Batch(next, m.runsReloaded())
 	}
 	return next
 }
@@ -191,6 +196,11 @@ func (m *Model) key(k string) tea.Cmd {
 			m.interrupt()
 		}
 		return nil
+	}
+	if m.tab == TabRuns && !m.help && m.loaded {
+		if cmd, ok := m.runsKey(k); ok {
+			return cmd
+		}
 	}
 	if m.tab == TabHome && !m.help {
 		switch k {
@@ -233,16 +243,22 @@ func (m *Model) key(k string) tea.Cmd {
 		m.setToast(true, "Reloaded")
 		return m.poll(true, false)
 	case "1", "2", "3", "4", "5":
-		m.tab = Tab(k[0] - '1')
-		m.help = false
+		m.switchTab(Tab(k[0] - '1'))
 	case "tab":
-		m.tab = (m.tab + 1) % tabCount
-		m.help = false
+		m.switchTab((m.tab + 1) % tabCount)
 	case "shift+tab":
-		m.tab = (m.tab + tabCount - 1) % tabCount
-		m.help = false
+		m.switchTab((m.tab + tabCount - 1) % tabCount)
 	}
 	return nil
+}
+
+// switchTab shows tab t, leaving any detail open on the tab it leaves.
+func (m *Model) switchTab(t Tab) {
+	if t != m.tab {
+		m.runs.detail = nil
+	}
+	m.tab = t
+	m.help = false
 }
 
 func (m *Model) setToast(ok bool, format string, args ...any) {

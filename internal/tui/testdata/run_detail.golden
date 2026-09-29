@@ -1,0 +1,32 @@
+ tagshelf  D:\Music  library 3f2a1b2c
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Run 5  organize  2026-09-27 14:05  errors
+  E:\Incoming -> D:\Music
+  Organized 40  Untagged 2  Non-audio 5  Duplicates 1  In place 0  Errors 2
+
+Errors (2)
+  E:\Incoming\locked.mp3: move -> D:\Music\Singer\x.mp3: file in use
+  E:\Incoming\bad.flac: open: access denied
+
+Moves (2)
+  organized   Singer\Album (2001)\01 - One.flac  from E:\Incoming\Rip\01.flac
+  untagged    _Untagged\loose.mp3  from E:\Incoming\loose.mp3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+esc back  ↑↓ scroll  g/G top/end   1-5 tabs  R reload  ? help  q quit

@@ -20,6 +20,7 @@ import (
 type fakeRunner struct {
 	started chan fakeStart
 	events  chan engine.Event
+	sunk    chan struct{} // the sink has had the event sent
 	finish  chan engine.RunFinished
 	err     error // returned at once instead of running
 }
@@ -34,6 +35,7 @@ func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
 		started: make(chan fakeStart, 1),
 		events:  make(chan engine.Event),
+		sunk:    make(chan struct{}),
 		finish:  make(chan engine.RunFinished),
 	}
 }
@@ -47,6 +49,7 @@ func (f *fakeRunner) Run(ctx context.Context, kind RunKind, dryRun bool, sink en
 		select {
 		case e := <-f.events:
 			sink(e)
+			f.sunk <- struct{}{}
 		case fin := <-f.finish:
 			return fin, nil
 		case <-ctx.Done():
@@ -63,6 +66,7 @@ func (f *fakeRunner) send(t *testing.T, e engine.Event) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the run is not taking events")
 	}
+	<-f.sunk
 }
 
 func newRunModel(t *testing.T, r Runner) *Model {

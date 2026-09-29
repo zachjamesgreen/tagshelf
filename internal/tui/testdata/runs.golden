@@ -1,0 +1,32 @@
+ tagshelf  D:\Music  library 3f2a1b2c
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Runs (7)
+  Started           Kind        Dry  Route                                                    Moved  Errors  State
+  2026-09-29 14:05  organize         E:\Incoming -> D:\Music                                      0       0  running
+› 2026-09-28 14:05  reorganize       D:\Music in place                                            3       0  crashed
+  2026-09-27 14:05  organize         E:\Incoming -> D:\Music                                     48       2  errors
+  2026-09-26 14:05  organize    dry  E:\Incoming -> D:\Music                                     12       0  ok
+  2026-09-25 14:05  index            D:\Music                                                     0       0  interrupted
+  2026-09-24 14:05  tui-action       D:\Music                                                     0       0  ok
+  2026-09-23 14:05  undo             D:\Music                                                     0       0  undone
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓ select  enter open   1-5 tabs  R reload  ? help  q quit

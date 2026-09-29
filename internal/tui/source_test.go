@@ -116,3 +116,45 @@ func TestLibrarySourceIgnoresItsOwnLock(t *testing.T) {
 		t.Errorf("own lock: held = %t, %v; want not another's", held, err)
 	}
 }
+
+func TestLibrarySourceRunsAndDetail(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "tagshelf.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	first, err := st.StartRun(store.KindOrganize, false, "src", "lib", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordMove(first, filepath.Join("src", "a.mp3"), filepath.Join("lib", "_Untagged", "a.mp3"), store.ReasonUntagged); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordError(first, filepath.Join("src", "b.mp3"), "open: denied"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishRun(first, store.Counters{Untagged: 1, Errors: 1}, store.StateErrors, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.StartRun(store.KindIndex, false, "", "lib", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	src := librarySource{st: st, pid: -1}
+	snap, err := src.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Runs) != 2 || snap.Runs[0].ID != second || snap.Runs[1].ID != first {
+		t.Errorf("runs = %+v, want %d then %d", snap.Runs, second, first)
+	}
+	d, err := src.RunDetail(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Moves) != 1 || d.Moves[0].Reason != store.ReasonUntagged || len(d.Errors) != 1 || d.Errors[0].Message != "open: denied" {
+		t.Errorf("detail = %+v", d)
+	}
+}

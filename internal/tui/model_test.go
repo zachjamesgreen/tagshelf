@@ -20,6 +20,11 @@ type fakeSource struct {
 	snap    Snapshot
 	err     error
 	loads   int
+	details map[int64]RunDetail
+}
+
+func (f *fakeSource) RunDetail(id int64) (RunDetail, error) {
+	return f.details[id], f.err
 }
 
 func (f *fakeSource) DataVersion() (int64, error) { return f.version, f.err }
@@ -57,7 +62,8 @@ func do(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 		return nil
 	}
 	msg := cmd()
-	if _, ok := msg.(refreshMsg); ok {
+	switch msg.(type) {
+	case refreshMsg, runDetailMsg:
 		m.Update(msg)
 	}
 	return msg
@@ -87,6 +93,16 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "ctrl+c":
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "pgup":
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}
+	case "pgdown":
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg{Code: r, Text: k}
