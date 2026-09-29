@@ -29,7 +29,7 @@ func readAPESide(t *testing.T, path string) tag.Metadata {
 	return md
 }
 
-func sum(t *testing.T, path string) string {
+func audioSum(t *testing.T, path string) string {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
@@ -90,7 +90,7 @@ func checkBothSides(t *testing.T, name, path string) sides {
 func TestAACBothSides(t *testing.T) {
 	for _, src := range []string{fixtures.Untagged(".aac"), fixtures.Tagged(".aac"), fixtures.Path(fixtures.TaggedID3v2AAC)} {
 		path := copyFixture(t, src, "song.aac")
-		sumBefore := sum(t, path)
+		sumBefore := audioSum(t, path)
 		m := marker.New(marker.MusicBrainz, day)
 		fields := musicBrainzSave()
 		if _, err := (Writer{}).Save(path, fields, m); err != nil {
@@ -121,7 +121,7 @@ func TestAACBothSides(t *testing.T) {
 		if raw := readAPESide(t, path).Raw(); !reflect.DeepEqual(raw, want) {
 			t.Errorf("%s: APEv2 items\n%q\nwant\n%q", src, raw, want)
 		}
-		if s := sum(t, path); s != sumBefore {
+		if s := audioSum(t, path); s != sumBefore {
 			t.Errorf("%s: Sum changed from %s to %s", src, sumBefore, s)
 		}
 	}
@@ -145,7 +145,7 @@ func TestAACPicardUpdate(t *testing.T) {
 	// A cover is a binary item, which WriteAPEv2Tags cannot add: append it by
 	// hand as the last item.
 	addBinaryAPEItem(t, path, "Cover Art (Front)", cover)
-	sumBefore := sum(t, path)
+	sumBefore := audioSum(t, path)
 
 	m := marker.New(marker.Hand, day)
 	if _, err := (Writer{}).Save(path, Values{Title: {"Hand Title"}, Album: {}, Date: {"2002"}}, m); err != nil {
@@ -177,7 +177,7 @@ func TestAACPicardUpdate(t *testing.T) {
 	if b, _ := raw["Cover Art (Front)"].([]byte); string(b) != cover {
 		t.Errorf("cover art = %q, want it kept", raw["Cover Art (Front)"])
 	}
-	if s := sum(t, path); s != sumBefore {
+	if s := audioSum(t, path); s != sumBefore {
 		t.Errorf("Sum changed from %s to %s", sumBefore, s)
 	}
 }
