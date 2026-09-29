@@ -11,17 +11,18 @@ import (
 type Overview struct {
 	Library, Untagged, Other, Duplicates int64 // indexed audio files per folder
 
-	// ExactGroups counts the exact duplicate groups in the library, untagged
-	// and other folders that no review covers yet.
-	ExactGroups int64
+	// NeedReview counts the duplicate groups of the collection that no
+	// review covers yet.
+	NeedReview int64
 
 	// LastRun is the newest run that is no longer running, nil when there is
 	// none.
 	LastRun *Run
 }
 
-// Overview reads the library's counts and its last finished run.
-func (s *Store) Overview() (Overview, error) {
+// Overview reads the library's counts and its last finished run. possibleKey
+// is as for Groups.
+func (s *Store) Overview(possibleKey func(File) string) (Overview, error) {
 	var o Overview
 	rows, err := s.db.Query(`SELECT r.kind, count(*) FROM files f JOIN roots r ON r.id = f.root_id GROUP BY r.kind`)
 	if err != nil {
@@ -49,11 +50,11 @@ func (s *Store) Overview() (Overview, error) {
 		return o, err
 	}
 
-	n, err := s.ExactGroupsNeedingReview()
+	n, err := s.GroupsNeedingReview(possibleKey)
 	if err != nil {
 		return o, fmt.Errorf("counting duplicate groups: %w", err)
 	}
-	o.ExactGroups = int64(n)
+	o.NeedReview = int64(n)
 
 	var id int64
 	err = s.db.QueryRow(`SELECT id FROM runs WHERE state <> ? ORDER BY id DESC LIMIT 1`, string(StateRunning)).Scan(&id)

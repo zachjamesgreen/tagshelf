@@ -250,14 +250,24 @@ func hasArt(tagsJSON string) bool {
 	return false
 }
 
-// countNeedReview counts the exact duplicate groups left waiting for review,
-// for RunFinished. A dry run changed nothing, so it has nothing new to count.
+// PossibleKey is rules.PossibleKey for an indexed file, comparing its track
+// artist, or its album artist when it has none.
+func PossibleKey(f store.File) string {
+	artist := f.Artist
+	if artist == "" {
+		artist = f.AlbumArtist
+	}
+	return rules.PossibleKey(artist, f.Album, f.Track, f.Title)
+}
+
+// countNeedReview counts the duplicate groups left waiting for review, for
+// RunFinished. A dry run changed nothing, so it has nothing new to count.
 func (o *organizer) countNeedReview() {
 	st := o.cfg.Store
 	if st == nil || o.cfg.DryRun {
 		return
 	}
-	n, err := st.ExactGroupsNeedingReview()
+	n, err := st.GroupsNeedingReview(PossibleKey)
 	if err != nil {
 		o.fail(st.Path(), "", OpRecord, err)
 		return

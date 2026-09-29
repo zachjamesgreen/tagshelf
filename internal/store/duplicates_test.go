@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestReviewsCoverSubsets(t *testing.T) {
 	}
 }
 
-func TestExactGroupsNeedingReview(t *testing.T) {
+func TestGroupsNeedingReviewScope(t *testing.T) {
 	s := openMemory(t)
 	lib := setRoot(t, s, RootLibrary, filepath.FromSlash("/m"))
 	untagged := setRoot(t, s, RootUntagged, filepath.FromSlash("/m/_Untagged"))
@@ -117,7 +118,7 @@ func TestExactGroupsNeedingReview(t *testing.T) {
 		File{RootID: lib, RelPath: "d.mp3", Sum: "z"}, // reviewed
 		File{RootID: lib, RelPath: "e.mp3", Sum: "z"},
 	)
-	n, err := s.ExactGroupsNeedingReview()
+	n, err := s.GroupsNeedingReview(testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +130,7 @@ func TestExactGroupsNeedingReview(t *testing.T) {
 	if err := s.RecordReview(Review{Kind: GroupExact, Members: members, Outcome: OutcomeKeepBoth, By: ByUser}); err != nil {
 		t.Fatal(err)
 	}
-	if n, err = s.ExactGroupsNeedingReview(); err != nil || n != 1 {
+	if n, err = s.GroupsNeedingReview(testKey); err != nil || n != 1 {
 		t.Errorf("after review: %d groups (%v), want 1", n, err)
 	}
 }
@@ -164,5 +165,154 @@ func TestDuplicatesMigrationKeepsSkippedCounts(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].Counters.Duplicates != 4 {
 		t.Errorf("runs = %+v, want the old skipped count as duplicates", runs)
+	}
+}
+
+// testKey stands in for rules.PossibleKey, which store cannot import.
+func testKey(f File) string {
+	if f.Artist == "" || f.Album == "" || f.Title == "" {
+		return ""
+	}
+	return strings.ToLower(f.Artist + "|" + f.Album + "|" + strconv.Itoa(f.Track) + "|" + f.Title)
+}
+
+func groupNames(groups []Group) []string {
+	var got []string
+	for _, g := range groups {
+		var names []string
+		for _, f := range g.Files {
+			names = append(names, f.RelPath)
+		}
+		var also []string
+		for _, f := range g.AlsoOn {
+			also = append(also, f.RelPath)
+		}
+		s := string(g.Kind) + ": " + strings.Join(names, " ")
+		if len(also) > 0 {
+			s += " / also on: " + strings.Join(also, " ")
+		}
+		got = append(got, s)
+	}
+	return got
+}
+
+func TestGroups(t *testing.T) {
+	s := openMemory(t)
+	lib := setRoot(t, s, RootLibrary, filepath.FromSlash("/m"))
+	untagged := setRoot(t, s, RootUntagged, filepath.FromSlash("/m/_Untagged"))
+	dups := setRoot(t, s, RootDuplicates, filepath.FromSlash("/m/_Duplicates"))
+	src := setRoot(t, s, RootSource, filepath.FromSlash("/in"))
+	putFiles(t, s,
+		// One release track as FLAC and MP3, and an exact copy of the MP3:
+		// one confirmed group, joined through the MP3.
+		File{RootID: lib, RelPath: "rt.flac", Sum: "f", ReleaseID: "r1", ReleaseTrackID: "t1", RecordingID: "rec1"},
+		File{RootID: lib, RelPath: "rt.mp3", Sum: "m", ReleaseID: "r1", ReleaseTrackID: "t1", RecordingID: "rec1"},
+		File{RootID: untagged, RelPath: "rt copy.mp3", Sum: "m"},
+		// The same recording on a compilation: also on, not a duplicate.
+		File{RootID: lib, RelPath: "best of.mp3", Sum: "b", ReleaseID: "r2", ReleaseTrackID: "t9", RecordingID: "rec1"},
+		// A plain exact pair.
+		File{RootID: lib, RelPath: "x1.mp3", Sum: "x"},
+		File{RootID: lib, RelPath: "x2.mp3", Sum: "x"},
+		// Hand-tagged copies with no IDs and different audio: possible.
+		File{RootID: lib, RelPath: "p1.mp3", Sum: "p1", Artist: "Singer", Album: "Album", Track: 3, Title: "Song"},
+		File{RootID: untagged, RelPath: "p2.flac", Sum: "p2", Artist: "SINGER", Album: "album", Track: 3, Title: "song"},
+		// Matching tags, but with IDs: not possible, and not a release-track match either.
+		File{RootID: lib, RelPath: "q1.mp3", Sum: "q1", Artist: "Singer", Album: "Album", Track: 4, Title: "Other", ReleaseTrackID: "t4"},
+		File{RootID: lib, RelPath: "q2.mp3", Sum: "q2", Artist: "Singer", Album: "Album", Track: 4, Title: "Other"},
+		// Copies only in the duplicates folder or a source are not the collection's.
+		File{RootID: lib, RelPath: "d.mp3", Sum: "d", ReleaseTrackID: "t7"},
+		File{RootID: dups, RelPath: "d.mp3", Sum: "d", ReleaseTrackID: "t7"},
+		File{RootID: src, RelPath: "d.flac", Sum: "d2", ReleaseTrackID: "t7"},
+	)
+
+	groups, err := s.Groups(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"release-track: rt.flac rt.mp3 rt copy.mp3 / also on: best of.mp3",
+		"exact: x1.mp3 x2.mp3",
+		"possible: p1.mp3 p2.flac",
+	}
+	if got := groupNames(groups); !reflect.DeepEqual(got, want) {
+		t.Errorf("Groups =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A possible group whose files are already one confirmed group adds nothing.
+func TestPossibleGroupInsideConfirmedOne(t *testing.T) {
+	s := openMemory(t)
+	lib := setRoot(t, s, RootLibrary, filepath.FromSlash("/m"))
+	putFiles(t, s,
+		File{RootID: lib, RelPath: "a.mp3", Sum: "x", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+		File{RootID: lib, RelPath: "b.mp3", Sum: "x", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+	)
+	groups, err := s.Groups(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groupNames(groups), []string{"exact: a.mp3 b.mp3"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Groups = %q, want %q", got, want)
+	}
+}
+
+func TestKeepBothReopensWithNewMember(t *testing.T) {
+	s := openMemory(t)
+	lib := setRoot(t, s, RootLibrary, filepath.FromSlash("/m"))
+	putFiles(t, s,
+		File{RootID: lib, RelPath: "a.flac", Sum: "a", ReleaseTrackID: "t1"},
+		File{RootID: lib, RelPath: "a.mp3", Sum: "b", ReleaseTrackID: "t1"},
+		File{RootID: lib, RelPath: "p1.mp3", Sum: "p1", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+		File{RootID: lib, RelPath: "p2.mp3", Sum: "p2", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+	)
+	needing := func() int {
+		t.Helper()
+		n, err := s.GroupsNeedingReview(testKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := needing(); n != 2 {
+		t.Fatalf("before review: %d groups need review, want 2", n)
+	}
+
+	groups, err := s.Groups(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if err := s.RecordReview(Review{Kind: g.Kind, Members: g.IDs(), Outcome: OutcomeKeepBoth, By: ByUser}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := needing(); n != 0 {
+		t.Fatalf("after keep both: %d groups need review, want 0", n)
+	}
+
+	// A third copy of the release track reopens that group only.
+	putFiles(t, s, File{RootID: lib, RelPath: "a (1).mp3", Sum: "c", ReleaseTrackID: "t1"})
+	if n := needing(); n != 1 {
+		t.Errorf("after a new member: %d groups need review, want 1", n)
+	}
+}
+
+// A possible group may share files with a confirmed one: the exact pair still
+// needs resolving, and the third copy still needs a person to look at it.
+func TestPossibleGroupOverlappingConfirmedOne(t *testing.T) {
+	s := openMemory(t)
+	lib := setRoot(t, s, RootLibrary, filepath.FromSlash("/m"))
+	putFiles(t, s,
+		File{RootID: lib, RelPath: "a.mp3", Sum: "x", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+		File{RootID: lib, RelPath: "b.mp3", Sum: "x", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+		File{RootID: lib, RelPath: "c.flac", Sum: "c", Artist: "Singer", Album: "Album", Track: 1, Title: "Song"},
+	)
+	groups, err := s.Groups(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"exact: a.mp3 b.mp3", "possible: a.mp3 b.mp3 c.flac"}
+	if got := groupNames(groups); !reflect.DeepEqual(got, want) {
+		t.Errorf("Groups = %q, want %q", got, want)
 	}
 }

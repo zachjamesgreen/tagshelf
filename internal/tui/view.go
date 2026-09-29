@@ -128,7 +128,7 @@ func (m *Model) tabCount(t Tab) (int64, bool) {
 	case TabUntagged:
 		return m.snap.Overview.Untagged, true
 	case TabDuplicates:
-		return m.snap.Overview.ExactGroups, true
+		return m.snap.Overview.NeedReview, true
 	}
 	return 0, false
 }
@@ -200,7 +200,7 @@ func (m *Model) tabBody() string {
 	case TabUntagged:
 		return placeholder("Untagged", fmt.Sprintf("%s files in _Untagged.", formatCount(m.snap.Overview.Untagged)))
 	case TabDuplicates:
-		return placeholder("Duplicates", fmt.Sprintf("%s groups of identical audio.", formatCount(m.snap.Overview.ExactGroups)))
+		return placeholder("Duplicates", fmt.Sprintf("%s duplicate groups to review.", formatCount(m.snap.Overview.NeedReview)))
 	case TabLibrary:
 		return placeholder("Library", fmt.Sprintf("%s files in the library.", formatCount(m.snap.Overview.Library)))
 	case TabRuns:
@@ -252,8 +252,8 @@ func (m *Model) needsAttention() []attention {
 	if o.Untagged > 0 {
 		items = append(items, attention{plural(o.Untagged, "untagged file", "untagged files"), TabUntagged})
 	}
-	if o.ExactGroups > 0 {
-		items = append(items, attention{plural(o.ExactGroups, "duplicate group to review", "duplicate groups to review"), TabDuplicates})
+	if o.NeedReview > 0 {
+		items = append(items, attention{plural(o.NeedReview, "duplicate group to review", "duplicate groups to review"), TabDuplicates})
 	}
 	if r := o.LastRun; r != nil {
 		when := fmt.Sprintf("%s run of %s", r.Kind, m.formatTime(r.Started))

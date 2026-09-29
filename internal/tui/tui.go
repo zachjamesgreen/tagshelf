@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"tagshelf/internal/engine"
 	"tagshelf/internal/store"
 )
 
@@ -73,7 +74,7 @@ func (s librarySource) Lock() (store.LockHolder, bool, error) {
 func (s librarySource) Load() (Snapshot, error) {
 	var snap Snapshot
 	var err error
-	if snap.Overview, err = s.st.Overview(); err != nil {
+	if snap.Overview, err = s.st.Overview(engine.PossibleKey); err != nil {
 		return snap, err
 	}
 	snap.Active, err = s.st.ActiveRun(recentMoves)

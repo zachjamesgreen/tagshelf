@@ -150,32 +150,178 @@ func (s *Store) ExactGroups() ([][]File, error) {
 	return groups, nil
 }
 
-// inCollection reports whether a root holds files that are part of the
-// library's collection: the library and its untagged and other folders, not
-// the duplicates folder or a source.
-func inCollection(kind RootKind) bool {
-	return kind == RootLibrary || kind == RootUntagged || kind == RootOther
+// Group is a set of files in the collection that are, or may be, copies of
+// one song. Files are in the order they were indexed. AlsoOn lists files of
+// the same recording on another release: information, never duplicates.
+type Group struct {
+	Kind   GroupKind
+	Files  []File
+	AlsoOn []File
 }
 
-// ExactGroupsNeedingReview counts the exact duplicate groups within the
-// library, untagged and other folders that no review covers.
-func (s *Store) ExactGroupsNeedingReview() (int, error) {
-	groups, err := s.ExactGroups()
+// IDs lists the group's file IDs, as a review records them.
+func (g Group) IDs() []int64 {
+	ids := make([]int64, len(g.Files))
+	for i, f := range g.Files {
+		ids[i] = f.ID
+	}
+	return ids
+}
+
+// Groups lists the duplicate groups among the files of the collection. A
+// confirmed group joins files with the same audio or the same MusicBrainz
+// release track, transitively; it is exact when all of it has the same audio.
+// Files without MusicBrainz IDs whose possibleKey matches form a possible
+// group. It is never merged into a confirmed group, though its files may also
+// be in one: it is left out only when all its files are one confirmed group
+// already, since it would then add nothing to review. possibleKey is
+// rules.PossibleKey applied to a file, "" for a file with nothing to compare;
+// store cannot import rules. Confirmed groups come first, each kind in the
+// order of its first file.
+func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
+	files, err := s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE r.kind IN (?, ?, ?) ORDER BY f.id`,
+		string(RootLibrary), string(RootUntagged), string(RootOther))
+	if err != nil {
+		return nil, fmt.Errorf("finding duplicate groups: %w", err)
+	}
+
+	parent := make([]int, len(files))
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(i int) int {
+		if parent[i] != i {
+			parent[i] = find(parent[i])
+		}
+		return parent[i]
+	}
+	join := func(first map[string]int, key string, i int) {
+		if j, ok := first[key]; ok {
+			parent[find(i)] = find(j)
+		} else {
+			first[key] = i
+		}
+	}
+	bySum, byTrack := make(map[string]int), make(map[string]int)
+	byRecording := make(map[string][]int)
+	for i, f := range files {
+		if f.Sum != "" && f.Sum != emptyAudioSum {
+			join(bySum, f.Sum, i)
+		}
+		if f.ReleaseTrackID != "" {
+			join(byTrack, f.ReleaseTrackID, i)
+		}
+		if f.RecordingID != "" {
+			byRecording[f.RecordingID] = append(byRecording[f.RecordingID], i)
+		}
+	}
+
+	var groups []Group
+	group := make([]int, len(files)) // index into groups + 1; 0 for none
+	members := make(map[int][]int)   // root -> files, in index order
+	var roots []int
+	for i := range files {
+		r := find(i)
+		if len(members[r]) == 0 {
+			roots = append(roots, r)
+		}
+		members[r] = append(members[r], i)
+	}
+	for _, r := range roots {
+		m := members[r]
+		if len(m) < 2 {
+			continue
+		}
+		g := Group{Kind: GroupExact}
+		for _, i := range m {
+			g.Files = append(g.Files, files[i])
+			if files[i].Sum != files[m[0]].Sum {
+				g.Kind = GroupReleaseTrack
+			}
+			group[i] = len(groups) + 1
+		}
+		g.AlsoOn = alsoOn(files, m, byRecording, group, len(groups)+1)
+		groups = append(groups, g)
+	}
+
+	byKey := make(map[string][]int)
+	var keys []string
+	for i, f := range files {
+		if f.ReleaseID != "" || f.ReleaseTrackID != "" || f.RecordingID != "" {
+			continue
+		}
+		key := possibleKey(f)
+		if key == "" {
+			continue
+		}
+		if len(byKey[key]) == 0 {
+			keys = append(keys, key)
+		}
+		byKey[key] = append(byKey[key], i)
+	}
+	for _, key := range keys {
+		m := byKey[key]
+		if len(m) < 2 || sameGroup(group, m) {
+			continue
+		}
+		g := Group{Kind: GroupPossible}
+		for _, i := range m {
+			g.Files = append(g.Files, files[i])
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+// alsoOn lists the files outside group g that share a recording with one of
+// its members m but sit on a release none of them is on.
+func alsoOn(files []File, m []int, byRecording map[string][]int, group []int, g int) []File {
+	releases := make(map[string]bool)
+	for _, i := range m {
+		releases[files[i].ReleaseID] = true
+	}
+	seen := make(map[int]bool)
+	var also []int
+	for _, i := range m {
+		for _, j := range byRecording[files[i].RecordingID] {
+			if group[j] == g || seen[j] || releases[files[j].ReleaseID] {
+				continue
+			}
+			seen[j] = true
+			also = append(also, j)
+		}
+	}
+	slices.Sort(also)
+	var out []File
+	for _, j := range also {
+		out = append(out, files[j])
+	}
+	return out
+}
+
+// sameGroup reports whether the files m are all in one confirmed group.
+func sameGroup(group []int, m []int) bool {
+	for _, i := range m {
+		if group[i] == 0 || group[i] != group[m[0]] {
+			return false
+		}
+	}
+	return true
+}
+
+// GroupsNeedingReview counts the duplicate groups of the collection that no
+// review covers: new groups, and reviewed ones that have gained a member.
+// possibleKey is as for Groups.
+func (s *Store) GroupsNeedingReview(possibleKey func(File) string) (int, error) {
+	groups, err := s.Groups(possibleKey)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, g := range groups {
-		var members []int64
-		for _, f := range g {
-			if inCollection(f.RootKind) {
-				members = append(members, f.ID)
-			}
-		}
-		if len(members) < 2 {
-			continue
-		}
-		reviewed, err := s.Reviewed(GroupExact, members)
+		reviewed, err := s.Reviewed(g.Kind, g.IDs())
 		if err != nil {
 			return 0, err
 		}

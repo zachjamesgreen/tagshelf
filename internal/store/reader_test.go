@@ -242,7 +242,7 @@ func TestRecordProgressAndActiveRun(t *testing.T) {
 
 func TestOverview(t *testing.T) {
 	s := openMemory(t)
-	o, err := s.Overview()
+	o, err := s.Overview(testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestOverview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	o, err = s.Overview()
+	o, err = s.Overview(testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,8 +282,8 @@ func TestOverview(t *testing.T) {
 	}
 	// x is in the library and _Untagged; z and y each have their second copy
 	// in _Duplicates only, which does not make a group.
-	if o.ExactGroups != 1 {
-		t.Errorf("exact groups = %d, want 1", o.ExactGroups)
+	if o.NeedReview != 1 {
+		t.Errorf("groups needing review = %d, want 1", o.NeedReview)
 	}
 	if o.LastRun == nil || o.LastRun.ID != first || o.LastRun.State != StateErrors || o.LastRun.Counters.Errors != 2 {
 		t.Errorf("last run = %+v, want run %d with 2 errors, not the one still running", o.LastRun, first)

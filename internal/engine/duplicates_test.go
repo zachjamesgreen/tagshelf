@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"tagshelf/internal/fixtures"
 	"tagshelf/internal/rules"
 	"tagshelf/internal/store"
 )
@@ -404,4 +405,38 @@ func TestIdenticalCompanionMovesToDuplicates(t *testing.T) {
 		t.Fatalf("run = %+v, want one duplicate and one non-audio file moved", finish)
 	}
 	mustExist(t, filepath.Join(lib, "_Duplicates", "Rip", "notes.txt"), filepath.Join(lib, "_Other", "Rip", "other (1).txt"))
+}
+
+// A FLAC and an MP3 rip of the same release track are duplicates, but not
+// exact ones: a run leaves both in the library and counts the group for
+// review.
+func TestReleaseTrackGroupNeedsReview(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "src")
+	for _, ext := range []string{".flac", ".mp3"} {
+		data, err := os.ReadFile(fixtures.Tagged(ext))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(source, "Rip", "song"+ext), string(data))
+	}
+	lib := filepath.Join(t.TempDir(), "lib")
+	s := openStore(t)
+
+	finish := Run(context.Background(), Options{Source: source, Destination: lib, Store: s})
+	if finish.State != StateOK || finish.Counters.Organized != 2 || finish.Counters.Duplicates != 0 {
+		t.Fatalf("run = %+v, want both organized and nothing moved to duplicates", finish)
+	}
+	if finish.NeedReview != 1 {
+		t.Errorf("NeedReview = %d, want 1", finish.NeedReview)
+	}
+	groups, err := s.Groups(PossibleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].Kind != store.GroupReleaseTrack || len(groups[0].Files) != 2 {
+		t.Errorf("groups = %+v, want one release-track group of 2", groups)
+	}
+	if len(reviews(t, s)) != 0 {
+		t.Errorf("reviews = %+v, want none: release-track groups wait for a person", reviews(t, s))
+	}
 }
