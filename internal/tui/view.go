@@ -50,6 +50,8 @@ func (m *Model) render() string {
 	top, bottom := m.chrome()
 	var body string
 	switch {
+	case m.edit != nil:
+		body = m.editorBody()
 	case m.help:
 		body = helpScreen()
 	case !m.loaded:
@@ -64,7 +66,11 @@ func (m *Model) render() string {
 
 // chrome is the lines above the tab's body and below it.
 func (m *Model) chrome() (top, bottom []string) {
-	top = []string{m.headerLine(), m.tabsLine(), dimStyle.Render(strings.Repeat("─", m.width))}
+	tabs := m.tabsLine()
+	if m.edit != nil {
+		tabs = m.editorCrumb()
+	}
+	top = []string{m.headerLine(), tabs, dimStyle.Render(strings.Repeat("─", m.width))}
 	bottom = []string{m.toastLine(), dimStyle.Render(m.keyHelp())}
 	// The banner may use what the body can spare, but no more.
 	top = append(top, m.banner(m.height-len(top)-len(bottom)-4)...)
@@ -302,6 +308,9 @@ func (m *Model) toastLine() string {
 
 func (m *Model) keyHelp() string {
 	help := "1-5 tabs  R reload  ? help  q quit"
+	if m.edit != nil {
+		return "↑↓/tab field  ←→ compilation  ctrl+s save  esc back"
+	}
 	if m.help {
 		return "esc back  " + help
 	}
@@ -317,7 +326,7 @@ func (m *Model) keyHelp() string {
 	case m.tab == TabUntagged && m.ReadOnly():
 		help = "read-only  ↑↓ move  v grouping   " + help
 	case m.tab == TabUntagged:
-		help = "↑↓ move  space select  g group  v grouping  a accept tags   " + help
+		help = "↑↓ move  space select  g group  v grouping  a accept tags  e edit   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
 		help = "esc back  ↑↓ scroll  g/G top/end   " + help
 	case m.tab == TabRuns:
@@ -348,6 +357,7 @@ func helpScreen() string {
 		{"g", "select the file's whole group (Untagged)"},
 		{"v", "group by original folder, album tag or nothing (Untagged)"},
 		{"a", "accept the tags of the selected files as they are (Untagged)"},
+		{"e", "edit the file's tags (Untagged); ctrl+s saves"},
 		{"k", "choose which copy to keep (Duplicates)"},
 		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
 		{"b", "keep both copies (Duplicates)"},

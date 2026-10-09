@@ -425,3 +425,33 @@ func TestErrorNamesTheFile(t *testing.T) {
 		t.Errorf("Save of a missing file = %v, want an error naming it", err)
 	}
 }
+
+// Read returns what a person edits in the form Save takes it, so that
+// saving what was read changes nothing.
+func TestReadReturnsWhatSaveTakes(t *testing.T) {
+	for _, ext := range fixtures.ManualExtensions() {
+		if !Supported("x" + ext) {
+			continue
+		}
+		path := copyFixture(t, fixtures.Manual(ext), "song"+ext)
+		got, err := Read(path)
+		if err != nil {
+			t.Errorf("%s: %v", ext, err)
+			continue
+		}
+		if first(got[Title]) != fixtures.Title || first(got[Album]) != fixtures.Album || first(got[Marker]) == "" {
+			t.Errorf("%s: read %v", ext, got)
+		}
+		again := Values{}
+		for _, f := range []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc} {
+			again[f] = got[f]
+		}
+		res, err := Writer{}.Save(path, again, marker.New(marker.Hand, day))
+		if err != nil || res.Changed {
+			t.Errorf("%s: saving what was read: changed %t, %v", ext, res.Changed, err)
+		}
+	}
+	if _, err := Read("song.xyz"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("Read of an unknown format: %v", err)
+	}
+}

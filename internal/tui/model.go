@@ -74,6 +74,9 @@ type Model struct {
 	runs     runsTab
 	dups     dupsTab
 	untagged untaggedTab
+	edit     *editor // the tag editor, nil when it is not open
+
+	compilations string // the folder name compilations are filed under
 
 	// busy is closed when the action a tab is carrying out on the library has
 	// ended, nil when none is.
@@ -145,6 +148,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.edit != nil && m.edit.form != nil {
+			m.edit.form.WithWidth(m.editorWidth()).WithHeight(m.editorHeight())
+		}
 	case tickMsg:
 		return m, m.poll(false, true)
 	case refreshMsg:
@@ -157,12 +163,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.dupsDone(msg)
 	case untaggedDoneMsg:
 		return m, m.untaggedDone(msg)
+	case editorTagsMsg:
+		return m, m.editorLoaded(msg)
+	case editorDoneMsg:
+		return m, m.editorDone(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
 		}
 	case tea.KeyPressMsg:
+		if m.edit != nil && !m.confirmQuit {
+			return m, m.editorKey(msg)
+		}
 		return m, m.key(msg.String())
+	default:
+		// What the editor's form sends itself.
+		if m.edit != nil && m.edit.form != nil && !m.edit.saving {
+			return m, m.formUpdate(msg)
+		}
 	}
 	return m, nil
 }
@@ -192,6 +210,14 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 		m.loaded = true
 		m.dups.follow(m.snap.Groups)
 		m.untagged.reload(m.snap.Untagged)
+		if e := m.edit; e != nil {
+			// The file being edited, as the index has it now.
+			for _, f := range m.snap.Untagged {
+				if f.ID == e.file.ID {
+					e.file = f.File
+				}
+			}
+		}
 		return tea.Batch(next, m.runsReloaded())
 	}
 	return next

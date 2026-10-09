@@ -68,7 +68,7 @@ func runTUI(ctx context.Context, args []string) int {
 	}
 	defer st.Close()
 
-	err = tui.Run(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Runner: tuiRunner{cfg: cfg}})
+	err = tui.Run(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Compilations: cfg.Compilations, Runner: tuiRunner{cfg: cfg}})
 	if ctx.Err() != nil {
 		return exitInterrupted
 	}

@@ -149,6 +149,51 @@ func Supported(path string) bool {
 	return ok
 }
 
+// editable are the fields Read returns.
+var editable = []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc, Compilation, AlbumArtistIDs, Marker}
+
+// Read returns the tags of the file at path a person edits, in the form Save
+// takes them, with the marker and the MusicBrainz album artist IDs. A field
+// the file lacks has no values.
+func Read(path string) (Values, error) {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return nil, ErrUnsupported
+	}
+	v, err := current(f, path, editable)
+	if err != nil {
+		return nil, fmt.Errorf("reading the tags of %q: %w", path, err)
+	}
+	return v, nil
+}
+
+// current reads the named fields of the file at path as they are now.
+func current(f format, path string, named []Field) (Values, error) {
+	keys, err := taglib.ReadTags(path)
+	if err != nil {
+		return nil, err
+	}
+	v := fromKeys(f, keys, named)
+	if f.asf {
+		asfBefore(path, v)
+	}
+	return v, nil
+}
+
+// Check reports what is wrong with value as the single value of field, nil
+// when Save would take it.
+func Check(field Field, value string) error {
+	_, err := normalize(Values{field: {value}})
+	return err
+}
+
+// HasCompilation reports whether the compilation flag can be saved to the
+// file at path: TagLib has no key for it in WMA files.
+func HasCompilation(path string) bool {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	return ok && !f.asf
+}
+
 // Save writes fields and the marker m to the file at path, through a copy
 // that must read back with both before it replaces the original. When the
 // file already has every value and a marker it is left alone and nothing is
@@ -171,14 +216,9 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 		delete(want, Compilation)
 	}
 
-	current, err := taglib.ReadTags(path)
+	before, err := current(f, path, append(slices.Collect(maps.Keys(want)), Marker))
 	if err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: reading its tags: %w", path, err)
-	}
-	named := append(slices.Collect(maps.Keys(want)), Marker)
-	before := fromKeys(f, current, named)
-	if f.asf {
-		asfBefore(path, before)
 	}
 	after := maps.Clone(want)
 	after[Marker] = []string{m.String()}

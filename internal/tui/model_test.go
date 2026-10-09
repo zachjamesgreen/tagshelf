@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"tagshelf/internal/store"
+	"tagshelf/internal/tagwrite"
 )
 
 // fakeSource is a library the tests change by hand.
@@ -21,6 +22,11 @@ type fakeSource struct {
 	err     error
 	loads   int
 	details map[int64]RunDetail
+	tags    map[string]tagwrite.Values // by path, for the tag editor
+}
+
+func (f *fakeSource) Tags(path string) (tagwrite.Values, error) {
+	return f.tags[path], f.err
 }
 
 func (f *fakeSource) RunDetail(id int64) (RunDetail, error) {
@@ -107,6 +113,12 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyPgUp}
 	case "pgdown":
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	}
+	if rest, ok := strings.CutPrefix(k, "ctrl+"); ok {
+		return tea.KeyPressMsg{Code: []rune(rest)[0], Mod: tea.ModCtrl}
+	}
+	if k == "backspace" {
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	}
 	if k == "space" {
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}

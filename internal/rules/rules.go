@@ -154,22 +154,46 @@ func isVariousArtistsName(name string) bool {
 	return false
 }
 
+// Tags are the tags a file's place in the library is worked out from.
+type Tags struct {
+	Artist, AlbumArtist, Album, Title string
+	Year, Track, Disc, DiscTotal      int
+	// VariousArtistsID is set when the MusicBrainz album artist IDs name the
+	// special Various Artists artist.
+	VariousArtistsID bool
+}
+
+// TagsOf reads from m the tags LibraryPathFor goes by.
+func TagsOf(m tag.Metadata) Tags {
+	t := Tags{Artist: m.Artist(), AlbumArtist: m.AlbumArtist(), Album: m.Album(), Title: m.Title(), Year: m.Year()}
+	t.Track, _ = m.Track()
+	t.Disc, t.DiscTotal = m.Disc()
+	// The IDs only count without an album artist to go by.
+	if albumArtist := strings.TrimSpace(t.AlbumArtist); albumArtist == "" || isVariousArtistsName(albumArtist) {
+		t.VariousArtistsID = HasVariousArtistsID(mbz.Extract(m).AlbumArtistIDs)
+	}
+	return t
+}
+
+// HasVariousArtistsID reports whether MusicBrainz album artist IDs name the
+// special Various Artists artist.
+func HasVariousArtistsID(ids []string) bool {
+	return slices.ContainsFunc(ids, func(id string) bool {
+		return strings.EqualFold(id, VariousArtistsMBID)
+	})
+}
+
 // isCompilation reports whether a track belongs to a Various Artists
 // compilation. A real album artist tag always wins, so the MusicBrainz ID only
 // counts when the album artist is empty or itself a Various Artists name. The
 // iTunes compilation flag is deliberately ignored: it is also set on
 // single-artist best-ofs and would pull them out of their artist's folder.
-func isCompilation(m tag.Metadata) bool {
-	albumArtist := strings.TrimSpace(m.AlbumArtist())
+func (t Tags) isCompilation() bool {
+	albumArtist := strings.TrimSpace(t.AlbumArtist)
 	if isVariousArtistsName(albumArtist) {
 		return true
 	}
-	if albumArtist != "" {
-		return false
-	}
-	return slices.ContainsFunc(mbz.Extract(m).AlbumArtistIDs, func(id string) bool {
-		return strings.EqualFold(id, VariousArtistsMBID)
-	})
+	return albumArtist == "" && t.VariousArtistsID
 }
 
 // LibraryPath is where an organized file belongs:
@@ -177,39 +201,44 @@ func isCompilation(m tag.Metadata) bool {
 // compilations/Album (Year)/[disc-]track - Track Artist - Title.ext. It
 // reports false when the tags lack an artist, album or title.
 func LibraryPath(dest, compilations string, m tag.Metadata, ext string) (string, bool) {
-	compilation := isCompilation(m)
+	return LibraryPathFor(dest, compilations, TagsOf(m), ext)
+}
+
+// LibraryPathFor is LibraryPath for tags that are not in a file, such as
+// those a person is still typing.
+func LibraryPathFor(dest, compilations string, t Tags, ext string) (string, bool) {
+	compilation := t.isCompilation()
 	var artist string
 	if compilation {
 		artist = SanitizeName(compilations)
 	} else {
-		artist = SanitizeName(m.AlbumArtist())
+		artist = SanitizeName(t.AlbumArtist)
 		if artist == "Unknown" {
 			// No album artist tag: fall back to the track artist.
-			artist = SanitizeName(m.Artist())
+			artist = SanitizeName(t.Artist)
 		}
 	}
-	album := m.Album()
-	title := SanitizeName(m.Title())
+	album := t.Album
+	title := SanitizeName(t.Title)
 	if artist == "Unknown" || SanitizeName(album) == "Unknown" || title == "Unknown" {
 		return "", false
 	}
-	if year := m.Year(); year > 0 {
-		album = fmt.Sprintf("%s (%d)", strings.TrimSpace(album), year)
+	if t.Year > 0 {
+		album = fmt.Sprintf("%s (%d)", strings.TrimSpace(album), t.Year)
 	}
 
 	name := title
 	if compilation {
 		// The folder no longer says who performs each track, so the name does.
-		if trackArtist := SanitizeName(m.Artist()); trackArtist != "Unknown" {
+		if trackArtist := SanitizeName(t.Artist); trackArtist != "Unknown" {
 			name = trackArtist + " - " + title
 		}
 	}
-	if track, _ := m.Track(); track > 0 {
-		disc, discs := m.Disc()
-		if disc > 0 && (discs > 1 || disc > 1) {
-			name = fmt.Sprintf("%d-%02d - %s", disc, track, name)
+	if t.Track > 0 {
+		if t.Disc > 0 && (t.DiscTotal > 1 || t.Disc > 1) {
+			name = fmt.Sprintf("%d-%02d - %s", t.Disc, t.Track, name)
 		} else {
-			name = fmt.Sprintf("%02d - %s", track, name)
+			name = fmt.Sprintf("%02d - %s", t.Track, name)
 		}
 	}
 	return filepath.Join(dest, artist, SanitizeName(album), name+ext), true

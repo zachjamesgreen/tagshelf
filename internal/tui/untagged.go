@@ -194,6 +194,10 @@ func (m *Model) untaggedKey(k string) (tea.Cmd, bool) {
 			return nil, false
 		}
 		clear(u.selected)
+	case "e":
+		if f, ok := u.current(); ok {
+			return m.openEditor(f.File), true
+		}
 	case "a":
 		ids := u.targets()
 		if len(ids) > 0 && m.canChange() {

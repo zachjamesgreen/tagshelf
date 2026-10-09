@@ -12,6 +12,7 @@ import (
 
 	"tagshelf/internal/engine"
 	"tagshelf/internal/store"
+	"tagshelf/internal/tagwrite"
 )
 
 // Options configure the TUI.
@@ -21,6 +22,8 @@ type Options struct {
 	Destination string // the library's root folder
 	LibraryID   string
 	DryRun      bool
+	// Compilations is the folder name compilations are filed under.
+	Compilations string
 	// Runner does the runs started from Home; nil disables them.
 	Runner Runner
 }
@@ -30,6 +33,7 @@ func Run(ctx context.Context, opts Options) error {
 	src := librarySource{st: opts.Store, pid: os.Getpid()}
 	m := New(src, Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: opts.DryRun})
 	m.runner = opts.Runner
+	m.compilations = opts.Compilations
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	// However the program ended, a run it started stops cleanly before the
 	// library's database closes.
@@ -49,6 +53,8 @@ type Source interface {
 	Load() (Snapshot, error)
 	// RunDetail reads what one run did.
 	RunDetail(id int64) (RunDetail, error)
+	// Tags reads the tags of an audio file that the tag editor edits.
+	Tags(path string) (tagwrite.Values, error)
 }
 
 // Snapshot is what the TUI shows of the library, as read at one moment.
@@ -118,4 +124,8 @@ func (s librarySource) RunDetail(id int64) (RunDetail, error) {
 	}
 	d.Errors, err = s.st.RunErrors(id)
 	return d, err
+}
+
+func (s librarySource) Tags(path string) (tagwrite.Values, error) {
+	return tagwrite.Read(path)
 }

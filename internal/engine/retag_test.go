@@ -157,3 +157,35 @@ func TestSaveTagsRefusals(t *testing.T) {
 		t.Errorf("cancelled: finish = %+v, want it interrupted", finish)
 	}
 }
+
+// A library file whose tags now put it elsewhere moves within the library,
+// and its folder's other files follow when no audio is left there.
+func TestSaveTagsMovesALibraryFileWhoseTagsChanged(t *testing.T) {
+	lib := filepath.Join(t.TempDir(), "lib")
+	old := filepath.Join(lib, "Wrong Artist", "Wrong Album", "01 - Song.flac")
+	writeTestFile(t, old, readTestFile(t, fixtures.Path(fixtures.RipperFLAC)))
+	art := filepath.Join(filepath.Dir(old), "cover.jpg")
+	writeTestFile(t, art, "art")
+	s := openStore(t)
+	indexLibrary(t, s, lib)
+	id := indexedFiles(t, s)[old].ID
+
+	finish := SaveTags(context.Background(), Options{Destination: lib, Store: s}, []int64{id}, overwrite(t, fixtures.Manual(".flac")))
+	if finish.State != StateOK || finish.Counters.Organized != 1 {
+		t.Fatalf("finish = %+v, want the file organized", finish)
+	}
+	dst := manualLibraryPath(lib, ".flac")
+	mustExist(t, dst, filepath.Join(filepath.Dir(dst), "cover.jpg"))
+	mustNotExist(t, old, art, filepath.Dir(filepath.Dir(old)))
+	if row := indexedFiles(t, s)[dst]; row.ID != id || row.RootKind != store.RootLibrary {
+		t.Errorf("index row = %+v, want the same file at its new place", row)
+	}
+
+	// Saved again with nothing to change, it stays where it is.
+	finish = SaveTags(context.Background(), Options{Destination: lib, Store: s}, []int64{id},
+		func(*store.Store, int64, store.File) error { return nil })
+	if finish.State != StateOK || finish.Counters.InPlace != 1 || finish.Counters.Organized != 0 {
+		t.Errorf("second save: finish = %+v, want the file in place", finish)
+	}
+	mustExist(t, dst)
+}
