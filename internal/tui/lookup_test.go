@@ -24,6 +24,11 @@ type fakeMB struct {
 	release *musicbrainz.Release
 	err     error
 
+	// What a release match is answered with, and what it asked.
+	candidates     []musicbrainz.ReleaseCandidate
+	releaseQueries []musicbrainz.ReleaseQuery
+	boosts         [][]musicbrainz.Query
+
 	queries []musicbrainz.Query
 	offsets []int
 	looked  []string
@@ -38,6 +43,14 @@ func (f *fakeMB) SearchRecordings(_ context.Context, q musicbrainz.Query, offset
 		return p, nil
 	}
 	return &musicbrainz.RecordingSearch{}, nil
+}
+
+func (f *fakeMB) SearchReleaseCandidates(_ context.Context, q musicbrainz.ReleaseQuery, boost []musicbrainz.Query, inLibrary func(string) bool) ([]musicbrainz.ReleaseCandidate, error) {
+	f.releaseQueries, f.boosts = append(f.releaseQueries, q), append(f.boosts, boost)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.candidates, nil
 }
 
 func (f *fakeMB) LookupRelease(_ context.Context, id string) (*musicbrainz.Release, error) {

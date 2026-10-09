@@ -15,6 +15,7 @@ Keys
   a      accept the tags of the selected files as they are (Untagged)
   e      edit the file's tags (Untagged); ctrl+s saves
   l      look the file up on MusicBrainz (Untagged)
+  L      match the selection, or the group, to a release (Untagged)
   k      choose which copy to keep (Duplicates)
   enter  resolve the group (Duplicates), open the run (Runs)
   b      keep both copies (Duplicates)
@@ -26,7 +27,6 @@ Keys
   q      quit
 
 The view reloads by itself when another tagshelf changes the library.
-
 
 
 esc back  1-5 tabs  R reload  ? help  q quit

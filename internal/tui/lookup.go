@@ -25,6 +25,7 @@ import (
 // *musicbrainz.Client implements it.
 type MusicBrainz interface {
 	SearchRecordings(ctx context.Context, q musicbrainz.Query, offset int) (*musicbrainz.RecordingSearch, error)
+	SearchReleaseCandidates(ctx context.Context, q musicbrainz.ReleaseQuery, boost []musicbrainz.Query, inLibrary func(releaseID string) bool) ([]musicbrainz.ReleaseCandidate, error)
 	LookupRelease(ctx context.Context, id string) (*musicbrainz.Release, error)
 }
 
@@ -111,17 +112,7 @@ func (m *Model) openLookup(f store.File, from string) tea.Cmd {
 		l.step = stepDisabled
 		return nil
 	}
-	info := musicbrainz.FileInfo{
-		Title: f.Title, Artist: f.Artist, Album: f.Album, Year: f.Year,
-		Track: f.Track, TrackTotal: f.TrackTotal, Disc: f.Disc, Length: f.Length, Path: f.Path,
-	}
-	if info.Artist == "" {
-		info.Artist = f.AlbumArtist
-	}
-	if from != "" {
-		info.Folder = filepath.Base(filepath.Dir(from))
-	}
-	l.base = musicbrainz.QueryFor(info)
+	l.base = musicbrainz.QueryFor(fileInfo(f, from))
 	l.title, l.artist, l.album, l.length = l.base.Title, l.base.Artist, l.base.Album, length(l.base.Length)
 	l.step = stepQuery
 
@@ -140,6 +131,36 @@ func (m *Model) openLookup(f store.File, from string) tea.Cmd {
 		l.last,
 	)).WithKeyMap(keys).WithShowHelp(false).WithWidth(m.editorWidth())
 	return l.form.Init()
+}
+
+// fileInfo is what a lookup goes by of the indexed file f, which a run took
+// from the path from ("" when none did).
+func fileInfo(f store.File, from string) musicbrainz.FileInfo {
+	info := musicbrainz.FileInfo{
+		Title: f.Title, Artist: f.Artist, Album: f.Album, Year: f.Year,
+		Track: f.Track, TrackTotal: f.TrackTotal, Disc: f.Disc, Length: f.Length, Path: f.Path,
+	}
+	if info.Artist == "" {
+		info.Artist = f.AlbumArtist
+	}
+	if from != "" {
+		info.Folder = filepath.Base(filepath.Dir(from))
+	}
+	return info
+}
+
+// rulesTags are MusicBrainz tags as a file's place in the library is worked
+// out from.
+func rulesTags(t musicbrainz.Tags) rules.Tags {
+	tags := rules.Tags{
+		Artist: t.Artist, AlbumArtist: t.AlbumArtist, Album: t.Album, Title: t.Title,
+		Track: t.Track, Disc: t.Disc, DiscTotal: t.DiscTotal,
+		VariousArtistsID: rules.HasVariousArtistsID(t.AlbumArtistIDs),
+	}
+	if len(t.Date) >= 4 {
+		tags.Year, _ = strconv.Atoi(t.Date[:4])
+	}
+	return tags
 }
 
 // parseLength reads a length typed as m:ss or as seconds; nothing is no
@@ -384,6 +405,10 @@ var lookupFields = []struct {
 	{tagwrite.ReleaseGroupID, "Release group ID"}, {tagwrite.ArtistIDs, "Artist IDs"}, {tagwrite.AlbumArtistIDs, "Album artist IDs"},
 }
 
+// lookupIDsFrom is where in lookupFields the MusicBrainz IDs start; the
+// fields before it are the ones a person reads.
+const lookupIDsFrom = 8
+
 // lookupValues are the tags t as a save takes them: every field a match
 // writes is there, and one MusicBrainz has no value for is cleared.
 func lookupValues(t musicbrainz.Tags, path string) tagwrite.Values {
@@ -428,16 +453,7 @@ func lookupSave(values tagwrite.Values, now time.Time) engine.TagSave {
 
 // placed is where the file would go with the picked match's tags.
 func (m *Model) placed(l *lookup) (line string, lacking bool) {
-	t := l.tags
-	tags := rules.Tags{
-		Artist: t.Artist, AlbumArtist: t.AlbumArtist, Album: t.Album, Title: t.Title,
-		Track: t.Track, Disc: t.Disc, DiscTotal: t.DiscTotal,
-		VariousArtistsID: rules.HasVariousArtistsID(t.AlbumArtistIDs),
-	}
-	if len(t.Date) >= 4 {
-		tags.Year, _ = strconv.Atoi(t.Date[:4])
-	}
-	return m.placeLine(l.file, tags)
+	return m.placeLine(l.file, rulesTags(l.tags))
 }
 
 // confirmLookup writes the picked match's tags off the UI goroutine.

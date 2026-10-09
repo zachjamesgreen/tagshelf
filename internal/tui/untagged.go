@@ -202,6 +202,25 @@ func (m *Model) untaggedKey(k string) (tea.Cmd, bool) {
 		if f, ok := u.current(); ok {
 			return m.openLookup(f.File, f.From), true
 		}
+	case "L":
+		// The selection, or else the whole group the cursor is in.
+		var files []store.UntaggedFile
+		for _, f := range u.files {
+			if u.selected[f.ID] {
+				files = append(files, f)
+			}
+		}
+		if _, ok := u.current(); ok && len(files) == 0 {
+			if u.by == ungrouped {
+				m.setToast(false, "Select the files of one release first (space), or group the list (v) to take a whole group")
+				return nil, true
+			}
+			g := u.groupAt(u.cursor)
+			files = append(files, u.files[g.first:g.first+g.n]...)
+		}
+		if len(files) > 0 {
+			return m.openMatch(files), true
+		}
 	case "a":
 		ids := u.targets()
 		if len(ids) > 0 && m.canChange() {
@@ -239,10 +258,19 @@ func acceptSave(now time.Time) engine.TagSave {
 // acceptTags accepts the tags of the files with the given IDs off the UI
 // goroutine.
 func (m *Model) acceptTags(ids []int64) tea.Cmd {
+	return m.saveMany(ids, acceptSave(time.Now()), func(moved []string, finish engine.RunFinished, err error) tea.Msg {
+		return untaggedDoneMsg{files: len(ids), moved: moved, finish: finish, err: err}
+	})
+}
+
+// saveMany saves tags to the indexed files with the given IDs as one run,
+// off the UI goroutine; done turns where the files that qualified went and
+// how the run ended into the message to send.
+func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []string, finish engine.RunFinished, err error) tea.Msg) tea.Cmd {
 	runner := m.runner
-	ctx, done := m.begin()
+	ctx, ended := m.begin()
 	return func() tea.Msg {
-		defer close(done)
+		defer close(ended)
 		var mu sync.Mutex
 		var moved []string
 		sink := func(e engine.Event) {
@@ -252,8 +280,8 @@ func (m *Model) acceptTags(ids []int64) tea.Cmd {
 				mu.Unlock()
 			}
 		}
-		finish, err := runner.SaveTags(ctx, ids, acceptSave(time.Now()), sink)
-		return untaggedDoneMsg{files: len(ids), moved: moved, finish: finish, err: err}
+		finish, err := runner.SaveTags(ctx, ids, save, sink)
+		return done(moved, finish, err)
 	}
 }
 
@@ -267,38 +295,43 @@ func (m *Model) untaggedDone(msg untaggedDoneMsg) tea.Cmd {
 	}
 	// The files that moved leave the selection with the reload; those that
 	// stayed or failed are still there to see and act on.
+	m.movedToast(msg.moved, msg.finish)
+	return m.poll(true, false)
+}
 
+// movedToast says how a run that saved tags to files went: where those that
+// moved went, how many stayed, and how many failed.
+func (m *Model) movedToast(moved []string, finish engine.RunFinished) {
 	var parts []string
-	switch n := len(msg.moved); {
+	switch n := len(moved); {
 	case n == 1:
-		parts = append(parts, "Moved to "+m.shortPath(msg.moved[0]))
+		parts = append(parts, "Moved to "+m.shortPath(moved[0]))
 	case n > 1:
 		dirs := make(map[string]bool)
-		for _, p := range msg.moved {
+		for _, p := range moved {
 			dirs[rules.PathKey(filepath.Dir(p))] = true
 		}
 		if len(dirs) == 1 {
-			parts = append(parts, fmt.Sprintf("%s files moved to %s", formatCount(int64(n)), m.shortPath(filepath.Dir(msg.moved[0]))))
+			parts = append(parts, fmt.Sprintf("%s files moved to %s", formatCount(int64(n)), m.shortPath(filepath.Dir(moved[0]))))
 		} else {
 			parts = append(parts, fmt.Sprintf("%s files moved into %s folders of the library", formatCount(int64(n)), formatCount(int64(len(dirs)))))
 		}
 	}
-	if left := msg.finish.Counters.LeftInPlace; left > 0 {
+	if left := finish.Counters.LeftInPlace; left > 0 {
 		stay := "stays in _Untagged until it has"
 		if left > 1 {
 			stay = "stay in _Untagged until they have"
 		}
 		parts = append(parts, fmt.Sprintf("%s %s an artist, album and title", plural(left, "file", "files"), stay))
 	}
-	errs := msg.finish.Counters.Errors
-	if errs > 0 || msg.finish.State != engine.StateOK {
+	errs := finish.Counters.Errors
+	if errs > 0 || finish.State != engine.StateOK {
 		parts = append(parts, fmt.Sprintf("%s: see %d Runs", plural(errs, "error", "errors"), int(TabRuns)+1))
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "Nothing changed")
 	}
-	m.setToast(errs == 0 && msg.finish.State == engine.StateOK, "%s", strings.Join(parts, "; "))
-	return m.poll(true, false)
+	m.setToast(errs == 0 && finish.State == engine.StateOK, "%s", strings.Join(parts, "; "))
 }
 
 // missingTags lists what f still needs before it can go into the library: an

@@ -76,6 +76,7 @@ type Model struct {
 	untagged untaggedTab
 	edit     *editor // the tag editor, nil when it is not open
 	look     *lookup // the MusicBrainz lookup, nil when it is not open
+	match    *match  // the release match, nil when it is not open
 
 	// mb is MusicBrainz, nil while no contact is configured.
 	mb      MusicBrainz
@@ -159,6 +160,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.look != nil && m.look.form != nil {
 			m.look.form.WithWidth(m.editorWidth())
 		}
+		if m.match != nil && m.match.form != nil {
+			m.match.form.WithWidth(m.editorWidth())
+		}
 	case tickMsg:
 		return m, m.poll(false, true)
 	case refreshMsg:
@@ -181,6 +185,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lookupPicked(msg)
 	case lookupDoneMsg:
 		return m, m.lookupDone(msg)
+	case matchFoundMsg:
+		m.matchFound(msg)
+	case matchLoadedMsg:
+		m.matchLoaded(msg)
+	case matchDoneMsg:
+		return m, m.matchDone(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -192,6 +202,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.look != nil && !m.confirmQuit {
 			return m, m.lookupKey(msg)
 		}
+		if m.match != nil && !m.confirmQuit {
+			return m, m.matchKey(msg)
+		}
 		return m, m.key(msg.String())
 	default:
 		// What the editor's form sends itself.
@@ -200,6 +213,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if l := m.look; l != nil && l.form != nil && l.step == stepQuery {
 			_, cmd := l.form.Update(msg)
+			return m, cmd
+		}
+		if x := m.match; x != nil && x.form != nil && x.step == matchQuery {
+			_, cmd := x.form.Update(msg)
 			return m, cmd
 		}
 	}
@@ -238,6 +255,13 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 			}
 			if l := m.look; l != nil && f.ID == l.file.ID {
 				l.file = f.File
+			}
+			if x := m.match; x != nil {
+				for i := range x.files {
+					if x.files[i].ID == f.ID {
+						x.files[i] = f
+					}
+				}
 			}
 		}
 		return tea.Batch(next, m.runsReloaded())
