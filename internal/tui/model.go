@@ -74,6 +74,7 @@ type Model struct {
 	runs     runsTab
 	dups     dupsTab
 	untagged untaggedTab
+	library  libraryTab
 	edit     *editor // the tag editor, nil when it is not open
 	look     *lookup // the MusicBrainz lookup, nil when it is not open
 	match    *match  // the release match, nil when it is not open
@@ -191,6 +192,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.matchLoaded(msg)
 	case matchDoneMsg:
 		return m, m.matchDone(msg)
+	case librarySearchMsg:
+		m.librarySearched(msg)
+	case tea.PasteMsg:
+		if m.edit == nil && m.look == nil && m.match == nil {
+			m.libraryPaste(msg.Content)
+			return m, nil
+		}
+		return m, m.toFlowForm(msg)
+	case libraryAlbumMsg:
+		return m, m.libraryAlbum(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -207,20 +218,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.key(msg.String())
 	default:
-		// What the editor's form sends itself.
-		if m.edit != nil && m.edit.form != nil && !m.edit.saving {
-			return m, m.formUpdate(msg)
-		}
-		if l := m.look; l != nil && l.form != nil && l.step == stepQuery {
-			_, cmd := l.form.Update(msg)
-			return m, cmd
-		}
-		if x := m.match; x != nil && x.form != nil && x.step == matchQuery {
-			_, cmd := x.form.Update(msg)
-			return m, cmd
-		}
+		return m, m.toFlowForm(msg)
 	}
 	return m, nil
+}
+
+// toFlowForm hands a message that is not a key to the form of the flow that
+// is open: what the form sends itself, and pasted text.
+func (m *Model) toFlowForm(msg tea.Msg) tea.Cmd {
+	if m.edit != nil && m.edit.form != nil && !m.edit.saving {
+		return m.formUpdate(msg)
+	}
+	if l := m.look; l != nil && l.form != nil && l.step == stepQuery {
+		_, cmd := l.form.Update(msg)
+		return cmd
+	}
+	if x := m.match; x != nil && x.form != nil && x.step == matchQuery {
+		_, cmd := x.form.Update(msg)
+		return cmd
+	}
+	return nil
 }
 
 // refreshed applies a poll's result.
@@ -264,7 +281,7 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(next, m.runsReloaded())
+		return tea.Batch(next, m.runsReloaded(), m.libraryReloaded())
 	}
 	return next
 }
@@ -289,6 +306,11 @@ func (m *Model) key(k string) tea.Cmd {
 	}
 	if m.tab == TabDuplicates && !m.help && m.loaded {
 		if cmd, ok := m.dupsKey(k); ok {
+			return cmd
+		}
+	}
+	if m.tab == TabLibrary && !m.help && m.loaded {
+		if cmd, ok := m.libraryKey(k); ok {
 			return cmd
 		}
 	}
@@ -344,7 +366,7 @@ func (m *Model) key(k string) tea.Cmd {
 	case "shift+tab":
 		m.switchTab((m.tab + tabCount - 1) % tabCount)
 	}
-	return nil
+	return m.libraryShown()
 }
 
 // switchTab shows tab t, leaving any detail open on the tab it leaves.

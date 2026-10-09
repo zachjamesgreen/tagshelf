@@ -317,10 +317,17 @@ func (m *Model) movedToast(moved []string, finish engine.RunFinished) {
 			parts = append(parts, fmt.Sprintf("%s files moved into %s folders of the library", formatCount(int64(n)), formatCount(int64(len(dirs)))))
 		}
 	}
+	if n := finish.Counters.InPlace; n > 0 {
+		parts = append(parts, plural(n, "file", "files")+" tagged where "+map[bool]string{true: "it is", false: "they are"}[n == 1])
+	}
 	if left := finish.Counters.LeftInPlace; left > 0 {
-		stay := "stays in _Untagged until it has"
+		where := "where it is"
+		if m.tab == TabUntagged {
+			where = "in _Untagged"
+		}
+		stay := "stays " + where + " until it has"
 		if left > 1 {
-			stay = "stay in _Untagged until they have"
+			stay = "stay " + strings.Replace(where, "it is", "they are", 1) + " until they have"
 		}
 		parts = append(parts, fmt.Sprintf("%s %s an artist, album and title", plural(left, "file", "files"), stay))
 	}

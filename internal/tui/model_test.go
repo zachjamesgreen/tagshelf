@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +24,33 @@ type fakeSource struct {
 	loads   int
 	details map[int64]RunDetail
 	tags    map[string]tagwrite.Values // by path, for the tag editor
+	// library are the library's files, and searches what was searched for.
+	library  []store.File
+	searches []string
 	// releases are the MusicBrainz releases the library holds.
 	releases map[string]bool
+}
+
+// Search finds the library files with query somewhere in their tags.
+func (f *fakeSource) Search(query string, limit int) ([]store.File, error) {
+	f.searches = append(f.searches, query)
+	var found []store.File
+	for _, file := range f.library {
+		if strings.Contains(strings.ToLower(file.Artist+" "+file.Album+" "+file.Title), strings.ToLower(query)) && len(found) < limit {
+			found = append(found, file)
+		}
+	}
+	return found, f.err
+}
+
+func (f *fakeSource) Album(of store.File) ([]store.File, error) {
+	var album []store.File
+	for _, file := range f.library {
+		if filepath.Dir(file.Path) == filepath.Dir(of.Path) {
+			album = append(album, file)
+		}
+	}
+	return album, f.err
 }
 
 func (f *fakeSource) LibraryReleases() (map[string]bool, error) {
@@ -241,7 +267,7 @@ func TestTabKeys(t *testing.T) {
 		}
 	}
 	press(t, m, "4")
-	if got := screen(m); !strings.Contains(got, "18,204 files in the library") {
+	if got := screen(m); !strings.Contains(got, "Library  18,204 files") {
 		t.Errorf("Library tab:\n%s", got)
 	}
 }

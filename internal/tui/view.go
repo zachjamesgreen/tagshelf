@@ -229,7 +229,7 @@ func (m *Model) tabBody(h int) string {
 	case TabDuplicates:
 		return m.dupsBody(h)
 	case TabLibrary:
-		return placeholder("Library", fmt.Sprintf("%s files in the library.", formatCount(m.snap.Overview.Library)))
+		return m.libraryBody(h)
 	case TabRuns:
 		return m.runsBody(h)
 	}
@@ -342,6 +342,10 @@ func (m *Model) keyHelp() string {
 		help = "read-only  ↑↓ move  v grouping   " + help
 	case m.tab == TabUntagged:
 		help = "↑↓ move  space select  g group  v grouping  a accept  e edit  l look up  L release   " + help
+	case m.tab == TabLibrary && m.library.typing:
+		help = "type an artist, album or title  enter search  esc stop typing"
+	case m.tab == TabLibrary:
+		help = "/ search  ↑↓ move  e edit  l look up  L release match of the album   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
 		help = "esc back  ↑↓ scroll  g/G top/end   " + help
 	case m.tab == TabRuns:
@@ -372,9 +376,10 @@ func helpScreen() string {
 		{"g", "select the file's whole group (Untagged)"},
 		{"v", "group by original folder, album tag or nothing (Untagged)"},
 		{"a", "accept the tags of the selected files as they are (Untagged)"},
-		{"e", "edit the file's tags (Untagged); ctrl+s saves"},
-		{"l", "look the file up on MusicBrainz (Untagged)"},
-		{"L", "match the selection, or the group, to a release (Untagged)"},
+		{"e", "edit the file's tags (Untagged, Library); ctrl+s saves"},
+		{"l", "look the file up on MusicBrainz (Untagged, Library)"},
+		{"L", "match the selection, group or album to a release (Untagged, Library)"},
+		{"/", "search the library (Library)"},
 		{"k", "choose which copy to keep (Duplicates)"},
 		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
 		{"b", "keep both copies (Duplicates)"},

@@ -62,6 +62,11 @@ type Source interface {
 	RunDetail(id int64) (RunDetail, error)
 	// Tags reads the tags of an audio file that the tag editor edits.
 	Tags(path string) (tagwrite.Values, error)
+	// Search lists up to limit files of the library whose artist, album or
+	// title holds every word of query.
+	Search(query string, limit int) ([]store.File, error)
+	// Album lists the files of the album f is on.
+	Album(f store.File) ([]store.File, error)
 	// LibraryReleases lists the MusicBrainz release IDs of the files in the
 	// library.
 	LibraryReleases() (map[string]bool, error)
@@ -142,4 +147,12 @@ func (s librarySource) Tags(path string) (tagwrite.Values, error) {
 
 func (s librarySource) LibraryReleases() (map[string]bool, error) {
 	return s.st.ReleaseIDs(store.RootLibrary)
+}
+
+func (s librarySource) Search(query string, limit int) ([]store.File, error) {
+	return s.st.SearchLibrary(query, limit)
+}
+
+func (s librarySource) Album(f store.File) ([]store.File, error) {
+	return s.st.FolderFiles(f)
 }
