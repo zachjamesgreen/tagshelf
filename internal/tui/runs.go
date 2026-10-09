@@ -23,6 +23,7 @@ type RunDetail struct {
 type runsTab struct {
 	cursor int   // index into Snapshot.Runs
 	selID  int64 // the run under the cursor, followed across reloads
+	picked bool  // a person has moved the cursor
 	detail *runDetailView
 }
 
@@ -56,6 +57,12 @@ func (r *runsTab) selected(runs []store.Run) int64 {
 // follow puts the cursor back on the run it was on after the list reloaded,
 // or keeps it within the list when that run is gone.
 func (r *runsTab) follow(runs []store.Run) {
+	// Until a person has picked a run, the cursor is on the newest.
+	if !r.picked {
+		r.cursor = 0
+		r.selID = r.selected(runs)
+		return
+	}
 	for i, run := range runs {
 		if run.ID == r.selID {
 			r.cursor = i
@@ -170,6 +177,7 @@ func (m *Model) runsKey(k string) (tea.Cmd, bool) {
 	}
 	m.runs.cursor = max(min(m.runs.cursor, len(runs)-1), 0)
 	m.runs.selID = m.runs.selected(runs)
+	m.runs.picked = true
 	return nil, true
 }
 

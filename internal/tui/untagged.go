@@ -380,6 +380,15 @@ func untaggedState(f store.File) string {
 	return "ripper tags"
 }
 
+// tailPath cuts a path too wide for w cells at its start: the end of a path
+// is what tells it from its neighbours.
+func tailPath(path string, w int) string {
+	if ansi.StringWidth(path) <= w || w < 2 {
+		return path
+	}
+	return "…" + ansi.TruncateLeft(path, ansi.StringWidth(path)-w+1, "")
+}
+
 // cell fits s to exactly w terminal cells, which wide characters fill two at
 // a time.
 func cell(s string, w int) string {
@@ -420,7 +429,8 @@ func (m *Model) untaggedBody(h int) string {
 	cursorLine := 0
 	for _, g := range u.groups {
 		if u.by != ungrouped {
-			lines = append(lines, boldStyle.Render(m.shortPath(g.name))+dimStyle.Render(fmt.Sprintf("  %s", plural(int64(g.n), "file", "files"))))
+			count := "  " + plural(int64(g.n), "file", "files")
+			lines = append(lines, boldStyle.Render(tailPath(m.shortPath(g.name), m.width-len(count)))+dimStyle.Render(count))
 		}
 		for i := g.first; i < g.first+g.n; i++ {
 			f := u.files[i]

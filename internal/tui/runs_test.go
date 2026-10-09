@@ -181,3 +181,27 @@ func TestRunDetailReadFailureReturnsToList(t *testing.T) {
 		t.Errorf("toast = %q, want the read error", m.toast)
 	}
 }
+
+// Until a person moves it, the cursor is on the newest run, however many
+// have been added since the tab's runs were first read.
+func TestRunsCursorStartsOnTheNewestRun(t *testing.T) {
+	src := historySource()
+	all := src.snap.Runs
+	src.snap.Runs = all[len(all)-1:]
+	m := newModel(t, src, 120, 32)
+	src.snap.Runs = all
+	src.version++
+	tickNow(t, m)
+	press(t, m, "5")
+	if id := m.runs.selected(m.snap.Runs); id != 7 {
+		t.Errorf("the cursor is on run %d, want the newest (7)", id)
+	}
+	// Once moved, it stays on its run as newer ones arrive.
+	press(t, m, "down")
+	src.snap.Runs = append([]store.Run{{ID: 8, Kind: store.KindOrganize, State: store.StateOK}}, all...)
+	src.version++
+	tickNow(t, m)
+	if id := m.runs.selected(m.snap.Runs); id != 6 {
+		t.Errorf("after a newer run arrived the cursor is on run %d, want it still on 6", id)
+	}
+}

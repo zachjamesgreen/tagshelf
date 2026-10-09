@@ -167,7 +167,7 @@ func (m *Model) undoDone(msg undoDoneMsg) tea.Cmd {
 		did = append(did, plural(c.OtherMoved, "file", "files")+" moved back")
 	}
 	if c.InPlace > 0 {
-		did = append(did, plural(c.InPlace, "file has", "files have")+" their earlier tags back")
+		did = append(did, plural(c.InPlace, "file has its", "files have their")+" earlier tags back")
 	}
 	if c.CueRewritten > 0 {
 		did = append(did, plural(c.CueRewritten, "cue sheet", "cue sheets")+" restored")

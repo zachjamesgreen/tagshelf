@@ -263,7 +263,11 @@ func (m *Model) homeBody() string {
 		n    int64
 	}{{"Library", o.Library}, {"_Untagged", o.Untagged}, {"_Other", o.Other}, {"_Duplicates", o.Duplicates}}
 	for _, c := range counts {
-		fmt.Fprintf(&b, "  %-12s %9s files\n", c.name, formatCount(c.n))
+		unit := "files"
+		if c.n == 1 {
+			unit = "file"
+		}
+		fmt.Fprintf(&b, "  %-12s %9s %s\n", c.name, formatCount(c.n), unit)
 	}
 	b.WriteString("\n" + boldStyle.Render("Needs attention") + "\n")
 	items := m.needsAttention()
