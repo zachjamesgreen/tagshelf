@@ -198,6 +198,10 @@ func (m *Model) untaggedKey(k string) (tea.Cmd, bool) {
 		if f, ok := u.current(); ok {
 			return m.openEditor(f.File), true
 		}
+	case "l":
+		if f, ok := u.current(); ok {
+			return m.openLookup(f.File, f.From), true
+		}
 	case "a":
 		ids := u.targets()
 		if len(ids) > 0 && m.canChange() {

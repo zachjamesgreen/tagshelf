@@ -14,6 +14,7 @@ Keys
   v      group by original folder, album tag or nothing (Untagged)
   a      accept the tags of the selected files as they are (Untagged)
   e      edit the file's tags (Untagged); ctrl+s saves
+  l      look the file up on MusicBrainz (Untagged)
   k      choose which copy to keep (Duplicates)
   enter  resolve the group (Duplicates), open the run (Runs)
   b      keep both copies (Duplicates)
@@ -25,7 +26,6 @@ Keys
   q      quit
 
 The view reloads by itself when another tagshelf changes the library.
-
 
 
 

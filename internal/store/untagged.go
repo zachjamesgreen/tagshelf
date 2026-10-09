@@ -40,3 +40,23 @@ func (s *Store) UntaggedFiles() ([]UntaggedFile, error) {
 	}
 	return untagged, nil
 }
+
+// ReleaseIDs lists the MusicBrainz release IDs of the indexed files in the
+// roots of the given kind.
+func (s *Store) ReleaseIDs(kind RootKind) (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT f.mb_release_id FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE r.kind = ? AND f.mb_release_id != ''`, string(kind))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}

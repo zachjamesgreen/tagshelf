@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"tagshelf/internal/engine"
+	"tagshelf/internal/musicbrainz"
 	"tagshelf/internal/store"
 	"tagshelf/internal/tagwrite"
 )
@@ -24,6 +25,9 @@ type Options struct {
 	DryRun      bool
 	// Compilations is the folder name compilations are filed under.
 	Compilations string
+	// MusicBrainzContact is the email address or URL MusicBrainz lookups
+	// identify themselves with; lookups are off while it is empty.
+	MusicBrainzContact string
 	// Runner does the runs started from Home; nil disables them.
 	Runner Runner
 }
@@ -34,6 +38,9 @@ func Run(ctx context.Context, opts Options) error {
 	m := New(src, Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: opts.DryRun})
 	m.runner = opts.Runner
 	m.compilations = opts.Compilations
+	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
+		m.mb = client
+	}
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	// However the program ended, a run it started stops cleanly before the
 	// library's database closes.
@@ -55,6 +62,9 @@ type Source interface {
 	RunDetail(id int64) (RunDetail, error)
 	// Tags reads the tags of an audio file that the tag editor edits.
 	Tags(path string) (tagwrite.Values, error)
+	// LibraryReleases lists the MusicBrainz release IDs of the files in the
+	// library.
+	LibraryReleases() (map[string]bool, error)
 }
 
 // Snapshot is what the TUI shows of the library, as read at one moment.
@@ -128,4 +138,8 @@ func (s librarySource) RunDetail(id int64) (RunDetail, error) {
 
 func (s librarySource) Tags(path string) (tagwrite.Values, error) {
 	return tagwrite.Read(path)
+}
+
+func (s librarySource) LibraryReleases() (map[string]bool, error) {
+	return s.st.ReleaseIDs(store.RootLibrary)
 }

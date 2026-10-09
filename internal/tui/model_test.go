@@ -23,6 +23,12 @@ type fakeSource struct {
 	loads   int
 	details map[int64]RunDetail
 	tags    map[string]tagwrite.Values // by path, for the tag editor
+	// releases are the MusicBrainz releases the library holds.
+	releases map[string]bool
+}
+
+func (f *fakeSource) LibraryReleases() (map[string]bool, error) {
+	return f.releases, f.err
 }
 
 func (f *fakeSource) Tags(path string) (tagwrite.Values, error) {

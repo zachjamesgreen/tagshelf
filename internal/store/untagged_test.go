@@ -32,6 +32,15 @@ func TestUntaggedFilesWithWhereTheyCameFrom(t *testing.T) {
 		}
 	}
 
+	putFiles(t, s, File{RootID: libID, RelPath: "mb.mp3", ReleaseID: "rel-1", Size: 4, ModTime: mtime},
+		File{RootID: untaggedID, RelPath: "mb.mp3", ReleaseID: "rel-2", Size: 4, ModTime: mtime})
+	if ids, err := s.ReleaseIDs(RootLibrary); err != nil || len(ids) != 1 || !ids["rel-1"] {
+		t.Errorf("library release IDs = %v, %v; want rel-1", ids, err)
+	}
+	if err := s.DeleteFiles([]int64{filesByPath(t, s)[filepath.Join(lib, "_Untagged", "mb.mp3")].ID}); err != nil {
+		t.Fatal(err)
+	}
+
 	got, err := s.UntaggedFiles()
 	if err != nil {
 		t.Fatal(err)

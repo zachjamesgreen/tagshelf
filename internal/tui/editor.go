@@ -46,14 +46,60 @@ type editorTagsMsg struct {
 	again bool
 }
 
-// editorDoneMsg says a save from the editor has ended.
-type editorDoneMsg struct {
+// saved is how a save of tags to one file went.
+type saved struct {
 	id      int64
 	moved   string // where the file went, "" when it stayed
 	problem error  // what went wrong with the file, nil when nothing did
 	finish  engine.RunFinished
 	err     error
 }
+
+// failed says in a toast why the save did not work, reporting whether it did
+// not.
+func (m *Model) failed(s saved) bool {
+	switch {
+	case s.err != nil:
+		m.setToast(false, "Cannot change the library: %v", s.err)
+	case s.problem != nil:
+		m.setToast(false, "Cannot save: %v", s.problem)
+	case s.finish.State != engine.StateOK:
+		m.setToast(false, "The save did not finish: see %d Runs", int(TabRuns)+1)
+	default:
+		return false
+	}
+	return true
+}
+
+// saveOne saves tags to the indexed file with the given ID as one run, off
+// the UI goroutine; done turns how it went into the message to send.
+func (m *Model) saveOne(id int64, save engine.TagSave, done func(saved) tea.Msg) tea.Cmd {
+	runner := m.runner
+	ctx, ended := m.begin()
+	return func() tea.Msg {
+		defer close(ended)
+		res := saved{id: id}
+		// The run reports from one goroutine at a time and has ended before
+		// res is read.
+		sink := func(ev engine.Event) {
+			switch ev := ev.(type) {
+			case engine.FilePlaced:
+				if ev.Outcome == engine.Organized {
+					res.moved = ev.Destination
+				}
+			case engine.FileError:
+				if res.problem == nil {
+					res.problem = ev.Err
+				}
+			}
+		}
+		res.finish, res.err = runner.SaveTags(ctx, []int64{id}, save, sink)
+		return done(res)
+	}
+}
+
+// editorDoneMsg says a save from the editor has ended.
+type editorDoneMsg struct{ saved }
 
 // The fields the editor's text inputs edit, in form order.
 var editorFields = []tagwrite.Field{
@@ -234,10 +280,15 @@ func numberOf(s string) (n, total int) {
 // willGoTo says where a save would put the file, or why it would stay;
 // lacking is set when it would stay for want of tags.
 func (m *Model) willGoTo(e *editor) (line string, lacking bool) {
-	t := e.tags()
-	dst, ok := rules.LibraryPathFor(m.header.Destination, m.compilations, t, filepath.Ext(e.file.Path))
+	return m.placeLine(e.file, e.tags())
+}
+
+// placeLine says where the file f would go with the tags t, or why it would
+// stay; lacking is set when it would stay for want of tags.
+func (m *Model) placeLine(f store.File, t rules.Tags) (line string, lacking bool) {
+	dst, ok := rules.LibraryPathFor(m.header.Destination, m.compilations, t, filepath.Ext(f.Path))
 	switch {
-	case ok && rules.PathKey(dst) == rules.PathKey(e.file.Path):
+	case ok && rules.PathKey(dst) == rules.PathKey(f.Path):
 		return "Will stay at:  " + m.shortPath(dst), false
 	case ok:
 		return "Will go to:    " + m.shortPath(dst), false
@@ -248,7 +299,7 @@ func (m *Model) willGoTo(e *editor) (line string, lacking bool) {
 		what = strings.Join(needs, ", ")
 	}
 	where := "where it is"
-	if e.file.RootKind == store.RootUntagged {
+	if f.RootKind == store.RootUntagged {
 		where = "in _Untagged"
 	}
 	return fmt.Sprintf("Will stay %s: needs %s", where, what), true
@@ -303,7 +354,13 @@ func (m *Model) formUpdate(msg tea.Msg) tea.Cmd {
 // editSave is the tag save of the editor: the changed fields and the manual
 // marker, saying a person typed the tags.
 func editSave(values tagwrite.Values, now time.Time) engine.TagSave {
-	mark := marker.New(marker.Hand, now)
+	return tagSave(values, marker.Hand, now)
+}
+
+// tagSave is a tag save of values with the manual marker of the given
+// method.
+func tagSave(values tagwrite.Values, method marker.Method, now time.Time) engine.TagSave {
+	mark := marker.New(method, now)
 	return func(st *store.Store, runID int64, f store.File) error {
 		_, err := tagwrite.Writer{History: st, RunID: runID}.Save(f.Path, values, mark)
 		return err
@@ -324,28 +381,7 @@ func (m *Model) saveEditor() tea.Cmd {
 		return nil
 	}
 	e.saving = true
-	runner, id, values := m.runner, e.file.ID, e.changes()
-	ctx, done := m.begin()
-	return func() tea.Msg {
-		defer close(done)
-		msg := editorDoneMsg{id: id}
-		// The run reports from one goroutine at a time and has ended before
-		// msg is read.
-		sink := func(ev engine.Event) {
-			switch ev := ev.(type) {
-			case engine.FilePlaced:
-				if ev.Outcome == engine.Organized {
-					msg.moved = ev.Destination
-				}
-			case engine.FileError:
-				if msg.problem == nil {
-					msg.problem = ev.Err
-				}
-			}
-		}
-		msg.finish, msg.err = runner.SaveTags(ctx, []int64{id}, editSave(values, time.Now()), sink)
-		return msg
-	}
+	return m.saveOne(e.file.ID, editSave(e.changes(), time.Now()), func(s saved) tea.Msg { return editorDoneMsg{s} })
 }
 
 // editorDone says how a save went: the editor closes on a save that worked
@@ -358,17 +394,10 @@ func (m *Model) editorDone(msg editorDoneMsg) tea.Cmd {
 	}
 	reload := m.poll(true, false)
 	switch {
-	case msg.err != nil:
-		m.setToast(false, "Cannot change the library: %v", msg.err)
-	case msg.problem != nil || msg.finish.State != engine.StateOK:
-		if msg.problem != nil {
-			m.setToast(false, "Cannot save: %v", msg.problem)
-		} else {
-			m.setToast(false, "The save did not finish: see %d Runs", int(TabRuns)+1)
-		}
+	case m.failed(msg.saved):
 		// The tags may have been written before it went wrong: what the form
 		// is compared with is read again.
-		if e != nil && e.file.ID == msg.id {
+		if e != nil && e.file.ID == msg.id && msg.err == nil {
 			src, path := m.src, e.file.Path
 			if msg.moved != "" {
 				path = msg.moved
@@ -386,16 +415,22 @@ func (m *Model) editorDone(msg editorDoneMsg) tea.Cmd {
 			where, lacking = m.willGoTo(e)
 			m.edit = nil
 		}
-		switch {
-		case msg.moved != "":
-			m.setToast(true, "Saved and moved to %s", m.shortPath(msg.moved))
-		case lacking:
-			m.setToast(true, "Saved. %s", strings.Replace(where, "Will stay", "It stays", 1))
-		default:
-			m.setToast(true, "Saved")
-		}
+		m.savedToast(msg.saved, where, lacking)
 	}
 	return reload
+}
+
+// savedToast says a save worked and where it left the file; where and
+// lacking are what placeLine said of it.
+func (m *Model) savedToast(s saved, where string, lacking bool) {
+	switch {
+	case s.moved != "":
+		m.setToast(true, "Saved and moved to %s", m.shortPath(s.moved))
+	case lacking:
+		m.setToast(true, "Saved. %s", strings.Replace(where, "Will stay", "It stays", 1))
+	default:
+		m.setToast(true, "Saved")
+	}
 }
 
 // editorCrumb is the breadcrumb shown in place of the tabs.

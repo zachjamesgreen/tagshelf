@@ -150,11 +150,12 @@ func Supported(path string) bool {
 }
 
 // editable are the fields Read returns.
-var editable = []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc, Compilation, AlbumArtistIDs, Marker}
+var editable = []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc, Compilation,
+	RecordingID, ReleaseTrackID, AlbumID, ReleaseGroupID, ArtistIDs, AlbumArtistIDs, Marker}
 
-// Read returns the tags of the file at path a person edits, in the form Save
-// takes them, with the marker and the MusicBrainz album artist IDs. A field
-// the file lacks has no values.
+// Read returns every field of the file at path that Save can write, in the
+// form Save takes them, with the marker. A field the file lacks has no
+// values.
 func Read(path string) (Values, error) {
 	f, ok := formats[strings.ToLower(filepath.Ext(path))]
 	if !ok {

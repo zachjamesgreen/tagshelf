@@ -75,6 +75,11 @@ type Model struct {
 	dups     dupsTab
 	untagged untaggedTab
 	edit     *editor // the tag editor, nil when it is not open
+	look     *lookup // the MusicBrainz lookup, nil when it is not open
+
+	// mb is MusicBrainz, nil while no contact is configured.
+	mb      MusicBrainz
+	lookSeq int // the last sequence number given to a lookup's request
 
 	compilations string // the folder name compilations are filed under
 
@@ -151,6 +156,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.edit != nil && m.edit.form != nil {
 			m.edit.form.WithWidth(m.editorWidth()).WithHeight(m.editorHeight())
 		}
+		if m.look != nil && m.look.form != nil {
+			m.look.form.WithWidth(m.editorWidth())
+		}
 	case tickMsg:
 		return m, m.poll(false, true)
 	case refreshMsg:
@@ -167,6 +175,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.editorLoaded(msg)
 	case editorDoneMsg:
 		return m, m.editorDone(msg)
+	case lookupFoundMsg:
+		m.lookupFound(msg)
+	case lookupPickedMsg:
+		m.lookupPicked(msg)
+	case lookupDoneMsg:
+		return m, m.lookupDone(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -175,11 +189,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.edit != nil && !m.confirmQuit {
 			return m, m.editorKey(msg)
 		}
+		if m.look != nil && !m.confirmQuit {
+			return m, m.lookupKey(msg)
+		}
 		return m, m.key(msg.String())
 	default:
 		// What the editor's form sends itself.
 		if m.edit != nil && m.edit.form != nil && !m.edit.saving {
 			return m, m.formUpdate(msg)
+		}
+		if l := m.look; l != nil && l.form != nil && l.step == stepQuery {
+			_, cmd := l.form.Update(msg)
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -210,12 +231,13 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 		m.loaded = true
 		m.dups.follow(m.snap.Groups)
 		m.untagged.reload(m.snap.Untagged)
-		if e := m.edit; e != nil {
-			// The file being edited, as the index has it now.
-			for _, f := range m.snap.Untagged {
-				if f.ID == e.file.ID {
-					e.file = f.File
-				}
+		// The file a flow is open on, as the index has it now.
+		for _, f := range m.snap.Untagged {
+			if e := m.edit; e != nil && f.ID == e.file.ID {
+				e.file = f.File
+			}
+			if l := m.look; l != nil && f.ID == l.file.ID {
+				l.file = f.File
 			}
 		}
 		return tea.Batch(next, m.runsReloaded())
