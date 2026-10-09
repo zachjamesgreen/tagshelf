@@ -65,6 +65,10 @@ func do(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 	switch msg.(type) {
 	case refreshMsg, runDetailMsg:
 		m.Update(msg)
+	case dupDoneMsg:
+		// The reload that follows an action.
+		_, next := m.Update(msg)
+		do(t, m, next)
 	}
 	return msg
 }
@@ -113,8 +117,8 @@ func screen(m *Model) string {
 }
 
 func sampleSnapshot() Snapshot {
-	return Snapshot{Overview: store.Overview{
-		Library: 18204, Untagged: 12, Other: 96, Duplicates: 58, NeedReview: 3,
+	return Snapshot{NeedReview: 3, Overview: store.Overview{
+		Library: 18204, Untagged: 12, Other: 96, Duplicates: 58,
 		LastRun: &store.Run{ID: 7, Kind: store.KindOrganize, Started: started.Add(-24 * time.Hour), State: store.StateErrors, Counters: store.Counters{Errors: 2}},
 	}}
 }
@@ -251,7 +255,7 @@ func TestHomeNeedsAttention(t *testing.T) {
 	}
 
 	quiet := sampleSnapshot()
-	quiet.Overview.Untagged, quiet.Overview.NeedReview = 0, 0
+	quiet.Overview.Untagged, quiet.NeedReview = 0, 0
 	quiet.Overview.LastRun.State = store.StateOK
 	m = newModel(t, &fakeSource{snap: quiet}, 120, 32)
 	if got := screen(m); !strings.Contains(got, "Nothing needs attention") {

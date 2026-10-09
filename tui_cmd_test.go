@@ -155,3 +155,63 @@ func TestTUIRunnerRefuses(t *testing.T) {
 		t.Errorf("run while locked: %v, want a *store.LockedError", err)
 	}
 }
+
+// TestTUIRunnerDuplicates resolves one duplicate group and keeps both copies
+// of another, through the runner tagshelf tui uses.
+func TestTUIRunnerDuplicates(t *testing.T) {
+	tmp, _, _ := cliEnv(t)
+	r, lib := tuiRunnerFor(t, tmp, "")
+	// Two pairs of files with the same bytes: no tags, so the same audio.
+	writeFile(t, filepath.Join(lib, "_Untagged", "a.mp3"), "the first song's audio")
+	writeFile(t, filepath.Join(lib, "_Untagged", "copies", "a.mp3"), "the first song's audio")
+	writeFile(t, filepath.Join(lib, "_Untagged", "b.mp3"), "the second song's audio")
+	writeFile(t, filepath.Join(lib, "_Untagged", "copies", "b.mp3"), "the second song's audio")
+	if finish, err := r.Run(context.Background(), tui.RunIndex, false, func(engine.Event) {}); err != nil || finish.State != engine.StateOK {
+		t.Fatalf("index = %+v, %v", finish, err)
+	}
+
+	groups := func() []store.Group {
+		t.Helper()
+		st, err := store.Open(r.cfg.Database)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		g, err := st.GroupsToReview(engine.PossibleKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	waiting := groups()
+	if len(waiting) != 2 {
+		t.Fatalf("groups to review = %+v, want 2", waiting)
+	}
+
+	g := waiting[0]
+	finish, err := r.Resolve(context.Background(), []engine.Resolution{{Kind: g.Kind, Members: g.IDs(), Keeper: g.Files[0].ID}})
+	if err != nil || finish.State != engine.StateOK || finish.Counters.Duplicates != 1 {
+		t.Fatalf("resolve = %+v, %v", finish, err)
+	}
+	if _, err := os.Stat(g.Files[0].Path); err != nil {
+		t.Errorf("the kept copy is gone: %v", err)
+	}
+	if _, err := os.Stat(g.Files[1].Path); !os.IsNotExist(err) {
+		t.Errorf("the other copy is still there (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(lib, "_Duplicates", g.Files[1].RelPath)); err != nil {
+		t.Errorf("the other copy is not in _Duplicates: %v", err)
+	}
+
+	if err := r.KeepBoth(waiting[1].Kind, waiting[1].IDs()); err != nil {
+		t.Fatal(err)
+	}
+	if left := groups(); len(left) != 0 {
+		t.Errorf("groups still to review = %+v, want none", left)
+	}
+	for _, f := range waiting[1].Files {
+		if _, err := os.Stat(f.Path); err != nil {
+			t.Errorf("keep both moved %s: %v", f.Path, err)
+		}
+	}
+}

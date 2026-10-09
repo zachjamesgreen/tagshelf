@@ -139,7 +139,7 @@ func (m *Model) tabCount(t Tab) (int64, bool) {
 	case TabUntagged:
 		return m.snap.Overview.Untagged, true
 	case TabDuplicates:
-		return m.snap.Overview.NeedReview, true
+		return m.snap.NeedReview, true
 	}
 	return 0, false
 }
@@ -212,7 +212,7 @@ func (m *Model) tabBody(h int) string {
 	case TabUntagged:
 		return placeholder("Untagged", fmt.Sprintf("%s files in _Untagged.", formatCount(m.snap.Overview.Untagged)))
 	case TabDuplicates:
-		return placeholder("Duplicates", fmt.Sprintf("%s duplicate groups to review.", formatCount(m.snap.Overview.NeedReview)))
+		return m.dupsBody(h)
 	case TabLibrary:
 		return placeholder("Library", fmt.Sprintf("%s files in the library.", formatCount(m.snap.Overview.Library)))
 	case TabRuns:
@@ -270,8 +270,8 @@ func (m *Model) needsAttention() []attention {
 	if o.Untagged > 0 {
 		items = append(items, attention{plural(o.Untagged, "untagged file", "untagged files"), TabUntagged})
 	}
-	if o.NeedReview > 0 {
-		items = append(items, attention{plural(o.NeedReview, "duplicate group to review", "duplicate groups to review"), TabDuplicates})
+	if n := m.snap.NeedReview; n > 0 {
+		items = append(items, attention{plural(n, "duplicate group to review", "duplicate groups to review"), TabDuplicates})
 	}
 	if r := o.LastRun; r != nil {
 		when := fmt.Sprintf("%s run of %s", r.Kind, m.formatTime(r.Started))
@@ -308,6 +308,12 @@ func (m *Model) keyHelp() string {
 	switch {
 	case m.run != nil:
 		help = "ctrl+c interrupt the run  " + help
+	case m.tab == TabDuplicates && m.dups.confirmAll != nil:
+		help = "y resolve them  n back"
+	case m.tab == TabDuplicates && m.ReadOnly():
+		help = "read-only  ↑↓/n select   " + help
+	case m.tab == TabDuplicates:
+		help = "↑↓/n select  k keeper  enter resolve  b keep both  c confirm  A all exact   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
 		help = "esc back  ↑↓ scroll  g/G top/end   " + help
 	case m.tab == TabRuns:
@@ -334,6 +340,11 @@ func helpScreen() string {
 		{"i", "bring the index up to date, moving nothing (Home)"},
 		{"d", "turn dry run on or off (Home)"},
 		{"ctrl+c", "interrupt the run going on"},
+		{"k", "choose which copy to keep (Duplicates)"},
+		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
+		{"b", "keep both copies (Duplicates)"},
+		{"c", "confirm a possible group is one song (Duplicates)"},
+		{"A", "resolve all exact groups (Duplicates)"},
 		{"R", "reload the library now"},
 		{"?", "show or hide this help"},
 		{"esc", "back"},

@@ -21,6 +21,7 @@ const (
 	KindOrganize RunKind = iota
 	KindReorganize
 	KindIndex
+	KindTUIAction // something a person did in the TUI, such as resolving duplicates
 )
 
 // RunStarted opens every run, before anything is walked.
@@ -70,9 +71,10 @@ const (
 	OpRewriteCue                       // writing a rewritten cue sheet
 	OpRecord                           // recording a move or the run in the database
 	OpIndex                            // reading an audio file into the index
+	OpReview                           // carrying out a person's decision on a duplicate group
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {

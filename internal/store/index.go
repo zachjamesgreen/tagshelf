@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -255,6 +256,17 @@ func (s *Store) Files() ([]File, error) {
 // FilesWithSum lists the indexed files whose audio hashes to sum.
 func (s *Store) FilesWithSum(sum string) ([]File, error) {
 	return s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id WHERE f.audio_sum = ? ORDER BY f.id`, sum)
+}
+
+// FilesByID lists the indexed files with the given IDs, in ID order. IDs
+// without a row are simply not in the result.
+func (s *Store) FilesByID(ids []int64) ([]File, error) {
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	return s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE f.id IN (SELECT value FROM json_each(?)) ORDER BY f.id`, string(data))
 }
 
 func (s *Store) queryFiles(query string, args ...any) ([]File, error) {

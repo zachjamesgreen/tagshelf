@@ -114,3 +114,28 @@ func (r tuiRunner) Run(ctx context.Context, kind tui.RunKind, dryRun bool, sink 
 	}
 	return finish, nil
 }
+
+func (r tuiRunner) Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error) {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(r.cfg)
+	opts.DryRun = false
+	opts.Store = st
+	finish := engine.ResolveDuplicates(ctx, opts, resolutions)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
+}
+
+func (r tuiRunner) KeepBoth(kind store.GroupKind, members []int64) error {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return st.RecordReview(store.Review{Kind: kind, Members: members, Outcome: store.OutcomeKeepBoth, By: store.ByUser})
+}

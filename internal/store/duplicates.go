@@ -315,19 +315,26 @@ func sameGroup(group []int, m []int) bool {
 // review covers: new groups, and reviewed ones that have gained a member.
 // possibleKey is as for Groups.
 func (s *Store) GroupsNeedingReview(possibleKey func(File) string) (int, error) {
+	groups, err := s.GroupsToReview(possibleKey)
+	return len(groups), err
+}
+
+// GroupsToReview lists the duplicate groups of the collection that no review
+// covers, in the order of Groups. possibleKey is as for Groups.
+func (s *Store) GroupsToReview(possibleKey func(File) string) ([]Group, error) {
 	groups, err := s.Groups(possibleKey)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	n := 0
+	var waiting []Group
 	for _, g := range groups {
 		reviewed, err := s.Reviewed(g.Kind, g.IDs())
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if !reviewed {
-			n++
+			waiting = append(waiting, g)
 		}
 	}
-	return n, nil
+	return waiting, nil
 }

@@ -9,17 +9,17 @@ Keys
   i      bring the index up to date, moving nothing (Home)
   d      turn dry run on or off (Home)
   ctrl+c interrupt the run going on
+  k      choose which copy to keep (Duplicates)
+  enter  resolve the group (Duplicates), open the run (Runs)
+  b      keep both copies (Duplicates)
+  c      confirm a possible group is one song (Duplicates)
+  A      resolve all exact groups (Duplicates)
   R      reload the library now
   ?      show or hide this help
   esc    back
   q      quit
 
 The view reloads by itself when another tagshelf changes the library.
-
-
-
-
-
 
 
 

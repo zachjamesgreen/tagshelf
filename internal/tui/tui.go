@@ -34,6 +34,7 @@ func Run(ctx context.Context, opts Options) error {
 	// However the program ended, a run it started stops cleanly before the
 	// library's database closes.
 	m.stopRun()
+	m.waitDups()
 	return err
 }
 
@@ -58,6 +59,10 @@ type Snapshot struct {
 	Active *store.ActiveRun
 	// Runs is the run history, newest first.
 	Runs []store.Run
+	// Groups are the duplicate groups waiting for review, and NeedReview how
+	// many there are.
+	Groups     []store.Group
+	NeedReview int64
 }
 
 // recentMoves is how many of a locked run's latest moves the banner shows at
@@ -85,7 +90,7 @@ func (s librarySource) Lock() (store.LockHolder, bool, error) {
 func (s librarySource) Load() (Snapshot, error) {
 	var snap Snapshot
 	var err error
-	if snap.Overview, err = s.st.Overview(engine.PossibleKey); err != nil {
+	if snap.Overview, err = s.st.Overview(); err != nil {
 		return snap, err
 	}
 	if snap.Active, err = s.st.ActiveRun(recentMoves); err != nil {
@@ -95,6 +100,10 @@ func (s librarySource) Load() (Snapshot, error) {
 		return snap, err
 	}
 	slices.Reverse(snap.Runs)
+	if snap.Groups, err = s.st.GroupsToReview(engine.PossibleKey); err != nil {
+		return snap, err
+	}
+	snap.NeedReview = int64(len(snap.Groups))
 	return snap, nil
 }
 

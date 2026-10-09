@@ -7,22 +7,17 @@ import (
 )
 
 // Overview is the state of a library at a glance: how many files each of its
-// folders holds, what needs a person's attention, and how the last run went.
+// folders holds and how the last run went.
 type Overview struct {
 	Library, Untagged, Other, Duplicates int64 // indexed audio files per folder
-
-	// NeedReview counts the duplicate groups of the collection that no
-	// review covers yet.
-	NeedReview int64
 
 	// LastRun is the newest run that is no longer running, nil when there is
 	// none.
 	LastRun *Run
 }
 
-// Overview reads the library's counts and its last finished run. possibleKey
-// is as for Groups.
-func (s *Store) Overview(possibleKey func(File) string) (Overview, error) {
+// Overview reads the library's counts and its last finished run.
+func (s *Store) Overview() (Overview, error) {
 	var o Overview
 	rows, err := s.db.Query(`SELECT r.kind, count(*) FROM files f JOIN roots r ON r.id = f.root_id GROUP BY r.kind`)
 	if err != nil {
@@ -49,12 +44,6 @@ func (s *Store) Overview(possibleKey func(File) string) (Overview, error) {
 	if err := rows.Err(); err != nil {
 		return o, err
 	}
-
-	n, err := s.GroupsNeedingReview(possibleKey)
-	if err != nil {
-		return o, fmt.Errorf("counting duplicate groups: %w", err)
-	}
-	o.NeedReview = int64(n)
 
 	var id int64
 	err = s.db.QueryRow(`SELECT id FROM runs WHERE state <> ? ORDER BY id DESC LIMIT 1`, string(StateRunning)).Scan(&id)

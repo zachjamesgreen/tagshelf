@@ -31,12 +31,18 @@ func (k RunKind) String() string {
 	return runKindNames[k]
 }
 
-// Runner does runs for the TUI. Run takes the library lock for as long as the
-// run lasts and returns how it ended, or an error when it could not start, a
-// *store.LockedError when another process holds the lock. It is called off
-// the UI goroutine, and the run's workers call sink.
+// Runner does for the TUI whatever changes the library. Each method takes the
+// library lock for as long as it lasts and returns an error when it could
+// not start, a *store.LockedError when another process holds the lock. They
+// are called off the UI goroutine, and a run's workers call sink.
 type Runner interface {
+	// Run does an organize, reorganize or index run and returns how it ended.
 	Run(ctx context.Context, kind RunKind, dryRun bool, sink engine.Sink) (engine.RunFinished, error)
+	// Resolve carries out decisions on duplicate groups as one run: each
+	// group's keeper stays and its other copies move to the duplicates folder.
+	Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error)
+	// KeepBoth records that every copy of a duplicate group stays.
+	KeepBoth(kind store.GroupKind, members []int64) error
 }
 
 // recentEvents is how many of a run's latest events Home shows.

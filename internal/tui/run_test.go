@@ -23,6 +23,27 @@ type fakeRunner struct {
 	sunk    chan struct{} // the sink has had the event sent
 	finish  chan engine.RunFinished
 	err     error // returned at once instead of running
+
+	// What the Duplicates tab asked for, and what Resolve answers.
+	resolved      [][]engine.Resolution
+	keptBoth      []engine.Resolution // Keeper 0
+	resolveFinish engine.RunFinished
+}
+
+func (f *fakeRunner) Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error) {
+	if f.err != nil {
+		return engine.RunFinished{}, f.err
+	}
+	f.resolved = append(f.resolved, resolutions)
+	return f.resolveFinish, nil
+}
+
+func (f *fakeRunner) KeepBoth(kind store.GroupKind, members []int64) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.keptBoth = append(f.keptBoth, engine.Resolution{Kind: kind, Members: members})
+	return nil
 }
 
 type fakeStart struct {

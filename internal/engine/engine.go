@@ -886,6 +886,7 @@ var (
 		KindOrganize:   store.KindOrganize,
 		KindReorganize: store.KindReorganize,
 		KindIndex:      store.KindIndex,
+		KindTUIAction:  store.KindTUIAction,
 	}
 	storeStates = map[RunState]store.RunState{
 		StateOK:          store.StateOK,

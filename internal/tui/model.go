@@ -72,6 +72,7 @@ type Model struct {
 	quitting    bool     // quit once the run has ended
 
 	runs runsTab
+	dups dupsTab
 }
 
 // New returns a model reading from src.
@@ -146,6 +147,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runEnded(msg.run)
 	case runDetailMsg:
 		m.detailLoaded(msg)
+	case dupDoneMsg:
+		return m, m.dupsDone(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -179,6 +182,7 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	if r.snap != nil {
 		m.snap = *r.snap
 		m.loaded = true
+		m.dups.follow(m.snap.Groups)
 		return tea.Batch(next, m.runsReloaded())
 	}
 	return next
@@ -199,6 +203,11 @@ func (m *Model) key(k string) tea.Cmd {
 	}
 	if m.tab == TabRuns && !m.help && m.loaded {
 		if cmd, ok := m.runsKey(k); ok {
+			return cmd
+		}
+	}
+	if m.tab == TabDuplicates && !m.help && m.loaded {
+		if cmd, ok := m.dupsKey(k); ok {
 			return cmd
 		}
 	}
@@ -256,6 +265,7 @@ func (m *Model) key(k string) tea.Cmd {
 func (m *Model) switchTab(t Tab) {
 	if t != m.tab {
 		m.runs.detail = nil
+		m.dups.confirmAll = nil
 	}
 	m.tab = t
 	m.help = false
