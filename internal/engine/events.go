@@ -72,9 +72,10 @@ const (
 	OpRecord                           // recording a move or the run in the database
 	OpIndex                            // reading an audio file into the index
 	OpReview                           // carrying out a person's decision on a duplicate group
+	OpSaveTags                         // saving tags a person chose to a file
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {

@@ -71,8 +71,14 @@ type Model struct {
 	confirmQuit bool     // asking whether to interrupt the run and quit
 	quitting    bool     // quit once the run has ended
 
-	runs runsTab
-	dups dupsTab
+	runs     runsTab
+	dups     dupsTab
+	untagged untaggedTab
+
+	// busy is closed when the action a tab is carrying out on the library has
+	// ended, nil when none is.
+	busy         chan struct{}
+	cancelAction func()
 }
 
 // New returns a model reading from src.
@@ -149,6 +155,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailLoaded(msg)
 	case dupDoneMsg:
 		return m, m.dupsDone(msg)
+	case untaggedDoneMsg:
+		return m, m.untaggedDone(msg)
 	case runTickMsg:
 		if m.run != nil {
 			return m, runTick()
@@ -183,6 +191,7 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 		m.snap = *r.snap
 		m.loaded = true
 		m.dups.follow(m.snap.Groups)
+		m.untagged.reload(m.snap.Untagged)
 		return tea.Batch(next, m.runsReloaded())
 	}
 	return next
@@ -208,6 +217,11 @@ func (m *Model) key(k string) tea.Cmd {
 	}
 	if m.tab == TabDuplicates && !m.help && m.loaded {
 		if cmd, ok := m.dupsKey(k); ok {
+			return cmd
+		}
+	}
+	if m.tab == TabUntagged && !m.help && m.loaded {
+		if cmd, ok := m.untaggedKey(k); ok {
 			return cmd
 		}
 	}

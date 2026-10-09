@@ -65,7 +65,7 @@ func do(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 	switch msg.(type) {
 	case refreshMsg, runDetailMsg:
 		m.Update(msg)
-	case dupDoneMsg:
+	case dupDoneMsg, untaggedDoneMsg:
 		// The reload that follows an action.
 		_, next := m.Update(msg)
 		do(t, m, next)
@@ -107,6 +107,9 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyPgUp}
 	case "pgdown":
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	}
+	if k == "space" {
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg{Code: r, Text: k}

@@ -20,7 +20,12 @@ func TestGoldenViews(t *testing.T) {
 		{"home", func() *fakeSource { return &fakeSource{snap: sampleSnapshot()} }, nil},
 		{"home_locked", lockedSource, nil},
 		{"home_empty", func() *fakeSource { return &fakeSource{} }, nil},
-		{"untagged_locked", lockedSource, []string{"2"}},
+		{"untagged_locked", func() *fakeSource {
+			src := lockedSource()
+			src.snap.Untagged = untaggedSource().snap.Untagged
+			src.snap.Overview.Untagged = int64(len(src.snap.Untagged))
+			return src
+		}, []string{"2"}},
 		{"help", func() *fakeSource { return &fakeSource{snap: sampleSnapshot()} }, []string{"?"}},
 	}
 	for _, tt := range tests {

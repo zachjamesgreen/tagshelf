@@ -28,6 +28,23 @@ type fakeRunner struct {
 	resolved      [][]engine.Resolution
 	keptBoth      []engine.Resolution // Keeper 0
 	resolveFinish engine.RunFinished
+
+	// What the Untagged tab asked to save tags to, the events SaveTags then
+	// reports, and what it answers.
+	saved      [][]int64
+	saveEvents []engine.Event
+	saveFinish engine.RunFinished
+}
+
+func (f *fakeRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error) {
+	if f.err != nil {
+		return engine.RunFinished{}, f.err
+	}
+	f.saved = append(f.saved, ids)
+	for _, e := range f.saveEvents {
+		sink(e)
+	}
+	return f.saveFinish, nil
 }
 
 func (f *fakeRunner) Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error) {

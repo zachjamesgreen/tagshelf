@@ -43,6 +43,9 @@ type Runner interface {
 	Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error)
 	// KeepBoth records that every copy of a duplicate group stays.
 	KeepBoth(kind store.GroupKind, members []int64) error
+	// SaveTags saves tags to the indexed files with the given IDs as one run
+	// and moves those that then qualify into the library.
+	SaveTags(ctx context.Context, ids []int64, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error)
 }
 
 // recentEvents is how many of a run's latest events Home shows.

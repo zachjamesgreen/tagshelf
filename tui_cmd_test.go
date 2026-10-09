@@ -8,10 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"tagshelf/internal/config"
 	"tagshelf/internal/engine"
+	"tagshelf/internal/fixtures"
+	"tagshelf/internal/marker"
 	"tagshelf/internal/store"
+	"tagshelf/internal/tagwrite"
 	"tagshelf/internal/tui"
 )
 
@@ -213,5 +217,94 @@ func TestTUIRunnerDuplicates(t *testing.T) {
 		if _, err := os.Stat(f.Path); err != nil {
 			t.Errorf("keep both moved %s: %v", f.Path, err)
 		}
+	}
+}
+
+// TestTUIRunnerSaveTags accepts the tags of a ripped file and of one without
+// tags, through the runner tagshelf tui uses and a real tag save: the rip
+// moves into the library, and the save and the move are recorded in one run.
+func TestTUIRunnerSaveTags(t *testing.T) {
+	tmp, _, _ := cliEnv(t)
+	r, lib := tuiRunnerFor(t, tmp, "")
+	ripped := filepath.Join(lib, "_Untagged", "ripped.flac")
+	bare := filepath.Join(lib, "_Untagged", "bare.flac")
+	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, ripped, string(data))
+	if data, err = os.ReadFile(fixtures.Path(fixtures.ManualNoAlbumFLAC)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, bare, string(data))
+	if finish, err := r.Run(context.Background(), tui.RunIndex, false, func(engine.Event) {}); err != nil || finish.State != engine.StateOK {
+		t.Fatalf("index = %+v, %v", finish, err)
+	}
+	open := func() *store.Store {
+		t.Helper()
+		st, err := store.Open(r.cfg.Database)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	st := open()
+	untagged, err := st.UntaggedFiles()
+	st.Close()
+	if err != nil || len(untagged) != 2 {
+		t.Fatalf("untagged files = %+v, %v; want 2", untagged, err)
+	}
+
+	save := func(st *store.Store, runID int64, f store.File) error {
+		_, err := tagwrite.Writer{History: st, RunID: runID}.Save(f.Path, nil, marker.New(marker.Hand, time.Now()))
+		return err
+	}
+	var placed []engine.FilePlaced
+	sink := func(e engine.Event) {
+		if p, ok := e.(engine.FilePlaced); ok {
+			placed = append(placed, p)
+		}
+	}
+	finish, err := r.SaveTags(context.Background(), []int64{untagged[0].ID, untagged[1].ID}, save, sink)
+	if err != nil || finish.State != engine.StateOK || finish.Counters.Organized != 1 || finish.Counters.LeftInPlace != 1 {
+		t.Fatalf("save tags = %+v, %v; want one organized and one left", finish, err)
+	}
+	if _, err := os.Stat(ripped); !os.IsNotExist(err) {
+		t.Errorf("the rip is still in _Untagged (%v)", err)
+	}
+	if _, err := os.Stat(bare); err != nil {
+		t.Errorf("the file without an album left _Untagged: %v", err)
+	}
+	var dst string
+	for _, p := range placed {
+		if p.Outcome == engine.Organized {
+			dst = p.Destination
+		}
+	}
+	if _, err := os.Stat(dst); err != nil || !strings.HasPrefix(dst, filepath.Join(lib, fixtures.AlbumArtist)) {
+		t.Errorf("the rip went to %q (%v), want it under its album artist in the library", dst, err)
+	}
+
+	st = open()
+	defer st.Close()
+	if left, err := st.UntaggedFiles(); err != nil || len(left) != 1 || left[0].Path != bare {
+		t.Errorf("untagged files afterwards = %+v, %v; want only the one without an album", left, err)
+	}
+	runs, err := st.Runs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := runs[len(runs)-1]
+	if len(runs) != 2 || run.Kind != store.KindTUIAction || run.State != store.StateOK {
+		t.Errorf("runs = %+v, want the index and one finished tui-action", runs)
+	}
+	moves, err := st.Moves(run.ID)
+	if err != nil || len(moves) != 1 || moves[0].From != ripped || moves[0].To != dst || moves[0].Reason != store.ReasonOrganized {
+		t.Errorf("moves = %+v, %v", moves, err)
+	}
+	// Only the rip was written: the other file had its marker already.
+	writes, err := st.TagWrites(run.ID)
+	if err != nil || len(writes) != 1 || writes[0].Path != ripped || !strings.Contains(writes[0].After, "hand ") {
+		t.Errorf("tag writes = %+v, %v", writes, err)
 	}
 }

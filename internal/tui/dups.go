@@ -31,10 +31,6 @@ type dupsTab struct {
 	// confirmAll holds the exact groups a "resolve all" is asking about, nil
 	// when it is not asking.
 	confirmAll []store.Group
-
-	// busy is closed when the action being carried out has ended, nil when
-	// none is.
-	busy chan struct{}
 }
 
 // dupDoneMsg says an action on duplicate groups has ended.
@@ -105,7 +101,7 @@ func (d *dupsTab) resolution(g store.Group) engine.Resolution {
 	return engine.Resolution{Kind: g.Kind, Members: g.IDs(), Keeper: d.keeper(g)}
 }
 
-// canChange reports whether the library may be changed from this tab now,
+// canChange reports whether the library may be changed from a tab now,
 // saying why not in a toast.
 func (m *Model) canChange() bool {
 	switch {
@@ -114,7 +110,7 @@ func (m *Model) canChange() bool {
 			m.holder.PID, m.formatTime(m.holder.Started))
 	case m.run != nil:
 		m.setToast(false, "A run is going; wait for it to end")
-	case m.dups.busy != nil:
+	case m.busy != nil:
 		m.setToast(false, "Still carrying out the last action")
 	case m.header.DryRun:
 		m.setToast(false, "Dry run is on: turn it off with d on Home before changing the library")
@@ -216,11 +212,10 @@ func (m *Model) dupsKey(k string) (tea.Cmd, bool) {
 // resolve carries out resolutions off the UI goroutine.
 func (m *Model) resolve(res []engine.Resolution) tea.Cmd {
 	runner := m.runner
-	done := make(chan struct{})
-	m.dups.busy = done
+	ctx, done := m.begin()
 	return func() tea.Msg {
 		defer close(done)
-		finish, err := runner.Resolve(context.Background(), res)
+		finish, err := runner.Resolve(ctx, res)
 		return dupDoneMsg{groups: len(res), finish: finish, err: err}
 	}
 }
@@ -228,8 +223,7 @@ func (m *Model) resolve(res []engine.Resolution) tea.Cmd {
 // keepBoth records off the UI goroutine that every copy of g stays.
 func (m *Model) keepBoth(g store.Group) tea.Cmd {
 	runner := m.runner
-	done := make(chan struct{})
-	m.dups.busy = done
+	_, done := m.begin()
 	return func() tea.Msg {
 		defer close(done)
 		return dupDoneMsg{keptBoth: true, groups: 1, err: runner.KeepBoth(g.Kind, g.IDs())}
@@ -239,7 +233,7 @@ func (m *Model) keepBoth(g store.Group) tea.Cmd {
 // dupsDone says how an action on duplicate groups went and reloads the
 // library it changed.
 func (m *Model) dupsDone(msg dupDoneMsg) tea.Cmd {
-	m.dups.busy = nil
+	m.ended()
 	switch {
 	case msg.err != nil:
 		m.setToast(false, "Cannot change the library: %v", msg.err)
@@ -259,10 +253,28 @@ func (m *Model) dupsDone(msg dupDoneMsg) tea.Cmd {
 	return m.poll(true, false)
 }
 
-// waitDups waits for an action being carried out to end, for when the TUI
-// closes.
-func (m *Model) waitDups() {
-	if busy := m.dups.busy; busy != nil {
+// begin notes that an action on the library is being carried out, under the
+// context it returns; closing the channel it returns says the action has
+// ended.
+func (m *Model) begin() (context.Context, chan struct{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.busy, m.cancelAction = make(chan struct{}), cancel
+	return ctx, m.busy
+}
+
+// ended notes that the action being carried out is over.
+func (m *Model) ended() {
+	if m.cancelAction != nil {
+		m.cancelAction()
+	}
+	m.busy, m.cancelAction = nil, nil
+}
+
+// stopAction ends an action being carried out, for when the TUI closes: it
+// goes no further than the file it is on, and this waits for that.
+func (m *Model) stopAction() {
+	if busy := m.busy; busy != nil {
+		m.cancelAction()
 		<-busy
 	}
 }

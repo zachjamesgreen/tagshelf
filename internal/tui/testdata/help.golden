@@ -9,6 +9,10 @@ Keys
   i      bring the index up to date, moving nothing (Home)
   d      turn dry run on or off (Home)
   ctrl+c interrupt the run going on
+  space  select the file (Untagged)
+  g      select the file's whole group (Untagged)
+  v      group by original folder, album tag or nothing (Untagged)
+  a      accept the tags of the selected files as they are (Untagged)
   k      choose which copy to keep (Duplicates)
   enter  resolve the group (Duplicates), open the run (Runs)
   b      keep both copies (Duplicates)
@@ -20,10 +24,6 @@ Keys
   q      quit
 
 The view reloads by itself when another tagshelf changes the library.
-
-
-
-
 
 
 

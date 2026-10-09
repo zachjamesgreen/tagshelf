@@ -139,3 +139,20 @@ func (r tuiRunner) KeepBoth(kind store.GroupKind, members []int64) error {
 	defer st.Close()
 	return st.RecordReview(store.Review{Kind: kind, Members: members, Outcome: store.OutcomeKeepBoth, By: store.ByUser})
 }
+
+func (r tuiRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error) {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(r.cfg)
+	opts.DryRun = false
+	opts.Store = st
+	opts.Sink = sink
+	finish := engine.SaveTags(ctx, opts, ids, save)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
+}

@@ -210,7 +210,7 @@ func (m *Model) tabBody(h int) string {
 	case TabHome:
 		return m.homeBody()
 	case TabUntagged:
-		return placeholder("Untagged", fmt.Sprintf("%s files in _Untagged.", formatCount(m.snap.Overview.Untagged)))
+		return m.untaggedBody(h)
 	case TabDuplicates:
 		return m.dupsBody(h)
 	case TabLibrary:
@@ -314,6 +314,10 @@ func (m *Model) keyHelp() string {
 		help = "read-only  ↑↓/n select   " + help
 	case m.tab == TabDuplicates:
 		help = "↑↓/n select  k keeper  enter resolve  b keep both  c confirm  A all exact   " + help
+	case m.tab == TabUntagged && m.ReadOnly():
+		help = "read-only  ↑↓ move  v grouping   " + help
+	case m.tab == TabUntagged:
+		help = "↑↓ move  space select  g group  v grouping  a accept tags   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
 		help = "esc back  ↑↓ scroll  g/G top/end   " + help
 	case m.tab == TabRuns:
@@ -340,6 +344,10 @@ func helpScreen() string {
 		{"i", "bring the index up to date, moving nothing (Home)"},
 		{"d", "turn dry run on or off (Home)"},
 		{"ctrl+c", "interrupt the run going on"},
+		{"space", "select the file (Untagged)"},
+		{"g", "select the file's whole group (Untagged)"},
+		{"v", "group by original folder, album tag or nothing (Untagged)"},
+		{"a", "accept the tags of the selected files as they are (Untagged)"},
 		{"k", "choose which copy to keep (Duplicates)"},
 		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
 		{"b", "keep both copies (Duplicates)"},

@@ -34,7 +34,7 @@ func Run(ctx context.Context, opts Options) error {
 	// However the program ended, a run it started stops cleanly before the
 	// library's database closes.
 	m.stopRun()
-	m.waitDups()
+	m.stopAction()
 	return err
 }
 
@@ -63,6 +63,8 @@ type Snapshot struct {
 	// many there are.
 	Groups     []store.Group
 	NeedReview int64
+	// Untagged are the files in the untagged folder, in path order.
+	Untagged []store.UntaggedFile
 }
 
 // recentMoves is how many of a locked run's latest moves the banner shows at
@@ -104,7 +106,8 @@ func (s librarySource) Load() (Snapshot, error) {
 		return snap, err
 	}
 	snap.NeedReview = int64(len(snap.Groups))
-	return snap, nil
+	snap.Untagged, err = s.st.UntaggedFiles()
+	return snap, err
 }
 
 func (s librarySource) RunDetail(id int64) (RunDetail, error) {
