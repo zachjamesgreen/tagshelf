@@ -183,7 +183,20 @@ func (m *Model) matchSearch() tea.Cmd {
 	x.problem, x.releases, x.cursor = "", nil, 0
 	x.step = matchSearching
 	ctx, seq := m.matchRequest()
-	mb, src, boost := m.mb, m.src, musicbrainz.BoostQueries(x.infos)
+	// The files' own searches go by the album and artist typed here, not by
+	// what their folder's name suggested: the person has said what they are.
+	typed := make([]musicbrainz.FileInfo, len(x.infos))
+	for i, info := range x.infos {
+		info.Folder = ""
+		if q.Album != "" {
+			info.Album = q.Album
+		}
+		if f := x.files[i]; f.Artist == "" && f.AlbumArtist == "" {
+			info.Artist = q.Artist
+		}
+		typed[i] = info
+	}
+	mb, src, boost := m.mb, m.src, musicbrainz.BoostQueries(typed)
 	return func() tea.Msg {
 		// A library that cannot be read only costs the ranking a tie-break.
 		inLibrary, _ := src.LibraryReleases()

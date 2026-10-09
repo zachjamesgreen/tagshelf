@@ -309,3 +309,36 @@ func TestReleaseMatchOfAnUngroupedListWantsASelection(t *testing.T) {
 		t.Errorf("L with a selection on an ungrouped list did not open a match of it")
 	}
 }
+
+// The searches made for the files themselves go by the album and artist
+// typed, not by the name of the folder the files came from.
+func TestReleaseMatchBoostsWithTheQueryTyped(t *testing.T) {
+	mb := geogaddi()
+	src := matchSource()
+	// Two files without tags, from a folder whose name says nothing.
+	for i := range src.snap.Untagged {
+		if f := &src.snap.Untagged[i]; f.ID == 103 || f.ID == 104 {
+			f.Artist, f.Album, f.Title = "", "", ""
+		}
+	}
+	m, _ := newUntaggedModel(t, src)
+	m.mb = mb
+	cursorTo(t, m, 103)
+	hit(t, m, "L")
+	if m.match.album != "Incoming" {
+		t.Fatalf("the album suggested = %q, want the folder's name", m.match.album)
+	}
+	hit(t, m, "ctrl+u")
+	typeText(t, m, "Geogaddi")
+	hit(t, m, "down")
+	typeText(t, m, "Boards of Canada")
+	hit(t, m, "enter")
+	if len(mb.boosts) != 1 || len(mb.boosts[0]) == 0 {
+		t.Fatalf("boosts = %+v", mb.boosts)
+	}
+	for _, q := range mb.boosts[0] {
+		if q.Album != "Geogaddi" || q.Artist != "Boards of Canada" {
+			t.Errorf("a file was searched for as %+v, want the album and artist typed", q)
+		}
+	}
+}
