@@ -250,6 +250,8 @@ type organizer struct {
 	touched  sync.Map // source directory -> struct{}
 	phase    phaseTracker
 	runID    int64 // the run's row in cfg.Store
+	// restore writes a tag save's earlier values back, for an undo.
+	restore TagRestore
 
 	// albumsMu guards albums: source directory -> album directories its audio
 	// files were organized into. Untagged audio is recorded as "".
@@ -857,10 +859,12 @@ func Run(ctx context.Context, opts Options) RunFinished {
 
 // end records how the run ended and sends its RunFinished.
 func (o *organizer) end(finish RunFinished) RunFinished {
+	finish.RunID = o.runID
 	if st := o.cfg.Store; st != nil {
 		if err := st.FinishRun(o.runID, store.Counters(finish.Counters), storeStates[finish.State], time.Now()); err != nil {
 			o.fail(st.Path(), "", OpRecord, err)
 			finish = o.finish(finish.State == StateInterrupted)
+			finish.RunID = o.runID
 		}
 	}
 	o.emit(finish)
@@ -887,6 +891,7 @@ var (
 		KindReorganize: store.KindReorganize,
 		KindIndex:      store.KindIndex,
 		KindTUIAction:  store.KindTUIAction,
+		KindUndo:       store.KindUndo,
 	}
 	storeStates = map[RunState]store.RunState{
 		StateOK:          store.StateOK,

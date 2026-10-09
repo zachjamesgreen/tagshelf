@@ -338,3 +338,13 @@ func (s *Store) GroupsToReview(possibleKey func(File) string) ([]Group, error) {
 	}
 	return waiting, nil
 }
+
+// WithdrawReviews takes back the decisions the run runID carried out, so
+// that their groups wait for review again, and reports how many there were.
+func (s *Store) WithdrawReviews(runID int64) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM dup_reviews WHERE run_id = ?`, runID)
+	if err != nil {
+		return 0, fmt.Errorf("withdrawing the reviews of run %d: %w", runID, err)
+	}
+	return res.RowsAffected()
+}

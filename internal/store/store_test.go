@@ -264,7 +264,7 @@ func TestRunRecording(t *testing.T) {
 		if moves[i].At.IsZero() {
 			t.Errorf("move %d has no time", i)
 		}
-		moves[i].At = time.Time{}
+		moves[i].At, moves[i].ID = time.Time{}, 0
 	}
 	if !reflect.DeepEqual(moves, wantMoves) {
 		t.Errorf("moves = %+v, want %+v", moves, wantMoves)

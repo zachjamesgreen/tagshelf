@@ -1,0 +1,32 @@
+ tagshelf  D:\Music  library 3f2a1b2c
+ Runs › Undo › run 5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Undo run 5: organize of 2026-09-27 14:05
+  E:\Incoming -> D:\Music
+
+  Can be undone: 46 files move back, 3 files get their earlier tags back, 1 cue sheet gets its original back
+  No file is overwritten. The undo is a run of its own, which can be undone in turn.
+
+  Left as they are (2):
+    Singer\Album (2001)\01 - One.flac  it has changed since it was indexed
+    _Untagged\loose.mp3  something else is at its old path now (E:\Incoming\loose.mp3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+enter undo it  ↑↓ scroll the skipped files  esc back

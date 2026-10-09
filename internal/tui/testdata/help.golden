@@ -2,8 +2,7 @@
  1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Keys
-  1-5    switch tab
-  tab    next tab (shift+tab previous)
+  1-5    switch tab (tab next, shift+tab previous)
   o      organize the configured source (Home)
   r      reorganize the library in place (Home)
   i      bring the index up to date, moving nothing (Home)
@@ -17,6 +16,7 @@ Keys
   l      look the file up on MusicBrainz (Untagged, Library)
   L      match the selection, group or album to a release (Untagged, Library)
   /      search the library (Library)
+  u      undo the run (Runs), or what was just done
   k      choose which copy to keep (Duplicates)
   enter  resolve the group (Duplicates), open the run (Runs)
   b      keep both copies (Duplicates)

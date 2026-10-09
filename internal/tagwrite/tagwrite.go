@@ -226,10 +226,76 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	if len(before[Marker]) > 0 && equalExcept(before, after, Marker) && (!f.ape || apeUpToDate(path, after)) {
 		return Result{Before: before, After: before}, nil
 	}
+	if err := w.apply(f, path, before, after); err != nil {
+		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	}
+	return Result{Changed: true, Before: before, After: after}, nil
+}
 
+// ErrChanged is returned by Restore for a file whose tags are no longer what
+// the save being undone left.
+var ErrChanged = errors.New("its tags have changed since they were saved")
+
+// Matches reports whether the file at path holds exactly the values of want
+// for the fields want names, the marker among them if it does.
+func Matches(path string, want Values) (bool, error) {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return false, ErrUnsupported
+	}
+	cur, err := current(f, path, slices.Collect(maps.Keys(want)))
+	if err != nil {
+		return false, fmt.Errorf("reading the tags of %q: %w", path, err)
+	}
+	return equalExcept(cur, want, ""), nil
+}
+
+// Restore undoes a save: the file at path, which must hold the values of
+// from, the save's After, gets those of to, its Before, the marker included.
+// A marker the file did not have is taken away again, except from a WMA
+// file, which keeps it: tagshelf cannot remove it there. The write goes
+// through the same copy and check as Save and is recorded the same way. A
+// file that does not hold from is left alone with ErrChanged.
+func (w Writer) Restore(path string, to, from Values) (Result, error) {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return Result{}, ErrUnsupported
+	}
+	if err := checkContent(f, path); err != nil {
+		return Result{}, fmt.Errorf("restoring the tags of %q: %w", path, err)
+	}
+	before, err := current(f, path, slices.Collect(maps.Keys(from)))
+	if err != nil {
+		return Result{}, fmt.Errorf("restoring the tags of %q: reading its tags: %w", path, err)
+	}
+	if !equalExcept(before, from, "") {
+		return Result{}, fmt.Errorf("restoring the tags of %q: %w", path, ErrChanged)
+	}
+	after := Values{}
+	for field, vs := range to {
+		after[field] = clean(vs)
+	}
+	if f.asf {
+		delete(after, Compilation)
+		if len(after[Marker]) == 0 && len(before[Marker]) > 0 {
+			after[Marker] = before[Marker]
+		}
+	}
+	if equalExcept(before, after, "") {
+		return Result{Before: before, After: before}, nil
+	}
+	if err := w.apply(f, path, before, after); err != nil {
+		return Result{}, fmt.Errorf("restoring the tags of %q: %w", path, err)
+	}
+	return Result{Changed: true, Before: before, After: after}, nil
+}
+
+// apply writes after, which names the marker, to the file at path through a
+// copy that must read back with it, and records the write with before.
+func (w Writer) apply(f format, path string, before, after Values) error {
 	tmp, err := copyTemp(path)
 	if err != nil {
-		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		return err
 	}
 	keep := false
 	defer func() {
@@ -242,24 +308,24 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 		delete(keys, marker.Key) // go-taglib would drop a new one; an old one it keeps is replaced below
 	}
 	if err := taglib.WriteTags(tmp, keys, 0); err != nil {
-		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		return err
 	}
 	if f.ape {
 		if err := writeAPE(tmp, after); err != nil {
-			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+			return err
 		}
 	}
-	if f.asf {
-		if err := writeASFMarker(tmp, m); err != nil {
-			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	if f.asf && len(after[Marker]) > 0 {
+		if err := writeASFMarker(tmp, after[Marker][0]); err != nil {
+			return err
 		}
 	}
-	if err := verify(f, tmp, after, m); err != nil {
-		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+	if err := verify(f, tmp, after); err != nil {
+		return err
 	}
 	if f.asf {
 		if err := sameAudio(path, tmp); err != nil {
-			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+			return err
 		}
 	}
 
@@ -267,7 +333,7 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 	// not have written a read-only copy.
 	if info, err := os.Stat(path); err == nil {
 		if err := os.Chmod(tmp, info.Mode().Perm()); err != nil {
-			return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+			return err
 		}
 	}
 	rename := func() error { return os.Rename(tmp, path) }
@@ -282,10 +348,23 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 		}
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("saving tags to %q: %w", path, err)
+		return err
 	}
 	keep = true
-	return Result{Changed: true, Before: before, After: after}, nil
+	return nil
+}
+
+// checkMarker checks the marker internal/tag reads from md against the one
+// written: want's only value, or none.
+func checkMarker(md tag.Metadata, want []string, what string) error {
+	got, ok := marker.Read(md)
+	switch {
+	case len(want) == 0 && ok:
+		return fmt.Errorf("%w: %s reads as %q, want none", ErrNotVerified, what, got.String())
+	case len(want) > 0 && (!ok || got.String() != want[0]):
+		return fmt.Errorf("%w: %s reads as %q, want %q", ErrNotVerified, what, got.String(), want[0])
+	}
+	return nil
 }
 
 // equalExcept reports whether a and b hold the same values for every field
@@ -569,7 +648,7 @@ func asfBefore(path string, before Values) {
 // writeASFMarker sets the marker in the WMA file at path, a temporary copy:
 // internal/tag's ASF writer copies it to a second temporary file beside it,
 // which then replaces it.
-func writeASFMarker(path string, m marker.Marker) (err error) {
+func writeASFMarker(path, value string) (err error) {
 	src, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("writing the marker: %w", err)
@@ -585,7 +664,7 @@ func writeASFMarker(path string, m marker.Marker) (err error) {
 			os.Remove(dst.Name())
 		}
 	}()
-	if err := tag.WriteASFAttribute(dst, src, marker.Key, m.String()); err != nil {
+	if err := tag.WriteASFAttribute(dst, src, marker.Key, value); err != nil {
 		if errors.Is(err, tag.ErrASFRefused) {
 			return err // says why already
 		}
@@ -634,7 +713,7 @@ func sum(path string) (string, error) {
 // exactly the values written, and with internal/tag, the reader tagshelf
 // sorts and indexes by, which must find the file's format, the marker and
 // every field it reads.
-func verify(f format, path string, want Values, m marker.Marker) error {
+func verify(f format, path string, want Values) error {
 	keys, err := taglib.ReadTags(path)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNotVerified, err)
@@ -664,14 +743,14 @@ func verify(f format, path string, want Values, m marker.Marker) error {
 	if !f.is(md) {
 		return fmt.Errorf("%w: it reads as %s", ErrNotVerified, describe(md))
 	}
-	if got, ok := marker.Read(md); !ok || got.String() != m.String() {
-		return fmt.Errorf("%w: the marker reads as %q, want %q", ErrNotVerified, got.String(), m.String())
+	if err := checkMarker(md, want[Marker], "the marker"); err != nil {
+		return err
 	}
 	if err := verifyReader(md, want); err != nil {
 		return err
 	}
 	if f.ape {
-		return verifyAPE(path, want, m)
+		return verifyAPE(path, want)
 	}
 	return nil
 }

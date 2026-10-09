@@ -69,10 +69,13 @@ type Run struct {
 	Destination string
 	Counters    Counters
 	State       RunState
+	// UndoneBy is the undo run that undid this one, 0 when none has.
+	UndoneBy int64
 }
 
 // Move is a file a run moved.
 type Move struct {
+	ID       int64
 	From, To string
 	Reason   MoveReason
 	At       time.Time
@@ -174,7 +177,7 @@ func (s *Store) RecordError(runID int64, path, message string) error {
 func (s *Store) Runs() ([]Run, error) {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
 		total_found, organized, untagged, duplicates, in_place, errors,
-		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state
+		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state, COALESCE(undone_by, 0)
 		FROM runs ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -188,7 +191,7 @@ func (s *Store) Runs() ([]Run, error) {
 		c := &r.Counters
 		if err := rows.Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
 			&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
-			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state); err != nil {
+			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state, &r.UndoneBy); err != nil {
 			return nil, err
 		}
 		if r.Started, err = parseTime(started); err != nil {
@@ -205,7 +208,7 @@ func (s *Store) Runs() ([]Run, error) {
 
 // Moves lists the moves a run made, in the order it made them.
 func (s *Store) Moves(runID int64) ([]Move, error) {
-	rows, err := s.db.Query(`SELECT from_path, to_path, reason, moved_at FROM moves WHERE run_id = ? ORDER BY id`, runID)
+	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason, moved_at FROM moves WHERE run_id = ? ORDER BY id`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +218,7 @@ func (s *Store) Moves(runID int64) ([]Move, error) {
 		var m Move
 		var reason string
 		var at sql.NullString
-		if err := rows.Scan(&m.From, &m.To, &reason, &at); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &reason, &at); err != nil {
 			return nil, err
 		}
 		if m.At, err = parseTime(at); err != nil {
@@ -243,4 +246,49 @@ func (s *Store) RunErrors(runID int64) ([]RunError, error) {
 		errs = append(errs, e)
 	}
 	return errs, rows.Err()
+}
+
+// Run reads one run of the history.
+func (s *Store) Run(id int64) (Run, error) {
+	r, err := s.run(id)
+	if err != nil {
+		return Run{}, err
+	}
+	return *r, nil
+}
+
+// MarkUndone records that the run id was undone by the undo run by: it is
+// then in state undone and is not undone again.
+func (s *Store) MarkUndone(id, by int64) error {
+	res, err := s.db.Exec(`UPDATE runs SET state = ?, undone_by = ? WHERE id = ?`, string(StateUndone), by, id)
+	if err != nil {
+		return fmt.Errorf("marking run %d undone: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("marking run %d undone: no such run", id)
+	}
+	return nil
+}
+
+// MovesAfter lists the moves of files recorded after the move with the given
+// ID, by any run, in the order they were made. Cue sheet rewrites, which
+// move nothing, are left out.
+func (s *Store) MovesAfter(moveID int64) ([]Move, error) {
+	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason FROM moves WHERE id > ? AND reason <> ? ORDER BY id`,
+		moveID, string(ReasonCueRewrite))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var moves []Move
+	for rows.Next() {
+		var m Move
+		var reason string
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &reason); err != nil {
+			return nil, err
+		}
+		m.Reason = MoveReason(reason)
+		moves = append(moves, m)
+	}
+	return moves, rows.Err()
 }

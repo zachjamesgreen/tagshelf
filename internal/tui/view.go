@@ -56,6 +56,8 @@ func (m *Model) render() string {
 		body = m.lookupBody(h - len(top) - len(bottom))
 	case m.match != nil:
 		body = m.matchBody(h - len(top) - len(bottom))
+	case m.undo != nil:
+		body = m.undoBody(h - len(top) - len(bottom))
 	case m.help:
 		body = helpScreen()
 	case !m.loaded:
@@ -78,6 +80,8 @@ func (m *Model) chrome() (top, bottom []string) {
 		tabs = m.lookupCrumb()
 	case m.match != nil:
 		tabs = m.matchCrumb()
+	case m.undo != nil:
+		tabs = m.undoCrumb()
 	}
 	top = []string{m.headerLine(), tabs, dimStyle.Render(strings.Repeat("─", m.width))}
 	bottom = []string{m.toastLine(), dimStyle.Render(m.keyHelp())}
@@ -326,6 +330,9 @@ func (m *Model) keyHelp() string {
 	if m.match != nil {
 		return m.matchHelp()
 	}
+	if m.undo != nil {
+		return m.undoHelp()
+	}
 	if m.help {
 		return "esc back  " + help
 	}
@@ -347,9 +354,9 @@ func (m *Model) keyHelp() string {
 	case m.tab == TabLibrary:
 		help = "/ search  ↑↓ move  e edit  l look up  L release match of the album   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
-		help = "esc back  ↑↓ scroll  g/G top/end   " + help
+		help = "esc back  ↑↓ scroll  g/G top/end  u undo   " + help
 	case m.tab == TabRuns:
-		help = "↑↓ select  enter open   " + help
+		help = "↑↓ select  enter open  u undo   " + help
 	case m.tab != TabHome:
 	case m.ReadOnly():
 		if m.width >= 100 {
@@ -365,8 +372,7 @@ func (m *Model) keyHelp() string {
 
 func helpScreen() string {
 	keys := [][2]string{
-		{"1-5", "switch tab"},
-		{"tab", "next tab (shift+tab previous)"},
+		{"1-5", "switch tab (tab next, shift+tab previous)"},
 		{"o", "organize the configured source (Home)"},
 		{"r", "reorganize the library in place (Home)"},
 		{"i", "bring the index up to date, moving nothing (Home)"},
@@ -380,6 +386,7 @@ func helpScreen() string {
 		{"l", "look the file up on MusicBrainz (Untagged, Library)"},
 		{"L", "match the selection, group or album to a release (Untagged, Library)"},
 		{"/", "search the library (Library)"},
+		{"u", "undo the run (Runs), or what was just done"},
 		{"k", "choose which copy to keep (Duplicates)"},
 		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
 		{"b", "keep both copies (Duplicates)"},

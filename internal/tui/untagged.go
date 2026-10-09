@@ -339,6 +339,9 @@ func (m *Model) movedToast(moved []string, finish engine.RunFinished) {
 		parts = append(parts, "Nothing changed")
 	}
 	m.setToast(errs == 0 && finish.State == engine.StateOK, "%s", strings.Join(parts, "; "))
+	if len(moved) > 0 || finish.Counters.InPlace > 0 || finish.Counters.LeftInPlace > 0 {
+		m.offerUndo(finish.RunID)
+	}
 }
 
 // missingTags lists what f still needs before it can go into the library: an

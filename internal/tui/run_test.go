@@ -34,6 +34,18 @@ type fakeRunner struct {
 	saved      [][]int64
 	saveEvents []engine.Event
 	saveFinish engine.RunFinished
+
+	// The runs asked to be undone, and what Undo answers.
+	undone     []int64
+	undoFinish engine.RunFinished
+}
+
+func (f *fakeRunner) Undo(ctx context.Context, runID int64, check engine.TagCheck, restore engine.TagRestore, sink engine.Sink) (engine.RunFinished, error) {
+	if f.err != nil {
+		return engine.RunFinished{}, f.err
+	}
+	f.undone = append(f.undone, runID)
+	return f.undoFinish, nil
 }
 
 func (f *fakeRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error) {

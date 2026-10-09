@@ -22,6 +22,7 @@ const (
 	KindReorganize
 	KindIndex
 	KindTUIAction // something a person did in the TUI, such as resolving duplicates
+	KindUndo      // the undoing of an earlier run
 )
 
 // RunStarted opens every run, before anything is walked.
@@ -73,9 +74,10 @@ const (
 	OpIndex                            // reading an audio file into the index
 	OpReview                           // carrying out a person's decision on a duplicate group
 	OpSaveTags                         // saving tags a person chose to a file
+	OpUndo                             // undoing what a run did to a file
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags", "undo"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {
@@ -194,6 +196,9 @@ const (
 // NeedReview counts the duplicate groups in the library waiting for a person
 // to review them; a dry run does not count them.
 type RunFinished struct {
+	// RunID is the run's row in the library's database, 0 for a run that
+	// was not recorded.
+	RunID      int64
 	Counters   Counters
 	State      RunState
 	Err        error

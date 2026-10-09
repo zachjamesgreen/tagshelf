@@ -24,7 +24,7 @@ type TagSave func(st *store.Store, runID int64, f store.File) error
 // no longer on disk as it was indexed: the person chose about another file.
 // Cancelling ctx stops before the next file.
 func SaveTags(ctx context.Context, opts Options, ids []int64, save TagSave) RunFinished {
-	o, refused := startAction(opts, "saving tags")
+	o, refused := startAction(opts, "saving tags", KindTUIAction)
 	if refused != nil {
 		return *refused
 	}

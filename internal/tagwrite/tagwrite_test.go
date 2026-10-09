@@ -455,3 +455,93 @@ func TestReadReturnsWhatSaveTakes(t *testing.T) {
 		t.Errorf("Read of an unknown format: %v", err)
 	}
 }
+
+// Restore puts back what a save changed, the marker included, in every
+// format, and records the write.
+func TestRestoreUndoesASave(t *testing.T) {
+	for _, ext := range fixtures.ManualExtensions() {
+		if !Supported("x" + ext) {
+			continue
+		}
+		path := copyFixture(t, fixtures.Manual(ext), "song"+ext)
+		original, err := Read(path)
+		if err != nil {
+			t.Errorf("%s: %v", ext, err)
+			continue
+		}
+		res, err := Writer{}.Save(path, musicBrainzSave(), marker.New(marker.MusicBrainz, day))
+		if err != nil || !res.Changed {
+			t.Errorf("%s: save: changed %t, %v", ext, res.Changed, err)
+			continue
+		}
+		if ok, err := Matches(path, res.After); err != nil || !ok {
+			t.Errorf("%s: the file does not match what the save says it left: %v", ext, err)
+		}
+		if ok, err := Matches(path, res.Before); err != nil || ok {
+			t.Errorf("%s: the file still matches what it had before the save (%v)", ext, err)
+		}
+
+		hist := &history{}
+		back, err := Writer{History: hist, RunID: 7}.Restore(path, res.Before, res.After)
+		if err != nil || !back.Changed {
+			t.Errorf("%s: restore: changed %t, %v", ext, back.Changed, err)
+			continue
+		}
+		now, err := Read(path)
+		if err != nil {
+			t.Errorf("%s: %v", ext, err)
+			continue
+		}
+		for field, vs := range original {
+			if !slices.Equal(now[field], vs) {
+				t.Errorf("%s: %s after the restore = %q, want %q", ext, field, now[field], vs)
+			}
+		}
+		if len(hist.rows) != 1 || hist.rows[0].runID != 7 {
+			t.Errorf("%s: history = %+v, want the restore recorded under run 7", ext, hist.rows)
+		}
+
+		// Restoring again finds the file changed and leaves it alone.
+		if _, err := (Writer{}).Restore(path, res.Before, res.After); !errors.Is(err, ErrChanged) {
+			t.Errorf("%s: a second restore: %v, want ErrChanged", ext, err)
+		}
+	}
+}
+
+// A marker the save put on an unmarked file is taken away again.
+func TestRestoreRemovesTheMarker(t *testing.T) {
+	path := copyFixture(t, fixtures.Path(fixtures.RipperFLAC), "ripped.flac")
+	res, err := Writer{}.Save(path, Values{Album: {"Another"}}, marker.New(marker.Hand, day))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Writer{}).Restore(path, res.Before, res.After); err != nil {
+		t.Fatal(err)
+	}
+	md := read(t, path)
+	if m, ok := marker.Read(md); ok {
+		t.Errorf("the marker is still there after the restore: %q", m)
+	}
+	if md.Album() != fixtures.Album {
+		t.Errorf("album after the restore = %q, want %q", md.Album(), fixtures.Album)
+	}
+}
+
+// history is a tag history that remembers what it was told.
+type history struct {
+	rows []struct {
+		runID               int64
+		path, before, after string
+	}
+}
+
+func (h *history) RecordTagWrite(runID int64, path, before, after string, apply func() error) error {
+	if err := apply(); err != nil {
+		return err
+	}
+	h.rows = append(h.rows, struct {
+		runID               int64
+		path, before, after string
+	}{runID, path, before, after})
+	return nil
+}

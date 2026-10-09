@@ -116,7 +116,7 @@ func apeUpToDate(path string, want Values) bool {
 // verifyAPE reads the APEv2 tag of the written copy back: it must hold
 // exactly the values written and the marker m, and internal/tag must read
 // the fields from it as it does from the ID3v2 tag.
-func verifyAPE(path string, want Values, m marker.Marker) error {
+func verifyAPE(path string, want Values) error {
 	md, err := readAPE(path)
 	if err != nil {
 		return fmt.Errorf("%w: the APEv2 tag: %v", ErrNotVerified, err)
@@ -124,8 +124,8 @@ func verifyAPE(path string, want Values, m marker.Marker) error {
 	if md.FileType() != tag.AAC {
 		return fmt.Errorf("%w: the APEv2 tag is on %s audio", ErrNotVerified, describe(md))
 	}
-	if got, ok := marker.Read(md); !ok || got.String() != m.String() {
-		return fmt.Errorf("%w: the APEv2 marker reads as %q, want %q", ErrNotVerified, got.String(), m.String())
+	if err := checkMarker(md, want[Marker], "the APEv2 marker"); err != nil {
+		return err
 	}
 	got := fromAPE(md.Raw(), slices.Collect(maps.Keys(want)))
 	for field, vs := range want {

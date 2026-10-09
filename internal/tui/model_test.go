@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"tagshelf/internal/engine"
 	"tagshelf/internal/store"
 	"tagshelf/internal/tagwrite"
 )
@@ -24,11 +25,19 @@ type fakeSource struct {
 	loads   int
 	details map[int64]RunDetail
 	tags    map[string]tagwrite.Values // by path, for the tag editor
+	// plans are what undoing each run would do, and planned which were asked.
+	plans   map[int64]engine.UndoPlan
+	planned []int64
 	// library are the library's files, and searches what was searched for.
 	library  []store.File
 	searches []string
 	// releases are the MusicBrainz releases the library holds.
 	releases map[string]bool
+}
+
+func (f *fakeSource) UndoPlan(runID int64) (engine.UndoPlan, error) {
+	f.planned = append(f.planned, runID)
+	return f.plans[runID], f.err
 }
 
 // Search finds the library files with query somewhere in their tags.
@@ -103,7 +112,7 @@ func do(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 	switch msg.(type) {
 	case refreshMsg, runDetailMsg:
 		m.Update(msg)
-	case dupDoneMsg, untaggedDoneMsg:
+	case dupDoneMsg, untaggedDoneMsg, undoDoneMsg:
 		// The reload that follows an action.
 		_, next := m.Update(msg)
 		do(t, m, next)

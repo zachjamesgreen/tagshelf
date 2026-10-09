@@ -431,6 +431,7 @@ func (m *Model) savedToast(s saved, where string, lacking bool) {
 	default:
 		m.setToast(true, "Saved")
 	}
+	m.offerUndo(s.finish.RunID)
 }
 
 // editorCrumb is the breadcrumb shown in place of the tabs.

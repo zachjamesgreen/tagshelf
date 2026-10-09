@@ -62,6 +62,8 @@ type Source interface {
 	RunDetail(id int64) (RunDetail, error)
 	// Tags reads the tags of an audio file that the tag editor edits.
 	Tags(path string) (tagwrite.Values, error)
+	// UndoPlan works out what undoing a run would do, changing nothing.
+	UndoPlan(runID int64) (engine.UndoPlan, error)
 	// Search lists up to limit files of the library whose artist, album or
 	// title holds every word of query.
 	Search(query string, limit int) ([]store.File, error)
@@ -155,4 +157,8 @@ func (s librarySource) Search(query string, limit int) ([]store.File, error) {
 
 func (s librarySource) Album(f store.File) ([]store.File, error) {
 	return s.st.FolderFiles(f)
+}
+
+func (s librarySource) UndoPlan(runID int64) (engine.UndoPlan, error) {
+	return engine.PlanUndo(s.st, runID, undoCheck)
 }

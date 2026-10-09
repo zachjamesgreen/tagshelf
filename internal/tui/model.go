@@ -75,9 +75,13 @@ type Model struct {
 	dups     dupsTab
 	untagged untaggedTab
 	library  libraryTab
-	edit     *editor // the tag editor, nil when it is not open
-	look     *lookup // the MusicBrainz lookup, nil when it is not open
-	match    *match  // the release match, nil when it is not open
+	edit     *editor   // the tag editor, nil when it is not open
+	look     *lookup   // the MusicBrainz lookup, nil when it is not open
+	match    *match    // the release match, nil when it is not open
+	undo     *undoFlow // the undo preflight, nil when it is not open
+	// undoable is the run the last action made, which u, as the next key,
+	// offers to undo; 0 when there is none.
+	undoable int64
 
 	// mb is MusicBrainz, nil while no contact is configured.
 	mb      MusicBrainz
@@ -192,10 +196,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.matchLoaded(msg)
 	case matchDoneMsg:
 		return m, m.matchDone(msg)
+	case undoPlanMsg:
+		m.undoPlanned(msg)
+	case undoDoneMsg:
+		return m, m.undoDone(msg)
 	case librarySearchMsg:
 		m.librarySearched(msg)
 	case tea.PasteMsg:
-		if m.edit == nil && m.look == nil && m.match == nil {
+		if m.edit == nil && m.look == nil && m.match == nil && m.undo == nil {
 			m.libraryPaste(msg.Content)
 			return m, nil
 		}
@@ -207,6 +215,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, runTick()
 		}
 	case tea.KeyPressMsg:
+		// The offer to undo the last action lasts until the next key.
+		undoable := m.undoable
+		m.undoable = 0
+		if undoable != 0 && msg.String() == "u" && !m.confirmQuit && !m.help && !m.library.typing &&
+			m.edit == nil && m.look == nil && m.match == nil && m.undo == nil {
+			m.toast, m.readErr = "", false
+			return m, m.openUndo(undoable)
+		}
 		if m.edit != nil && !m.confirmQuit {
 			return m, m.editorKey(msg)
 		}
@@ -215,6 +231,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.match != nil && !m.confirmQuit {
 			return m, m.matchKey(msg)
+		}
+		if m.undo != nil && !m.confirmQuit {
+			return m, m.undoKey(msg.String())
 		}
 		return m, m.key(msg.String())
 	default:

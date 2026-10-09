@@ -308,3 +308,36 @@ func TestTUIRunnerSaveTags(t *testing.T) {
 		t.Errorf("tag writes = %+v, %v", writes, err)
 	}
 }
+
+// TestTUIRunnerUndo organizes a source through the runner tagshelf tui uses
+// and undoes the run: the file is back in the source and the run is undone.
+func TestTUIRunnerUndo(t *testing.T) {
+	tmp, _, _ := cliEnv(t)
+	source := filepath.Join(tmp, "src")
+	song := filepath.Join(source, "song.mp3")
+	writeFile(t, song, "no tags")
+	r, lib := tuiRunnerFor(t, tmp, source)
+	organized, err := r.Run(context.Background(), tui.RunOrganize, false, func(engine.Event) {})
+	if err != nil || organized.State != engine.StateOK || organized.RunID == 0 {
+		t.Fatalf("organize = %+v, %v", organized, err)
+	}
+	if _, err := os.Stat(song); !os.IsNotExist(err) {
+		t.Fatalf("the song is still in the source (%v)", err)
+	}
+	noCheck := func(path, after string) error { return nil }
+	noRestore := func(*store.Store, int64, string, string, string) error { return nil }
+	undone, err := r.Undo(context.Background(), organized.RunID, noCheck, noRestore, func(engine.Event) {})
+	if err != nil || undone.State != engine.StateOK || undone.Counters.OtherMoved != 1 {
+		t.Fatalf("undo = %+v, %v", undone, err)
+	}
+	if _, err := os.Stat(song); err != nil {
+		t.Errorf("the song is not back in the source: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(lib, "_Untagged", "song.mp3")); !os.IsNotExist(err) {
+		t.Errorf("the song is still in _Untagged (%v)", err)
+	}
+	// A run cannot be undone twice.
+	if _, err := r.Undo(context.Background(), organized.RunID, noCheck, noRestore, func(engine.Event) {}); err == nil || !strings.Contains(err.Error(), "undone already") {
+		t.Errorf("a second undo: %v", err)
+	}
+}

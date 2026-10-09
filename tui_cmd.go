@@ -157,3 +157,20 @@ func (r tuiRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagSav
 	}
 	return finish, nil
 }
+
+func (r tuiRunner) Undo(ctx context.Context, runID int64, check engine.TagCheck, restore engine.TagRestore, sink engine.Sink) (engine.RunFinished, error) {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(r.cfg)
+	opts.DryRun = false
+	opts.Store = st
+	opts.Sink = sink
+	finish := engine.Undo(ctx, opts, runID, check, restore)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
+}

@@ -43,7 +43,7 @@ func SuggestedKeeper(files []store.File) int {
 // from the index or no longer on disk as it was indexed: the decision was
 // made about other files. Cancelling ctx stops before the next group.
 func ResolveDuplicates(ctx context.Context, opts Options, resolutions []Resolution) RunFinished {
-	o, refused := startAction(opts, "resolving duplicates")
+	o, refused := startAction(opts, "resolving duplicates", KindTUIAction)
 	if refused != nil {
 		return *refused
 	}
@@ -61,15 +61,15 @@ func ResolveDuplicates(ctx context.Context, opts Options, resolutions []Resoluti
 	return o.endAction(ctx)
 }
 
-// startAction begins a run of kind KindTUIAction over the library, which a
-// dry run or a run without the library's database cannot be: refused is then
-// how it ended. what names the action for that error.
-func startAction(opts Options, what string) (o *organizer, refused *RunFinished) {
+// startAction begins a run of the given kind over the library, which a dry
+// run or a run without the library's database cannot be: refused is then how
+// it ended. what names the action for that error.
+func startAction(opts Options, what string, kind RunKind) (o *organizer, refused *RunFinished) {
 	// The library is re-sorted in place: nothing here comes from a source.
 	opts.Source = opts.Destination
 	o = newOrganizer(opts)
 	cfg := o.cfg
-	o.emit(RunStarted{Kind: KindTUIAction, Destination: cfg.Destination})
+	o.emit(RunStarted{Kind: kind, Destination: cfg.Destination})
 
 	notStarted := func(err error) (*organizer, *RunFinished) {
 		finish := RunFinished{State: StateNotStarted, Err: err}
@@ -82,7 +82,7 @@ func startAction(opts Options, what string) (o *organizer, refused *RunFinished)
 	case cfg.DryRun:
 		return notStarted(fmt.Errorf("%s is not done in a dry run", what))
 	}
-	id, err := cfg.Store.StartRun(store.KindTUIAction, false, "", cfg.Destination, time.Now())
+	id, err := cfg.Store.StartRun(storeKinds[kind], false, "", cfg.Destination, time.Now())
 	if err != nil {
 		return notStarted(err)
 	}

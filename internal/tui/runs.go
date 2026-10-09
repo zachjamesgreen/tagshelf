@@ -116,6 +116,8 @@ func (m *Model) runsKey(k string) (tea.Cmd, bool) {
 	if d := m.runs.detail; d != nil {
 		page := max(m.bodyHeight()-detailHead, 1)
 		switch k {
+		case "u":
+			return m.openUndo(d.run.ID), true
 		case "esc", "backspace":
 			m.runs.detail = nil
 		case "up", "k":
@@ -151,6 +153,11 @@ func (m *Model) runsKey(k string) (tea.Cmd, bool) {
 		m.runs.cursor = 0
 	case "G", "end":
 		m.runs.cursor = len(runs) - 1
+	case "u":
+		if id := m.runs.selected(runs); id != 0 {
+			return m.openUndo(id), true
+		}
+		return nil, true
 	case "enter":
 		id := m.runs.selected(runs)
 		if id == 0 {
@@ -245,7 +252,11 @@ func (m *Model) runDetailBody(d *runDetailView, h int) string {
 	if !r.Ended.IsZero() {
 		when += " to " + m.formatTime(r.Ended)
 	}
-	b.WriteString(boldStyle.Render(title) + "  " + when + "  " + stateStyle(r.State).Render(string(r.State)) + "\n")
+	state := string(r.State)
+	if r.UndoneBy != 0 {
+		state += fmt.Sprintf(" by run %d", r.UndoneBy)
+	}
+	b.WriteString(boldStyle.Render(title) + "  " + when + "  " + stateStyle(r.State).Render(state) + "\n")
 	b.WriteString("  " + route(r) + "\n")
 	c := r.Counters
 	b.WriteString("  " + countersText(r.Kind == store.KindIndex, c.Organized, c.Untagged, c.OtherMoved, c.Duplicates, c.InPlace+c.LeftInPlace, c.Errors, c.Indexed) + "\n\n")

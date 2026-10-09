@@ -359,3 +359,21 @@ func under(dir, path string) (string, bool) {
 	}
 	return path[len(prefix):], true
 }
+
+// FileAt returns the index row of the file at path, if it has one.
+func (s *Store) FileAt(path string) (File, bool, error) {
+	roots, err := queryRoots(s.db)
+	if err != nil {
+		return File{}, false, err
+	}
+	root, rel, ok := rootOf(roots, path)
+	if !ok {
+		return File{}, false, nil
+	}
+	files, err := s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE f.root_id = ? AND f.path_key = ?`, root, PathKey(rel))
+	if err != nil || len(files) == 0 {
+		return File{}, false, err
+	}
+	return files[0], true, nil
+}

@@ -49,7 +49,7 @@ func movesOf(t *testing.T, s *store.Store, runID int64) []store.Move {
 		if moves[i].At.IsZero() {
 			t.Errorf("move %+v has no time", moves[i])
 		}
-		moves[i].At = time.Time{}
+		moves[i].At, moves[i].ID = time.Time{}, 0
 	}
 	sort.Slice(moves, func(i, j int) bool { return moves[i].From < moves[j].From })
 	return moves

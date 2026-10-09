@@ -249,6 +249,7 @@ func (m *Model) dupsDone(msg dupDoneMsg) tea.Cmd {
 			moved = "file moved"
 		}
 		m.setToast(true, "Resolved %s: %s %s to _Duplicates", plural(int64(msg.groups), "group", "groups"), formatCount(n), moved)
+		m.offerUndo(msg.finish.RunID)
 	}
 	return m.poll(true, false)
 }

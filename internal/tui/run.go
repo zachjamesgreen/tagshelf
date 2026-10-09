@@ -46,6 +46,9 @@ type Runner interface {
 	// SaveTags saves tags to the indexed files with the given IDs as one run
 	// and moves those that then qualify into the library.
 	SaveTags(ctx context.Context, ids []int64, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error)
+	// Undo undoes the run with the given ID as a run of its own; check and
+	// restore see to the tag saves the run made.
+	Undo(ctx context.Context, runID int64, check engine.TagCheck, restore engine.TagRestore, sink engine.Sink) (engine.RunFinished, error)
 }
 
 // recentEvents is how many of a run's latest events Home shows.
