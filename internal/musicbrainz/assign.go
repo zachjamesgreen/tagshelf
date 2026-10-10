@@ -1,6 +1,8 @@
 package musicbrainz
 
 import (
+	"context"
+	"errors"
 	"math"
 	"slices"
 	"time"
@@ -103,7 +105,8 @@ type Mapping struct {
 // Pair scores file f on the track ref of rel, as Assign and Reassign do.
 func Pair(rel *Release, ref TrackRef, f FileInfo) Assignment {
 	a := Assignment{Track: ref}
-	s := pairScore(rel, ref, QueryFor(f), f.Disc)
+	q, _ := fileQuery(f)
+	s := pairScore(rel, ref, q, f.Disc)
 	a.Score = int(math.Round(100 * s.score))
 	a.Length, a.LengthDelta = s.length, s.delta
 	return a
@@ -189,26 +192,36 @@ func absolutePosition(rel *Release, ref TrackRef) int {
 // all media, maximizing the total pair score (see Pair). A file whose best
 // fit scores below one half stays unassigned, as does every file beyond the
 // release's track count; a partial selection leaves tracks empty.
-func Assign(rel *Release, files []FileInfo) *Mapping {
+//
+// The work grows with the files times the tracks times the fewer of the two,
+// so it is done off the UI goroutine and stops with ctx's error once ctx is
+// done.
+func Assign(ctx context.Context, rel *Release, files []FileInfo) (*Mapping, error) {
 	tracks := rel.Tracks()
-	n := max(len(files), len(tracks))
-	// Cost matrix for a minimum-cost assignment: a pair below the threshold
-	// costs as much as leaving the file unassigned (padding rows and columns).
-	cost := make([][]float64, n)
-	for i := range cost {
-		cost[i] = make([]float64, n)
-	}
-	scores := make([][]float64, len(files))
+	// Cost matrix for a minimum-cost assignment, files by tracks: a pair
+	// below the threshold costs 0, as much as leaving the file unassigned.
+	cost := make([][]float64, len(files))
 	for i, f := range files {
-		q := QueryFor(f)
-		scores[i] = make([]float64, len(tracks))
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		q, _ := fileQuery(f)
+		cost[i] = make([]float64, len(tracks))
 		for j, ref := range tracks {
-			s := pairScore(rel, ref, q, f.Disc).score
-			scores[i][j] = s
-			if s >= minAssignScore {
+			if s := pairScore(rel, ref, q, f.Disc).score; s >= minAssignScore {
 				cost[i][j] = -s
 			}
 		}
+	}
+	// The solver wants no more rows than columns: with more files than
+	// tracks it puts tracks on files instead.
+	flipped := len(files) > len(tracks)
+	if flipped {
+		cost = transpose(cost, len(tracks))
+	}
+	cols, err := hungarian(ctx, cost)
+	if err != nil {
+		return nil, err
 	}
 
 	m := &Mapping{release: rel, files: files}
@@ -216,13 +229,30 @@ func Assign(rel *Release, files []FileInfo) *Mapping {
 	for j := range onTrack {
 		onTrack[j] = -1
 	}
-	for i, j := range hungarian(cost) {
-		if i < len(files) && j < len(tracks) && scores[i][j] >= minAssignScore {
-			onTrack[j] = i
+	for row, col := range cols {
+		// A pair that costs 0 was only made to fill the row.
+		if cost[row][col] < 0 {
+			if flipped {
+				onTrack[row] = col
+			} else {
+				onTrack[col] = row
+			}
 		}
 	}
 	m.rebuild(tracks, onTrack)
-	return m
+	return m, nil
+}
+
+// transpose turns a matrix of len(m) rows and cols columns on its side.
+func transpose(m [][]float64, cols int) [][]float64 {
+	out := make([][]float64, cols)
+	for j := range out {
+		out[j] = make([]float64, len(m))
+		for i := range m {
+			out[j][i] = m[i][j]
+		}
+	}
+	return out
 }
 
 // Reassign puts file on track ref. A file already on that track becomes
@@ -299,31 +329,41 @@ func (m *Mapping) rebuild(tracks []TrackRef, onTrack []int) {
 	}
 }
 
-// hungarian solves the square assignment problem for cost, minimizing the
-// total, and returns the column of each row (Kuhn-Munkres with potentials,
-// O(n³)).
-func hungarian(cost [][]float64) []int {
+// hungarian solves the assignment problem for cost, a matrix of n rows and m
+// columns with n no larger than m: it gives every row a column of its own,
+// minimizing the total, and returns the column of each row (Kuhn-Munkres
+// with potentials, O(n²m)). It stops with ctx's error once ctx is done.
+func hungarian(ctx context.Context, cost [][]float64) ([]int, error) {
 	n := len(cost)
 	if n == 0 {
-		return nil
+		return nil, nil
+	}
+	m := len(cost[0])
+	if n > m {
+		// The search for a free column would never end.
+		return nil, errors.New("musicbrainz: assignment matrix with more rows than columns")
 	}
 	inf := math.Inf(1)
 	u := make([]float64, n+1)
-	v := make([]float64, n+1)
-	p := make([]int, n+1) // p[j]: row matched to column j (1-based), 0 for none
-	way := make([]int, n+1)
+	v := make([]float64, m+1)
+	p := make([]int, m+1) // p[j]: row matched to column j (1-based), 0 for none
+	way := make([]int, m+1)
+	minv := make([]float64, m+1)
+	used := make([]bool, m+1)
 	for i := 1; i <= n; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		p[0] = i
 		j0 := 0
-		minv := make([]float64, n+1)
-		used := make([]bool, n+1)
 		for j := range minv {
 			minv[j] = inf
+			used[j] = false
 		}
 		for {
 			used[j0] = true
 			i0, delta, j1 := p[j0], inf, 0
-			for j := 1; j <= n; j++ {
+			for j := 1; j <= m; j++ {
 				if used[j] {
 					continue
 				}
@@ -335,7 +375,7 @@ func hungarian(cost [][]float64) []int {
 					delta, j1 = minv[j], j
 				}
 			}
-			for j := 0; j <= n; j++ {
+			for j := 0; j <= m; j++ {
 				if used[j] {
 					u[p[j]] += delta
 					v[j] -= delta
@@ -355,10 +395,10 @@ func hungarian(cost [][]float64) []int {
 		}
 	}
 	rowCol := make([]int, n)
-	for j := 1; j <= n; j++ {
+	for j := 1; j <= m; j++ {
 		if p[j] > 0 {
 			rowCol[p[j]-1] = j - 1
 		}
 	}
-	return rowCol
+	return rowCol, nil
 }

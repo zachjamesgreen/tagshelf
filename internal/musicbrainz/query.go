@@ -41,11 +41,24 @@ type FileInfo struct {
 }
 
 // QueryFor builds the initial lookup query for a file. Tags win; when the
-// title tag is empty, the title (and any empty artist or track number) is
-// parsed from the file name, and the original folder name fills an empty
-// artist or album.
+// title tag is empty, the title (and any empty artist) is parsed from the
+// file name, and the original folder name fills an empty artist or album.
+// The track number is the tag's alone: a number a file name starts with is a
+// guess ("99 Luftballons"), and the lookup form does not show the track for
+// it to be put right.
 func QueryFor(f FileInfo) Query {
-	q := Query{
+	q, trackTagged := fileQuery(f)
+	if !trackTagged {
+		q.Track = 0
+	}
+	return q
+}
+
+// fileQuery is QueryFor with the track number a file name starts with taken
+// too, as a release match wants it. trackTagged reports that the track
+// number, if there is one, is the tag's.
+func fileQuery(f FileInfo) (q Query, trackTagged bool) {
+	q = Query{
 		Title:      strings.TrimSpace(f.Title),
 		Artist:     strings.TrimSpace(f.Artist),
 		Album:      strings.TrimSpace(f.Album),
@@ -55,7 +68,7 @@ func QueryFor(f FileInfo) Query {
 		Length:     f.Length,
 	}
 	if q.Title != "" {
-		return q
+		return q, true
 	}
 
 	track, artist, title := parseFileName(filepath.Base(f.Path))
@@ -63,6 +76,7 @@ func QueryFor(f FileInfo) Query {
 	if q.Artist == "" {
 		q.Artist = artist
 	}
+	trackTagged = q.Track != 0
 	if q.Track == 0 {
 		q.Track = track
 	}
@@ -74,12 +88,13 @@ func QueryFor(f FileInfo) Query {
 	if q.Album == "" {
 		q.Album = folderAlbum
 	}
-	return q
+	return q, trackTagged
 }
 
 var (
-	// "01 - Title", "01. Title", "01 Title", "1-01 Title" (disc-track).
-	leadingTrack = regexp.MustCompile(`^(?:\d{1,2}[-.])?(\d{1,3})(?:\s*[-.)]\s*|\s+)(.+)$`)
+	// "01 - Title", "01. Title", "01 Title", "1-01 Title" (disc-track): the
+	// disc, the number, what parts it from the rest, and the rest.
+	leadingTrack = regexp.MustCompile(`^(\d{1,2}[-.])?(\d{1,3})(\s*[-.)]\s*|\s+)(.+)$`)
 	// A trailing "(1999)" or "[1999]" on a folder name.
 	trailingYear = regexp.MustCompile(`\s*[(\[]\d{4}[)\]]$`)
 )
@@ -87,6 +102,12 @@ var (
 // parseFileName splits a file name of the forms "01 - Artist - Title",
 // "01 - Title", "Artist - Title" or "Title" into its parts. The extension is
 // dropped, and underscores stand for spaces when the name has no spaces.
+//
+// A number with only a space after it may as well start an artist's name
+// ("50 Cent - In da Club"). It is a track number when it has a leading zero
+// or a disc before it, or when no " - " follows, so that there is no artist
+// it could belong to. "99 Luftballons" still reads as track 99: nothing in
+// the name tells it from "12 Some Song".
 func parseFileName(name string) (track int, artist, title string) {
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	if !strings.Contains(name, " ") {
@@ -95,9 +116,13 @@ func parseFileName(name string) (track int, artist, title string) {
 	name = strings.TrimSpace(name)
 
 	if m := leadingTrack.FindStringSubmatch(name); m != nil {
-		if n, err := strconv.Atoi(m[1]); err == nil {
-			track = n
-			name = strings.TrimSpace(m[2])
+		disc, num, sep, rest := m[1], m[2], m[3], m[4]
+		bare := strings.TrimSpace(sep) == ""
+		if !bare || disc != "" || num[0] == '0' || !strings.Contains(rest, " - ") {
+			if n, err := strconv.Atoi(num); err == nil {
+				track = n
+				name = strings.TrimSpace(rest)
+			}
 		}
 	}
 

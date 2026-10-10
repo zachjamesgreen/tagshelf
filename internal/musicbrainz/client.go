@@ -11,12 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DefaultBaseURL is the MusicBrainz web service root.
@@ -33,6 +35,15 @@ var ErrDisabled = errors.New("MusicBrainz lookups are disabled: set musicbrainz_
 // ErrUnavailable is returned when MusicBrainz keeps answering 503 after the
 // client has backed off to its longest interval.
 var ErrUnavailable = errors.New("MusicBrainz is not accepting requests right now (rate limited or overloaded); try again later")
+
+// ErrTimeout is returned when a request got no answer, or not all of one,
+// within the client's timeout.
+var ErrTimeout = errors.New("MusicBrainz did not answer in time; try again later")
+
+// requestTimeout bounds one whole exchange, from connecting to the last byte
+// of the body. A search answers in a second or two; http.DefaultClient would
+// leave a lookup on a stalled connection waiting until the person gives up.
+const requestTimeout = 30 * time.Second
 
 // Client talks to the MusicBrainz web service. It is safe for concurrent use.
 // All clients in a process share one rate limiter; each client has its own
@@ -57,7 +68,7 @@ func New(contact string) (*Client, error) {
 	return &Client{
 		baseURL:   DefaultBaseURL,
 		userAgent: UserAgent(contact),
-		http:      http.DefaultClient,
+		http:      &http.Client{Timeout: requestTimeout},
 		limiter:   sharedLimiter,
 		cache:     map[string][]byte{},
 	}, nil
@@ -158,7 +169,7 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, timedOut(ctx, err)
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 		resp.Body.Close()
@@ -170,7 +181,7 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, timedOut(ctx, err)
 		}
 		c.limiter.recover()
 		if resp.StatusCode != http.StatusOK {
@@ -178,6 +189,16 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 		}
 		return body, nil
 	}
+}
+
+// timedOut makes ErrTimeout of the error of a request that ran out of time.
+// One the caller dropped or gave a deadline of its own keeps its error.
+func timedOut(ctx context.Context, err error) error {
+	var ne net.Error
+	if ctx.Err() == nil && errors.As(err, &ne) && ne.Timeout() {
+		return ErrTimeout
+	}
+	return err
 }
 
 // statusError describes a non-OK response, using the service's JSON error

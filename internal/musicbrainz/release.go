@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -19,6 +20,11 @@ const releaseInc = "artist-credits+recordings+release-groups+media"
 // MaxBoostFiles is how many files of a release match get a recording search
 // to boost the release candidates.
 const MaxBoostFiles = 3
+
+// MaxMatchFiles is the most files a release match takes. No release holds
+// more, and a selection that large is a slip (a whole folder of loose files)
+// that would have every file's tags read and weighed against every track.
+const MaxMatchFiles = 500
 
 // weightFound is the weight of the recording searches that found a release,
 // in release ranking: the files' titles and lengths stand behind it, so it
@@ -83,18 +89,69 @@ func mostCommon[T comparable](vals []T, zero T) (T, int) {
 }
 
 // BoostQueries returns the recording queries for up to MaxBoostFiles files
-// of a selection, skipping files with nothing to search for.
-func BoostQueries(files []FileInfo) []Query {
+// of a selection, given the release query rq the person is searching with.
+// Each query says what its file is, so that a release it finds is evidence
+// from the file:
+//
+//   - The title is the title tag, or else the title in the file name. A file
+//     with neither is skipped: its query would only repeat rq.
+//   - The album is rq's when it has one, or else the album tag. The folder's
+//     name is not used: the person has seen its suggestion in the form.
+//   - The artist is the one in the file name ("01 - Artist - Title", read as
+//     QueryFor reads it, for a file without a title tag), since a track of
+//     its own artist is not credited to the release's. Then rq's artist, which
+//     beats the tag: a wrong tag is the reason to type one. Then the artist
+//     tag, and last, for a file without a title tag, the folder's name.
+func BoostQueries(files []FileInfo, rq ReleaseQuery) []Query {
 	var out []Query
 	for _, f := range files {
 		if len(out) == MaxBoostFiles {
 			break
 		}
-		if q := QueryFor(f); q.Lucene() != "" {
+		if q, ok := boostQuery(f, rq); ok {
 			out = append(out, q)
 		}
 	}
 	return out
+}
+
+// boostQuery is the recording query for one file of a release match searched
+// for with rq, as BoostQueries describes; false when the file has no title to
+// search for.
+func boostQuery(f FileInfo, rq ReleaseQuery) (Query, bool) {
+	q := Query{
+		Title:      strings.TrimSpace(f.Title),
+		Artist:     strings.TrimSpace(f.Artist),
+		Album:      strings.TrimSpace(f.Album),
+		Year:       f.Year,
+		Track:      f.Track,
+		TrackTotal: f.TrackTotal,
+		Length:     f.Length,
+	}
+	var nameArtist, folderArtist string
+	if q.Title == "" {
+		var track int
+		track, nameArtist, q.Title = parseFileName(filepath.Base(f.Path))
+		if q.Track == 0 {
+			q.Track = track
+		}
+		folderArtist, _ = parseFolder(f.Folder)
+	}
+	if q.Title == "" {
+		return Query{}, false
+	}
+	if album := strings.TrimSpace(rq.Album); album != "" {
+		q.Album = album
+	}
+	switch artist := strings.TrimSpace(rq.Artist); {
+	case nameArtist != "":
+		q.Artist = nameArtist
+	case artist != "":
+		q.Artist = artist
+	case q.Artist == "":
+		q.Artist = folderArtist
+	}
+	return q, true
 }
 
 // Lucene renders the release query as escaped field:(value) terms without
@@ -129,11 +186,14 @@ func (c *Client) SearchReleases(ctx context.Context, q ReleaseQuery, offset int)
 	return &res, nil
 }
 
+// errNoReleaseQuery is the error for a release query with nothing to send.
+var errNoReleaseQuery = errors.New("nothing to search for: fill in an album, artist or track count")
+
 // releaseSearchURL is the URL of one page of a release search.
 func releaseSearchURL(base string, q ReleaseQuery, offset int) (string, error) {
 	lucene := q.Lucene()
 	if lucene == "" {
-		return "", errors.New("nothing to search for: fill in an album, artist or track count")
+		return "", errNoReleaseQuery
 	}
 	params := url.Values{
 		"query": {lucene},
@@ -212,8 +272,12 @@ func (r Release) Format() string {
 // SearchReleaseCandidates runs the searches of a release match: a release
 // search for q and a recording search for each of boost (see BoostQueries).
 // Releases the recording searches found are candidates too. The candidates
-// are ranked as RankReleases does.
+// are ranked as RankReleases does. Searches that find nothing give no
+// candidates and no error; with nothing to search for it is an error.
 func (c *Client) SearchReleaseCandidates(ctx context.Context, q ReleaseQuery, boost []Query, inLibrary func(releaseID string) bool) ([]ReleaseCandidate, error) {
+	if q.Lucene() == "" && len(boost) == 0 {
+		return nil, errNoReleaseQuery
+	}
 	var releases []Release
 	if q.Lucene() != "" {
 		res, err := c.SearchReleases(ctx, q, 0)
@@ -229,9 +293,6 @@ func (c *Client) SearchReleaseCandidates(ctx context.Context, q ReleaseQuery, bo
 			return nil, err
 		}
 		hits = append(hits, res.Recordings)
-	}
-	if len(releases) == 0 && len(hits) == 0 {
-		return nil, errors.New("nothing to search for: fill in an album, artist or track count")
 	}
 	return RankReleases(q, releases, hits, inLibrary), nil
 }

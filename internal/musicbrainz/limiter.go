@@ -52,22 +52,30 @@ func newLimiter(c clock) *limiter {
 	return &limiter{clock: c, interval: minInterval}
 }
 
-// wait blocks until the caller may send a request, reserving its slot first so
-// concurrent callers queue one interval apart.
+// wait blocks until the caller may send a request. A slot is taken only by a
+// caller that goes on to send: one whose ctx is done while it waits leaves
+// with ctx's error and pushes nobody back. Concurrent callers sleep to the
+// same moment, one of them takes it and the rest sleep on, so requests still
+// start an interval apart.
 func (l *limiter) wait(ctx context.Context) error {
-	l.mu.Lock()
-	now := l.clock.Now()
-	start := l.next
-	if start.Before(now) {
-		start = now
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		l.mu.Lock()
+		now := l.clock.Now()
+		d := l.next.Sub(now)
+		if d <= 0 {
+			l.next = now.Add(l.interval)
+		}
+		l.mu.Unlock()
+		if d <= 0 {
+			return nil
+		}
+		if err := l.clock.Sleep(ctx, d); err != nil {
+			return err
+		}
 	}
-	l.next = start.Add(l.interval)
-	l.mu.Unlock()
-
-	if d := start.Sub(now); d > 0 {
-		return l.clock.Sleep(ctx, d)
-	}
-	return nil
 }
 
 // backoff records a 503: the interval doubles, and the next request waits that

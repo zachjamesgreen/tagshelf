@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -310,35 +311,90 @@ func TestReleaseMatchOfAnUngroupedListWantsASelection(t *testing.T) {
 	}
 }
 
-// The searches made for the files themselves go by the album and artist
-// typed, not by the name of the folder the files came from.
+// The searches made for the files themselves take the album and artist typed
+// into account, as musicbrainz.BoostQueries lays down and its own tests
+// check: here, that what the form holds is what it is given. The two files
+// are an untagged one and one with a title and an artist tag, from a folder
+// whose name is not an album's.
 func TestReleaseMatchBoostsWithTheQueryTyped(t *testing.T) {
-	mb := geogaddi()
-	src := matchSource()
-	// Two files without tags, from a folder whose name says nothing.
-	for i := range src.snap.Untagged {
-		if f := &src.snap.Untagged[i]; f.ID == 103 || f.ID == 104 {
-			f.Artist, f.Album, f.Title = "", "", ""
+	tests := []struct {
+		desc   string
+		artist string // typed into the form's empty artist field
+		want   []musicbrainz.Query
+	}{
+		{"album and artist typed", "Boards of Canada", []musicbrainz.Query{
+			{Title: "demo", Artist: "Boards of Canada", Album: "Geogaddi", Length: 95 * time.Second},
+			{Title: "Live", Artist: "Boards of Canada", Album: "Geogaddi"},
+		}},
+		{"the artist left empty", "", []musicbrainz.Query{
+			{Title: "demo", Album: "Geogaddi", Length: 95 * time.Second},
+			{Title: "Live", Artist: "Hand Tagged", Album: "Geogaddi"},
+		}},
+	}
+	for _, tt := range tests {
+		mb := geogaddi()
+		m, _ := newUntaggedModel(t, matchSource())
+		m.mb = mb
+		cursorTo(t, m, 103)
+		hit(t, m, "L")
+		if m.match == nil || m.match.step != matchQuery {
+			t.Fatalf("%s: the release match did not open:\n%s", tt.desc, screen(m))
+		}
+		if m.match.album != "Incoming" || m.match.artist != "" {
+			t.Fatalf("%s: suggested the album %q and the artist %q, want the folder's name and no artist", tt.desc, m.match.album, m.match.artist)
+		}
+		hit(t, m, "ctrl+u")
+		typeText(t, m, "Geogaddi")
+		hit(t, m, "down")
+		typeText(t, m, tt.artist)
+		hit(t, m, "enter")
+		if want := []musicbrainz.ReleaseQuery{{Album: "Geogaddi", Artist: tt.artist, Tracks: 2}}; !reflect.DeepEqual(mb.releaseQueries, want) {
+			t.Errorf("%s: searched for %+v, want %+v", tt.desc, mb.releaseQueries, want)
+		}
+		if len(mb.boosts) != 1 || !reflect.DeepEqual(mb.boosts[0], tt.want) {
+			t.Errorf("%s: the files were searched for as\n %+v\nwant\n %+v", tt.desc, mb.boosts, tt.want)
 		}
 	}
-	m, _ := newUntaggedModel(t, src)
-	m.mb = mb
-	cursorTo(t, m, 103)
-	hit(t, m, "L")
-	if m.match.album != "Incoming" {
-		t.Fatalf("the album suggested = %q, want the folder's name", m.match.album)
-	}
-	hit(t, m, "ctrl+u")
-	typeText(t, m, "Geogaddi")
-	hit(t, m, "down")
-	typeText(t, m, "Boards of Canada")
-	hit(t, m, "enter")
-	if len(mb.boosts) != 1 || len(mb.boosts[0]) == 0 {
-		t.Fatalf("boosts = %+v", mb.boosts)
-	}
-	for _, q := range mb.boosts[0] {
-		if q.Album != "Geogaddi" || q.Artist != "Boards of Canada" {
-			t.Errorf("a file was searched for as %+v, want the album and artist typed", q)
+}
+
+// A folder of loose files taken for a release by a slip is refused before
+// anything is asked of MusicBrainz or read from the files.
+func TestReleaseMatchRefusesTooManyFiles(t *testing.T) {
+	tests := []struct {
+		files   int
+		refused bool
+	}{{musicbrainz.MaxMatchFiles + 1, true}, {musicbrainz.MaxMatchFiles, false}}
+	for _, tt := range tests {
+		src := untaggedSource()
+		src.snap.Untagged = nil
+		for i := range tt.files {
+			name := fmt.Sprintf("%04d.mp3", i+1)
+			f := store.File{ID: int64(1000 + i), RootKind: store.RootUntagged, RelPath: name, Format: "MP3"}
+			f.Path = filepath.Join(`D:\Music\_Untagged`, name)
+			src.snap.Untagged = append(src.snap.Untagged, store.UntaggedFile{File: f, From: `E:\Loose\` + name})
+		}
+		mb := geogaddi()
+		m, _ := newUntaggedModel(t, src)
+		m.mb = mb
+		cursorTo(t, m, 1000)
+		hit(t, m, "L")
+		if m.match == nil || len(m.match.files) != tt.files {
+			t.Fatalf("%d files: the release match did not open on the folder:\n%s", tt.files, screen(m))
+		}
+		hit(t, m, "enter")
+		got := screen(m)
+		if !tt.refused {
+			if len(mb.releaseQueries) != 1 || m.match.step != matchPick {
+				t.Errorf("%d files: searched %d times, step %d; want the search made", tt.files, len(mb.releaseQueries), m.match.step)
+			}
+			continue
+		}
+		if want := "501 files are too many for one release (at most 500): select fewer"; !strings.Contains(got, want) {
+			t.Errorf("%d files: the form lacks %q:\n%s", tt.files, want, got)
+		}
+		if len(mb.releaseQueries) != 0 || len(mb.looked) != 0 || m.match.step != matchQuery {
+			t.Errorf("%d files: searched %d times, looked up %d releases, step %d; want nothing asked",
+				tt.files, len(mb.releaseQueries), len(mb.looked), m.match.step)
 		}
 	}
 }
