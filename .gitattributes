@@ -9,3 +9,8 @@ testdata/audio/*.wma binary
 testdata/audio/*.aac binary
 testdata/audio/*.ape binary
 testdata/audio/*.mpc binary
+internal/tagwrite/testdata/* binary
+
+# The TUI's golden screens are compared byte for byte: LF, whatever
+# core.autocrlf says.
+internal/tui/testdata/*.golden text eol=lf
