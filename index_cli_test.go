@@ -60,14 +60,15 @@ func TestFormatBytes(t *testing.T) {
 	}
 }
 
-// cliEnv sets up a CLI test: log output captured, the data folder in a temp
-// dir, and an empty config file. It returns the temp dir, the config and the
-// captured log.
+// cliEnv sets up a CLI test: log output and standard output captured
+// together, the data folder in a temp dir, and an empty config file. It
+// returns the temp dir, the config and what was captured.
 func cliEnv(t *testing.T) (tmp, config string, logs *bytes.Buffer) {
 	t.Helper()
 	logs = &bytes.Buffer{}
 	log.SetOutput(logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	stdout = logs
+	t.Cleanup(func() { log.SetOutput(os.Stderr); stdout = os.Stdout })
 	isolateDataDir(t)
 	tmp = t.TempDir()
 	config = filepath.Join(tmp, "empty.yaml")

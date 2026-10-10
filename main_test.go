@@ -77,7 +77,7 @@ func TestTestsRunAwayFromTheUsersFiles(t *testing.T) {
 	if got := run(context.Background(), []string{"-source", filepath.Dir(song)}); got != exitCannotStart {
 		t.Errorf("run without -config or -dest = %d, want %d\n%s", got, exitCannotStart, logs)
 	}
-	if !strings.Contains(logs.String(), "destination directory must be specified") || strings.Contains(logs.String(), "Using config file") {
+	if !strings.Contains(logs.String(), "tagshelf cannot start: no library folder is set.") || strings.Contains(logs.String(), "Using config file") {
 		t.Errorf("log %q: want the run refused for lack of a destination, with no config file found", logs)
 	}
 	if _, err := os.Stat(song); err != nil {
@@ -122,7 +122,7 @@ func TestRunRefusesLeftoverArguments(t *testing.T) {
 			if got := run(context.Background(), args); got != exitCannotStart {
 				t.Errorf("run(%q) = %d, want %d", args, got, exitCannotStart)
 			}
-			if want := fmt.Sprintf("Error: unexpected argument %q", tt.first); !strings.Contains(logs.String(), want) {
+			if want := fmt.Sprintf("tagshelf cannot start: unexpected argument %q: tagshelf takes only flags.", tt.first); !strings.Contains(logs.String(), want) {
 				t.Errorf("log %q lacks %q", logs, want)
 			}
 			if _, err := os.Stat(song); err != nil {
@@ -252,7 +252,7 @@ func TestRunFlagModes(t *testing.T) {
 		if got := run(context.Background(), []string{"-config", config, "-dest", lib}); got != exitCannotStart {
 			t.Errorf("run = %d, want %d", got, exitCannotStart)
 		}
-		if !strings.Contains(logs.String(), "source directory must be specified") {
+		if !strings.Contains(logs.String(), "tagshelf cannot start: no source folder is set.") {
 			t.Errorf("log %q does not ask for a source", logs)
 		}
 		if _, err := os.Stat(lib); !os.IsNotExist(err) {
