@@ -94,17 +94,18 @@ func TestTooSmallMessageShowsTheSizeNeeded(t *testing.T) {
 
 func TestShortPath(t *testing.T) {
 	m := New(&fakeSource{}, header)
-	for path, want := range map[string]string{
-		p(`D:\Music\A\b.mp3`): p(`A\b.mp3`),
+	for _, tt := range []struct{ path, want string }{
+		{`D:\Music\A\b.mp3`, `A\b.mp3`},
 		// A folder of the library whose name starts with dots is inside it.
-		p(`D:\Music\...And You Will Know Us by the Trail of Dead\01.mp3`): p(`...And You Will Know Us by the Trail of Dead\01.mp3`),
-		p(`D:\Music\..hidden.mp3`):   `..hidden.mp3`,
-		p(`D:\Music\..\Other\b.mp3`): p(`D:\Music\..\Other\b.mp3`),
-		p(`D:\Other\b.mp3`):          p(`D:\Other\b.mp3`),
-		p(`D:\Music`):                p(`D:\Music`),
-		p(`D:\`):                     p(`D:\`),
-		p(`E:\x.mp3`):                p(`E:\x.mp3`),
+		{`D:\Music\...And You Will Know Us by the Trail of Dead\01.mp3`, `...And You Will Know Us by the Trail of Dead\01.mp3`},
+		{`D:\Music\..hidden.mp3`, `..hidden.mp3`},
+		{`D:\Music\..\Other\b.mp3`, `D:\Music\..\Other\b.mp3`},
+		{`D:\Other\b.mp3`, `D:\Other\b.mp3`},
+		{`D:\Music`, `D:\Music`},
+		{`D:\`, `D:\`},
+		{`E:\x.mp3`, `E:\x.mp3`},
 	} {
+		path, want := p(tt.path), p(tt.want)
 		if got := m.shortPath(path); got != want {
 			t.Errorf("shortPath(%q) = %q, want %q", path, got, want)
 		}
