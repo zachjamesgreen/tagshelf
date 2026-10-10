@@ -44,6 +44,18 @@ func SanitizeName(name string) string {
 	return cleaned
 }
 
+// shownName gives a file or folder name made from tags that would start
+// with a full stop an underscore in its place: ".38 Special" becomes
+// "_38 Special". A name that starts with a full stop is hidden on Linux and
+// macOS, by the file manager and by a plain ls, and a hidden artist looks
+// like a missing one. Only the first is replaced: what follows is the name.
+func shownName(name string) string {
+	if strings.HasPrefix(name, ".") {
+		return "_" + name[1:]
+	}
+	return name
+}
+
 // blank reports whether a tag has no value.
 func blank(value string) bool {
 	return strings.TrimSpace(value) == ""
@@ -204,8 +216,9 @@ func (t Tags) isCompilation() bool {
 
 // LibraryPath is where an organized file belongs:
 // Album Artist/Album (Year)/[disc-]track - Title.ext, or for a compilation
-// compilations/Album (Year)/[disc-]track - Track Artist - Title.ext. It
-// reports false when the tags lack an artist, album or title.
+// compilations/Album (Year)/[disc-]track - Track Artist - Title.ext. None of
+// the three names starts with a full stop (see shownName). It reports false
+// when the tags lack an artist, album or title.
 func LibraryPath(dest, compilations string, m tag.Metadata, ext string) (string, bool) {
 	return LibraryPathFor(dest, compilations, TagsOf(m), ext)
 }
@@ -242,7 +255,7 @@ func LibraryPathFor(dest, compilations string, t Tags, ext string) (string, bool
 			name = fmt.Sprintf("%02d - %s", t.Track, name)
 		}
 	}
-	return filepath.Join(dest, SanitizeName(artist), SanitizeName(album), name+ext), true
+	return filepath.Join(dest, shownName(SanitizeName(artist)), shownName(SanitizeName(album)), shownName(name+ext)), true
 }
 
 // Qualifies reports whether a file qualifies for the library, and if so its

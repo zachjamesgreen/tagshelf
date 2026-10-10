@@ -113,6 +113,9 @@ const (
 	// The length, bit rate and other audio details of a file could not be
 	// read into the index; Err says why. Its tags and its hash may have been.
 	WarnDetailsUnread
+	// Path and the name Name beside it differ only in letter case, which a
+	// file system that tells them apart allows. Path is the one used.
+	WarnCaseTwins
 )
 
 // Warning reports something that went less than right without failing the
@@ -120,7 +123,7 @@ const (
 type Warning struct {
 	Kind WarningKind
 	Path string
-	Name string // cue warnings: the FILE name concerned
+	Name string // cue warnings: the FILE name concerned; twins: the other name
 	Err  error  // copy, stale copy and details warnings: the underlying error
 }
 

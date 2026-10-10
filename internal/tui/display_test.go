@@ -574,6 +574,7 @@ func TestWarningTexts(t *testing.T) {
 		{engine.WarnStaleCopy, "the temporary copy a crash left could not be removed: denied"},
 		{engine.WarnSpecialSkipped, "left where it is: not a file but a pipe, socket or device"},
 		{engine.WarnDetailsUnread, "its audio details could not be read: denied"},
+		{engine.WarnCaseTwins, `"a.flac" beside it differs only in letter case: this one is used, and a reorganize moves what is in the other into it`},
 	} {
 		if got := warningText(engine.Warning{Kind: tt.kind, Name: "a.flac", Err: err}); got != tt.want {
 			t.Errorf("warningText(%d) = %q, want %q", tt.kind, got, tt.want)

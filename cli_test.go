@@ -73,6 +73,10 @@ func TestCLISinkLines(t *testing.T) {
 		{"mtime", organize, false, engine.Warning{Kind: engine.WarnModTime, Path: "a", Err: boom}, `Warning: could not preserve modification time on "a": boom`},
 		{"cue beside", organize, false, engine.Warning{Kind: engine.WarnCueNotBeside, Path: "a", Name: "n"}, `Warning: not rewriting cue sheet "a": "n" is not next to it after the move`},
 		{"cue encoding", organize, false, engine.Warning{Kind: engine.WarnCueEncoding, Path: "a", Name: "n"}, `Warning: not rewriting cue sheet "a": it is not UTF-8 and "n" is not plain ASCII`},
+		{"link", organize, false, engine.Warning{Kind: engine.WarnLinkSkipped, Path: "a"}, `Warning: leaving "a" where it is: it is a link or junction, which is neither followed nor moved`},
+		{"not a file", organize, false, engine.Warning{Kind: engine.WarnSpecialSkipped, Path: "a"}, `Warning: leaving "a" where it is: it is not a file but a pipe, socket or device`},
+		{"details", organize, false, engine.Warning{Kind: engine.WarnDetailsUnread, Path: "a", Err: boom}, `Warning: could not read the audio details of "a": boom`},
+		{"twins", organize, false, engine.Warning{Kind: engine.WarnCaseTwins, Path: "The A", Name: "the a"}, `Warning: "The A" and "the a" beside it differ only in letter case: the first is used, and a reorganize moves what is in the other into it`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

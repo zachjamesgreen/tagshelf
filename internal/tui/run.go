@@ -135,6 +135,8 @@ func warningText(e engine.Warning) string {
 		return "left where it is: a link or junction, which is neither followed nor moved"
 	case engine.WarnSpecialSkipped:
 		return "left where it is: not a file but a pipe, socket or device"
+	case engine.WarnCaseTwins:
+		return fmt.Sprintf("%q beside it differs only in letter case: this one is used, and a reorganize moves what is in the other into it", e.Name)
 	case engine.WarnDetailsUnread:
 		return fmt.Sprintf("its audio details could not be read: %v", e.Err)
 	case engine.WarnStaleCopy:

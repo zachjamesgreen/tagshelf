@@ -97,7 +97,7 @@ func TestUndoThatUndoesNothingDoesNotMarkTheRunUndone(t *testing.T) {
 // and the folders kept the new spelling.
 func TestUndoOfACaseOnlyRename(t *testing.T) {
 	lib := filepath.Join(t.TempDir(), "lib")
-	if caseSensitive(t, t.TempDir()) {
+	if caseSensitive(t, t.TempDir()) && !ownFolding {
 		t.Skip("abba and ABBA are separate folders on a case-sensitive file system")
 	}
 	writeTaggedMP3(t, filepath.Join(lib, "abba", "gold", "01 - dancing queen.mp3"), id3Tags{albumArtist: "ABBA", album: "Gold", title: "Dancing Queen", track: "1"}, "one")
