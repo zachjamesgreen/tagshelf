@@ -156,6 +156,16 @@ MP3, FLAC, Ogg Vorbis (`.ogg`, `.oga`), Opus, MP4 (`.m4a`, `.m4b`, `.m4p`, `.m4r
 tagshelf [flags]          one run, then exit
 tagshelf tui [flags]      the terminal UI
 tagshelf -version
+tagshelf -h               the help; tagshelf tui -h for the terminal UI's
+```
+
+`tagshelf` with nothing after it prints the help and does nothing else. It takes at least one flag to start a run, even when a config file holds every setting: `tagshelf -config config.yaml`, or `tagshelf -dry-run` beside a `config.yaml`.
+
+A command that was typed wrong (a flag tagshelf does not have, a word that is not a flag, no source or library folder) prints the help and then what was wrong. Any other reason a run cannot start is printed as two lines, what is wrong and what to do about it:
+
+```text
+tagshelf cannot start: the source folder D:\Incomming does not exist.
+Check the path given with -source, or as source in the config file.
 ```
 
 | Flag | Meaning |
@@ -191,7 +201,9 @@ Ctrl-C stops a run after the files it is in the middle of. A second Ctrl-C exits
 
 ## Config file
 
-tagshelf reads `config.yaml` from the folder it is started in, or the file named with `-config`. Flags override it. Copy [`config.example.yaml`](config.example.yaml) to start.
+tagshelf reads `config.yaml` from the folder it is started in, or the file named with `-config`. Flags override it. Copy [`config.example.yaml`](config.example.yaml) to start. The last lines of `tagshelf -h` name the config file that would be read.
+
+A config file alone does not start a run: see [Command line](#command-line).
 
 ```yaml
 source: "D:\\Incoming"

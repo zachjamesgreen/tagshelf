@@ -43,21 +43,21 @@ func TestRunTUIRefusesToStart(t *testing.T) {
 	}{
 		{"no destination", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config}
-		}, "destination directory must be specified"},
+		}, "tagshelf cannot start: no library folder is set."},
 		{"unknown flag", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-no-such-flag", tmp}
-		}, "flag provided but not defined: -no-such-flag"},
+		}, "tagshelf cannot start: there is no flag -no-such-flag."},
 		{"stray argument", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-dest", tmp, "extra", "-dry-run"}
-		}, `unexpected argument "extra"`},
+		}, `tagshelf cannot start: unexpected argument "extra": tagshelf tui takes only flags.`},
 		{"library without an index", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-dest", filepath.Join(tmp, "lib")}
-		}, "run tagshelf -index -dest"},
+		}, "Make one first: tagshelf -index -dest"},
 		{"database from a newer tagshelf", func(t *testing.T, tmp, config string) []string {
 			lib, db := indexed(t, tmp, config)
 			setUserVersion(t, db, 1000)
 			return []string{"tui", "-config", config, "-dest", lib, "-db", db}
-		}, "cannot open the library database"},
+		}, "tagshelf cannot start: the library database cannot be opened"},
 		{"database to upgrade while a run holds the library", func(t *testing.T, tmp, config string) []string {
 			lib, db := indexed(t, tmp, config)
 			setUserVersion(t, db, 1)
@@ -67,7 +67,7 @@ func TestRunTUIRefusesToStart(t *testing.T) {
 			}
 			t.Cleanup(func() { held.Release() })
 			return []string{"tui", "-config", config, "-dest", lib, "-db", db}
-		}, "try again when it has finished"},
+		}, "Wait for it to finish, then try again."},
 		{"database of another library", func(t *testing.T, tmp, config string) []string {
 			_, db := indexed(t, tmp, config)
 			other := filepath.Join(tmp, "other")
@@ -137,7 +137,7 @@ func TestRunTUIExitCodeWhenTheTUIEnds(t *testing.T) {
 	}{
 		{"the user quits", nil, nil, exitOK, ""},
 		{"started with dry run on", []string{"-dry-run"}, nil, exitOK, ""},
-		{"the TUI fails", nil, errors.New("the terminal went away"), exitErrors, "Error: the terminal went away"},
+		{"the TUI fails", nil, errors.New("the terminal went away"), exitErrors, "The terminal UI stopped: the terminal went away."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

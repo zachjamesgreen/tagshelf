@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -19,7 +21,7 @@ import (
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.SetFlags(log.LstdFlags)
 	os.Exit(run(interruptContext(), os.Args[1:]))
 }
 
@@ -46,49 +48,68 @@ func interruptContext() context.Context {
 // settings as one started from the command line.
 type libraryFlags struct {
 	set *flag.FlagSet
+	// help is the command's help screen.
+	help helpScreen
 
 	config, source, dest, untagged, other, duplicates, compilations, db *string
 	workers                                                             *int
 	dryRun, noCueRewrite                                                *bool
+
+	// The flags of a run alone, nil for `tagshelf tui`.
+	reorganize             *string
+	verbose, index, rescan *bool
 }
 
-// addLibraryFlags defines the shared flags on set. The three usage texts say
-// what the flag means for the command the set belongs to.
-func addLibraryFlags(set *flag.FlagSet, sourceUsage, destUsage, dryRunUsage string) *libraryFlags {
-	// What the flag package has to say goes where every other message goes.
-	set.SetOutput(log.Writer())
+// addLibraryFlags defines the shared flags on set, for the command whose help
+// screen is help. The three usage texts say what the flag means for that
+// command. In a usage text the word in backquotes names the flag's value.
+func addLibraryFlags(set *flag.FlagSet, help helpScreen, sourceUsage, destUsage, dryRunUsage string) *libraryFlags {
+	// parse says what is wrong with a command line, in its own words and
+	// after the help, so the flag package says nothing.
+	set.SetOutput(io.Discard)
+	set.Usage = func() {}
 	return &libraryFlags{
 		set:          set,
-		config:       set.String("config", "", "Path to YAML configuration file"),
+		help:         help,
+		config:       set.String("config", "", "Take the settings from this config `file`. Flags override what it says."),
 		source:       set.String("source", "", sourceUsage),
 		dest:         set.String("dest", "", destUsage),
-		untagged:     set.String("untagged", "", "Directory for untagged / incomplete files (default: <dest>/_Untagged)"),
-		other:        set.String("other", "", "Directory for non-audio files that do not belong to a tagged album (default: <dest>/_Other)"),
-		duplicates:   set.String("duplicates", "", "Directory the losing copies of duplicates are moved to (default: <dest>/_Duplicates)"),
-		compilations: set.String("compilations", "", "Artist folder name for Various Artists compilations (default: \""+rules.DefaultCompilations+"\")"),
-		workers:      set.Int("workers", 0, "Number of concurrent worker goroutines (default: NumCPU)"),
+		untagged:     set.String("untagged", "", "The `folder` for audio files without usable tags (default: <dest>\\_Untagged)."),
+		other:        set.String("other", "", "The `folder` for files that are not audio and do not belong to a tagged album (default: <dest>\\_Other)."),
+		duplicates:   set.String("duplicates", "", "The `folder` for the copies set aside as duplicates (default: <dest>\\_Duplicates)."),
+		compilations: set.String("compilations", "", "The artist folder `name` for Various Artists albums (default: \""+rules.DefaultCompilations+"\")."),
+		workers:      set.Int("workers", 0, "Work on `n` files at once (default: the number of CPUs)."),
 		dryRun:       set.Bool("dry-run", false, dryRunUsage),
-		noCueRewrite: set.Bool("no-cue-rewrite", false, "Do not rewrite the FILE lines of moved cue sheets"),
-		db:           set.String("db", "", "Library database file (default: %LOCALAPPDATA%/tagshelf/libraries/<library-id>/tagshelf.db)"),
+		noCueRewrite: set.Bool("no-cue-rewrite", false, "Do not fix the FILE lines of the cue sheets that move."),
+		db:           set.String("db", "", "The library's database `file` (default: %LOCALAPPDATA%\\tagshelf\\libraries\\<library-id>\\tagshelf.db)."),
 	}
+}
+
+// misuse reports a command line that was typed wrong: the help, then what is
+// wrong, so that it is the last thing on the screen.
+func (f *libraryFlags) misuse(what, todo string) int {
+	f.help.write(log.Writer(), f.set, *f.config)
+	fmt.Fprintln(log.Writer())
+	return cannotStart(what, todo)
 }
 
 // parse reads args into the flag set. When the command should not go on it
-// reports done with the exit code: after -h, a flag it does not know, or an
-// argument that is not a flag. The flag package stops reading at such an
+// reports done with the exit code: after -h, which shows the help, and after
+// a flag it does not know or an argument that is not a flag, which show the
+// help and then the mistake. The flag package stops reading at such an
 // argument, so every flag after it would be dropped without a word: a -dry-run
 // among them would be lost, and the run a real one.
 func (f *libraryFlags) parse(args []string) (code int, done bool) {
-	if err := f.set.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK, true
-		}
-		return exitCannotStart, true
-	}
-	if f.set.NArg() > 0 {
-		log.Printf("Error: unexpected argument %q: %s takes only flags, and a flag that is on or off is given as -flag or -flag=false (see %s -h)",
-			f.set.Arg(0), f.set.Name(), f.set.Name())
-		return exitCannotStart, true
+	err := f.set.Parse(args)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		f.help.write(stdout, f.set, *f.config)
+		return exitOK, true
+	case err != nil:
+		return f.misuse(flagProblem(err), "The flags are listed above."), true
+	case f.set.NArg() > 0:
+		return f.misuse(fmt.Sprintf("unexpected argument %q: %s takes only flags", f.set.Arg(0), f.set.Name()),
+			"A flag that is on or off is written -flag or -flag=false, with no value after it."), true
 	}
 	return 0, false
 }
@@ -122,9 +143,16 @@ func (f *libraryFlags) overrides() config.Overrides {
 }
 
 // run parses args, does one run (or, for `tagshelf tui`, shows the TUI) and
-// returns the process exit code.
+// returns the process exit code. With no arguments at all it only shows the
+// help: a run is never started by a config file that happens to be in the
+// working directory, without a word typed to ask for it.
 func run(ctx context.Context, args []string) int {
-	if len(args) > 0 && args[0] == "tui" {
+	if len(args) == 0 {
+		set := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
+		organizeFlags(set).help.write(stdout, set, "")
+		return exitOK
+	}
+	if args[0] == "tui" {
 		return runTUI(ctx, args[1:])
 	}
 	// -version alone, so that it never starts a run beside a config file.
@@ -133,18 +161,9 @@ func run(ctx context.Context, args []string) int {
 		return exitOK
 	}
 	set := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
-	flags := addLibraryFlags(set,
-		"Source directory containing audio files",
-		"Destination directory for organized music",
-		"Preview actions without moving or deleting files")
-	verboseFlag := set.Bool("verbose", false, "Enable verbose per-file logging")
-	reorganizeFlag := set.String("reorganize", "", "Re-sort an already organized library in place (sets -source and -dest to this directory)")
-	indexFlag := set.Bool("index", false, "Only bring the library index up to date; move nothing (needs only -dest)")
-	rescanFlag := set.Bool("rescan", false, "Re-read every file into the index, even if its size and modification time match")
-	set.Usage = func() {
-		fmt.Fprintf(set.Output(), "Usage: tagshelf [flags]\n       tagshelf tui [flags]   (the terminal UI; see tagshelf tui -h)\n       tagshelf -version\n\nFlags:\n")
-		set.PrintDefaults()
-	}
+	flags := organizeFlags(set)
+	verboseFlag, reorganizeFlag := flags.verbose, flags.reorganize
+	indexFlag, rescanFlag := flags.index, flags.rescan
 
 	if code, done := flags.parse(args); done {
 		return code
@@ -163,8 +182,7 @@ func run(ctx context.Context, args []string) int {
 
 	cfg, err := config.Load(*flags.config, ov)
 	if err != nil {
-		log.Printf("Error: %v", err)
-		return exitCannotStart
+		return configProblem(err)
 	}
 
 	if *indexFlag {
@@ -172,31 +190,27 @@ func run(ctx context.Context, args []string) int {
 		// source to organize; it keeps what it reads.
 		cfg.DryRun = false
 	} else if cfg.Source == "" {
-		log.Println("Error: source directory must be specified via -source or config file")
-		return exitCannotStart
+		return flags.misuse("no source folder is set", noSourceTodo)
 	}
 	if cfg.Destination == "" {
-		log.Println("Error: destination directory must be specified via -dest or config file")
-		return exitCannotStart
+		return flags.misuse("no library folder is set", noDestinationTodo)
 	}
 
 	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
-		log.Printf("Error: %v", err)
-		return exitCannotStart
+		return cannotStart(err.Error(), "Check the path.")
+	}
+	if !*indexFlag {
+		if code, ok := sourceIsAFolder(cfg.Source); !ok {
+			return code
+		}
 	}
 
 	// The library lock is taken and the database opened before anything else
 	// is touched: a run that cannot be recorded does not start, and neither
 	// does one while another process is changing the library.
 	st, err := store.OpenLibrary(cfg.Destination, cfg.Database, cfg.DryRun)
-	var locked *store.LockedError
-	if errors.As(err, &locked) {
-		log.Printf("Error: %v; try again when it has finished", err)
-		return exitCannotStart
-	}
 	if err != nil {
-		log.Printf("Error: cannot open the library database: %v", err)
-		return exitCannotStart
+		return libraryProblem(err, cfg.Destination)
 	}
 	defer st.Close()
 	database := st.Path()
@@ -235,6 +249,41 @@ func run(ctx context.Context, args []string) int {
 	opts.IndexOnly = *indexFlag
 	finish := engine.Run(ctx, opts)
 	return exitCode(finish.State)
+}
+
+// What to do about a source or a library folder that is not set.
+const (
+	noSourceTodo      = `Pass one, as in -source "D:\Incoming", or set source in the config file.`
+	noDestinationTodo = `Pass one, as in -dest "D:\Music", or set destination in the config file.`
+)
+
+// organizeFlags defines the flags of a run on set.
+func organizeFlags(set *flag.FlagSet) *libraryFlags {
+	flags := addLibraryFlags(set, organizeHelp,
+		"The `folder` of music to organize.",
+		"The library: the `folder` the music is organized into.",
+		"Preview: say what would be done, and move nothing.")
+	flags.verbose = set.Bool("verbose", false, "Print a line for every file.")
+	flags.reorganize = set.String("reorganize", "", "Re-sort the library in this `folder` in place. The same as giving it as both -source and -dest.")
+	flags.index = set.Bool("index", false, "Only bring the library's index up to date, and move nothing. Needs only -dest.")
+	flags.rescan = set.Bool("rescan", false, "Read every file into the index again, even one whose size and date have not changed.")
+	return flags
+}
+
+// sourceIsAFolder checks that the source of a run is a folder that is there.
+// When it is not, ok is false and code the exit code.
+func sourceIsAFolder(source string) (code int, ok bool) {
+	const todo = "Check the path given with -source, or as source in the config file."
+	info, err := os.Stat(source)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return cannotStart("the source folder "+source+" does not exist", todo), false
+	case err != nil:
+		return cannotStart(fmt.Sprintf("the source folder cannot be read: %v", err), todo), false
+	case !info.IsDir():
+		return cannotStart("the source "+source+" is a file, not a folder", todo), false
+	}
+	return 0, true
 }
 
 // absolutePaths makes the folders and database a run uses absolute, so that

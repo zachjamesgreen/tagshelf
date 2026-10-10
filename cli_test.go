@@ -68,7 +68,7 @@ func TestCLISinkLines(t *testing.T) {
 		{"save cue", organize, false, engine.FileError{Path: "a", Destination: "a.orig", Op: engine.OpSaveCueOriginal, Err: boom}, `Error saving original of cue sheet "a": boom`},
 		{"rewrite cue", organize, false, engine.FileError{Path: "a", Op: engine.OpRewriteCue, Err: boom}, `Error rewriting cue sheet "a": boom`},
 		{"record", organize, false, engine.FileError{Path: "a", Op: engine.OpRecord, Err: boom}, `Error recording "a" in the database: boom`},
-		{"not started", organize, false, engine.RunFinished{State: engine.StateNotStarted, Err: boom}, `Error: could not record the run, nothing was touched: boom`},
+		{"not started", organize, false, engine.RunFinished{State: engine.StateNotStarted, Err: boom}, "tagshelf cannot start: the run could not be recorded: boom.\nNothing was touched."},
 		{"perm", organize, false, engine.Warning{Kind: engine.WarnPermissions, Path: "a", Err: boom}, `Warning: could not preserve permissions on "a": boom`},
 		{"mtime", organize, false, engine.Warning{Kind: engine.WarnModTime, Path: "a", Err: boom}, `Warning: could not preserve modification time on "a": boom`},
 		{"cue beside", organize, false, engine.Warning{Kind: engine.WarnCueNotBeside, Path: "a", Name: "n"}, `Warning: not rewriting cue sheet "a": "n" is not next to it after the move`},
@@ -350,10 +350,11 @@ func TestRunRefusedWhileLibraryLocked(t *testing.T) {
 		if got := run(context.Background(), args); got != exitCannotStart {
 			t.Fatalf("run(%q) = %d, want %d", args, got, exitCannotStart)
 		}
-		if !strings.Contains(out.String(), "try again when it has finished") {
+		if !strings.Contains(out.String(), "tagshelf cannot start: another tagshelf run is working on the library at "+lib) ||
+			!strings.Contains(out.String(), "Wait for it to finish, then try again.") {
 			t.Errorf("run(%q) printed %q, want it to say the library is busy", args, out.String())
 		}
-		if want := fmt.Sprintf("pid %d, started ", os.Getpid()); !strings.Contains(out.String(), want) {
+		if want := fmt.Sprintf("(process %d, started ", os.Getpid()); !strings.Contains(out.String(), want) {
 			t.Errorf("run(%q) printed %q, want the holder's %q", args, out.String(), want)
 		}
 	}

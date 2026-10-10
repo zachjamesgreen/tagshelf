@@ -91,7 +91,7 @@ type unknownKeyError struct {
 }
 
 func (e *unknownKeyError) Error() string {
-	return fmt.Sprintf("unknown key %q on line %d (the keys are %s)", e.key, e.line, strings.Join(knownKeys(), ", "))
+	return fmt.Sprintf("an unknown key %q on line %d (the keys are %s)", e.key, e.line, strings.Join(knownKeys(), ", "))
 }
 
 // knownKeys lists the keys a config file may hold: Config's yaml names.
@@ -145,6 +145,19 @@ type Overrides struct {
 	Database     string
 }
 
+// Find reports the config file Load reads when given configPath: that file,
+// which is then explicit, or else a config.yaml in the working directory if
+// one is there. path is empty when there is none.
+func Find(configPath string) (path string, explicit bool) {
+	if configPath != "" {
+		return configPath, true
+	}
+	if _, err := os.Stat(DefaultConfigName); err == nil {
+		return DefaultConfigName, false
+	}
+	return "", false
+}
+
 // Load merges a YAML config file with the CLI overrides. configPath is the
 // path passed to -config; when it is empty a config.yaml in the working
 // directory is picked up if one happens to be there.
@@ -160,28 +173,23 @@ type Overrides struct {
 func Load(configPath string, ov Overrides) (Config, error) {
 	var cfg Config
 
-	explicit := configPath != ""
-	if !explicit {
-		if _, err := os.Stat(DefaultConfigName); err == nil {
-			configPath = DefaultConfigName
-		}
-	}
+	configPath, explicit := Find(configPath)
 
 	if configPath != "" {
 		data, err := os.ReadFile(configPath)
 		switch {
 		case err != nil && explicit:
-			return Config{}, fmt.Errorf("failed to read config file %q: %w", configPath, err)
+			return Config{}, fmt.Errorf("the config file %s cannot be read: %w", configPath, err)
 		case err != nil:
 			log.Printf("Warning: ignoring unreadable config file %q: %v\n", configPath, err)
 		default:
 			err := parse(data, &cfg)
 			if unknown, ok := err.(*unknownKeyError); ok {
-				return Config{}, fmt.Errorf("config file %q: %w", configPath, unknown)
+				return Config{}, fmt.Errorf("the config file %s has %w", configPath, unknown)
 			}
 			if err != nil {
 				if explicit {
-					return Config{}, fmt.Errorf("failed to parse config file %q: %w", configPath, err)
+					return Config{}, fmt.Errorf("the config file %s is not valid YAML: %w", configPath, err)
 				}
 				log.Printf("Warning: ignoring unparsable %s in working directory: %v\n", configPath, err)
 				cfg = Config{}

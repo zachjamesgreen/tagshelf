@@ -89,7 +89,7 @@ func (s *cliSink) handle(e engine.Event) {
 		s.progress(e)
 	case engine.RunFinished:
 		if e.State == engine.StateNotStarted {
-			s.lg.Printf("Error: could not record the run, nothing was touched: %v\n", e.Err)
+			fmt.Fprintf(s.lg.Writer(), "tagshelf cannot start: the run could not be recorded: %v.\nNothing was touched.\n", e.Err)
 			return
 		}
 		if s.index {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/zachjamesgreen/tagshelf/internal/config"
@@ -27,17 +28,8 @@ func runTUI(ctx context.Context, args []string) int {
 	// The TUI only reads the library, so it takes no lock and can open while a
 	// run is going.
 	st, err := store.OpenLibraryReader(dest, database)
-	var locked *store.LockedError
-	switch {
-	case errors.Is(err, store.ErrNoDatabase):
-		log.Printf("Error: %v; run tagshelf -index -dest %q first", err, dest)
-		return exitCannotStart
-	case errors.As(err, &locked):
-		log.Printf("Error: %v; try again when it has finished", err)
-		return exitCannotStart
-	case err != nil:
-		log.Printf("Error: cannot open the library database: %v", err)
-		return exitCannotStart
+	if err != nil {
+		return libraryProblem(err, dest)
 	}
 	// The database closes once the TUI has returned, which it does only
 	// after stopping whatever run or action it had going.
@@ -49,7 +41,7 @@ func runTUI(ctx context.Context, args []string) int {
 		return exitInterrupted
 	}
 	if err != nil {
-		log.Printf("Error: %v", err)
+		fmt.Fprintf(log.Writer(), "The terminal UI stopped: %v.\n", err)
 		return exitErrors
 	}
 	return exitOK
@@ -62,25 +54,22 @@ func runTUI(ctx context.Context, args []string) int {
 // flags would.
 func tuiConfig(args []string) (cfg config.Config, code int, ok bool) {
 	set := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
-	flags := addLibraryFlags(set,
-		"Source directory that o organizes into the library",
-		"The library: the destination directory of organized music",
-		"Start with dry run on")
+	flags := addLibraryFlags(set, tuiHelp,
+		"The `folder` of music that o organizes into the library.",
+		"The library: the `folder` of organized music to open.",
+		"Start with dry run on.")
 	if code, done := flags.parse(args); done {
 		return config.Config{}, code, false
 	}
 	cfg, err := config.Load(*flags.config, flags.overrides())
 	if err != nil {
-		log.Printf("Error: %v", err)
-		return config.Config{}, exitCannotStart, false
+		return config.Config{}, configProblem(err), false
 	}
 	if cfg.Destination == "" {
-		log.Println("Error: destination directory must be specified via -dest or config file")
-		return config.Config{}, exitCannotStart, false
+		return config.Config{}, flags.misuse("no library folder is set", noDestinationTodo), false
 	}
 	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
-		log.Printf("Error: %v", err)
-		return config.Config{}, exitCannotStart, false
+		return config.Config{}, cannotStart(err.Error(), "Check the path."), false
 	}
 	return cfg, exitOK, true
 }
