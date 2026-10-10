@@ -10,9 +10,9 @@ type UntaggedFile struct {
 }
 
 // UntaggedFiles lists the indexed files in the untagged folder, in path
-// order.
+// order. They come without TagsJSON, which no list of them shows.
 func (s *Store) UntaggedFiles() ([]UntaggedFile, error) {
-	files, err := s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+	files, err := s.queryFiles(`SELECT `+briefColumns+` FROM files f JOIN roots r ON r.id = f.root_id
 		WHERE r.kind = ? ORDER BY f.path_key`, string(RootUntagged))
 	if err != nil || len(files) == 0 {
 		return nil, err

@@ -204,10 +204,103 @@ func (g Group) IDs() []int64 {
 // store cannot import rules. Confirmed groups come first, each kind in the
 // order of its first file.
 func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
-	files, err := s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+	groups, err := s.groupKeys(possibleKey)
+	if err != nil {
+		return nil, err
+	}
+	return groups, s.fillGroups(groups, fileColumns)
+}
+
+// briefColumns are fileColumns without tags_json, which is by far the
+// largest and which only a row from before has_art existed is still read for.
+const briefColumns = `f.id, f.root_id, r.kind, f.rel_path, r.path, f.format,
+	f.artist, f.album_artist, f.album, f.title, f.track, f.track_total, f.disc, f.disc_total, f.year,
+	f.mb_release_id, f.mb_release_track_id, f.mb_recording_id, f.manual,
+	f.lossless, f.bitrate, f.sample_rate, f.bit_depth, f.channels, f.length_ms,
+	f.audio_sum, f.size, f.mtime, f.indexed_at, CASE WHEN f.has_art IS NULL THEN f.tags_json ELSE '' END, f.read_error, f.has_art`
+
+// fillGroups reads the given columns of the files of groups, which
+// groupKeys made with only their IDs.
+func (s *Store) fillGroups(groups []Group, columns string) error {
+	var ids []int64
+	for _, g := range groups {
+		ids = append(ids, g.IDs()...)
+		for _, f := range g.AlsoOn {
+			ids = append(ids, f.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	files, err := s.queryFiles(`SELECT `+columns+` FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE f.id IN (SELECT value FROM json_each(?))`, string(data))
+	if err != nil {
+		return fmt.Errorf("reading duplicate groups: %w", err)
+	}
+	byID := make(map[int64]File, len(files))
+	for _, f := range files {
+		byID[f.ID] = f
+	}
+	fill := func(fs []File) {
+		for i := range fs {
+			// A file deleted since the groups were found stays as its ID
+			// alone.
+			if f, ok := byID[fs[i].ID]; ok {
+				fs[i] = f
+			}
+		}
+	}
+	for _, g := range groups {
+		fill(g.Files)
+		fill(g.AlsoOn)
+	}
+	return nil
+}
+
+// keyRow is what grouping goes by of one file: its audio hash, its
+// MusicBrainz IDs and its possible key. Grouping looks at every file of the
+// library, so it reads no more of each than this, and never tags_json.
+type keyRow struct {
+	id                             int64
+	sum, release, track, recording string
+	possible                       string // "" for a file with MusicBrainz IDs, or with nothing to compare
+}
+
+// groupKeys finds the groups Groups lists. Their files hold only their IDs:
+// fillGroups reads the rest. possibleKey sees a file's ID, artist, album
+// artist, album, title and track number.
+func (s *Store) groupKeys(possibleKey func(File) string) ([]Group, error) {
+	rows, err := s.db.Query(`SELECT f.id, COALESCE(f.audio_sum, ''), f.mb_release_id, f.mb_release_track_id, f.mb_recording_id,
+		f.artist, f.album_artist, f.album, f.title, f.track
+		FROM files f JOIN roots r ON r.id = f.root_id
 		WHERE r.kind IN (?, ?, ?) ORDER BY f.id`,
 		string(RootLibrary), string(RootUntagged), string(RootOther))
 	if err != nil {
+		return nil, fmt.Errorf("finding duplicate groups: %w", err)
+	}
+	defer rows.Close()
+	var files []keyRow
+	// One row to scan every file into: a row of its own for each would be
+	// most of what finding the groups allocates.
+	var k keyRow
+	var f File
+	for rows.Next() {
+		if err := rows.Scan(&k.id, &k.sum, &k.release, &k.track, &k.recording,
+			&f.Artist, &f.AlbumArtist, &f.Album, &f.Title, &f.Track); err != nil {
+			return nil, fmt.Errorf("finding duplicate groups: %w", err)
+		}
+		k.possible = ""
+		if k.release == "" && k.track == "" && k.recording == "" {
+			f.ID = k.id
+			k.possible = possibleKey(f)
+		}
+		files = append(files, k)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("finding duplicate groups: %w", err)
 	}
 
@@ -232,23 +325,30 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 	bySum, byTrack := make(map[string]int), make(map[string]int)
 	byRecording := make(map[string][]int)
 	for i, f := range files {
-		if f.Sum != "" && f.Sum != emptyAudioSum {
-			join(bySum, f.Sum, i)
+		if f.sum != "" && f.sum != emptyAudioSum {
+			join(bySum, f.sum, i)
 		}
-		if f.ReleaseTrackID != "" {
-			join(byTrack, f.ReleaseTrackID, i)
+		if f.track != "" {
+			join(byTrack, f.track, i)
 		}
-		if f.RecordingID != "" {
-			byRecording[f.RecordingID] = append(byRecording[f.RecordingID], i)
+		if f.recording != "" {
+			byRecording[f.recording] = append(byRecording[f.recording], i)
 		}
 	}
 
 	var groups []Group
 	group := make([]int, len(files)) // index into groups + 1; 0 for none
-	members := make(map[int][]int)   // root -> files, in index order
+	size := make([]int, len(files))  // by root, how many files it joins
+	for i := range files {
+		size[find(i)]++
+	}
+	members := make(map[int][]int) // root -> files, in index order
 	var roots []int
 	for i := range files {
 		r := find(i)
+		if size[r] < 2 {
+			continue
+		}
 		if len(members[r]) == 0 {
 			roots = append(roots, r)
 		}
@@ -256,17 +356,14 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 	}
 	for _, r := range roots {
 		m := members[r]
-		if len(m) < 2 {
-			continue
-		}
 		g := Group{Kind: GroupExact}
-		if sum := files[m[0]].Sum; sum == "" || sum == emptyAudioSum {
+		if sum := files[m[0]].sum; sum == "" || sum == emptyAudioSum {
 			// Joined by release track alone: no hash says the audio is the same.
 			g.Kind = GroupReleaseTrack
 		}
 		for _, i := range m {
-			g.Files = append(g.Files, files[i])
-			if files[i].Sum != files[m[0]].Sum {
+			g.Files = append(g.Files, File{ID: files[i].id})
+			if files[i].sum != files[m[0]].sum {
 				g.Kind = GroupReleaseTrack
 			}
 			group[i] = len(groups) + 1
@@ -275,21 +372,26 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 		groups = append(groups, g)
 	}
 
+	// Most keys are one file's alone: only those of two or more get a list.
+	firstWith := make(map[string]int)
 	byKey := make(map[string][]int)
 	var keys []string
 	for i, f := range files {
-		if f.ReleaseID != "" || f.ReleaseTrackID != "" || f.RecordingID != "" {
+		if f.possible == "" {
 			continue
 		}
-		key := possibleKey(f)
-		if key == "" {
+		first, seen := firstWith[f.possible]
+		if !seen {
+			firstWith[f.possible] = i
 			continue
 		}
-		if len(byKey[key]) == 0 {
-			keys = append(keys, key)
+		if len(byKey[f.possible]) == 0 {
+			keys = append(keys, f.possible)
+			byKey[f.possible] = []int{first}
 		}
-		byKey[key] = append(byKey[key], i)
+		byKey[f.possible] = append(byKey[f.possible], i)
 	}
+	slices.SortFunc(keys, func(a, b string) int { return firstWith[a] - firstWith[b] })
 	for _, key := range keys {
 		m := byKey[key]
 		if len(m) < 2 || sameGroup(group, m) {
@@ -297,7 +399,7 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 		}
 		g := Group{Kind: GroupPossible}
 		for _, i := range m {
-			g.Files = append(g.Files, files[i])
+			g.Files = append(g.Files, File{ID: files[i].id})
 		}
 		groups = append(groups, g)
 	}
@@ -306,16 +408,16 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 
 // alsoOn lists the files outside group g that share a recording with one of
 // its members m but sit on a release none of them is on.
-func alsoOn(files []File, m []int, byRecording map[string][]int, group []int, g int) []File {
+func alsoOn(files []keyRow, m []int, byRecording map[string][]int, group []int, g int) []File {
 	releases := make(map[string]bool)
 	for _, i := range m {
-		releases[files[i].ReleaseID] = true
+		releases[files[i].release] = true
 	}
 	seen := make(map[int]bool)
 	var also []int
 	for _, i := range m {
-		for _, j := range byRecording[files[i].RecordingID] {
-			if group[j] == g || seen[j] || releases[files[j].ReleaseID] {
+		for _, j := range byRecording[files[i].recording] {
+			if group[j] == g || seen[j] || releases[files[j].release] {
 				continue
 			}
 			seen[j] = true
@@ -325,7 +427,7 @@ func alsoOn(files []File, m []int, byRecording map[string][]int, group []int, g 
 	slices.Sort(also)
 	var out []File
 	for _, j := range also {
-		out = append(out, files[j])
+		out = append(out, File{ID: files[j].id})
 	}
 	return out
 }
@@ -344,28 +446,98 @@ func sameGroup(group []int, m []int) bool {
 // review covers: new groups, and reviewed ones that have gained a member.
 // possibleKey is as for Groups.
 func (s *Store) GroupsNeedingReview(possibleKey func(File) string) (int, error) {
-	groups, err := s.GroupsToReview(possibleKey)
+	groups, err := s.groupsToReview(possibleKey)
 	return len(groups), err
 }
 
 // GroupsToReview lists the duplicate groups Groups lists that no review
-// covers, in their order there. possibleKey is as for Groups.
+// covers, in their order there. possibleKey is as for Groups. The files come
+// without TagsJSON, which nothing that shows or resolves a group reads.
 func (s *Store) GroupsToReview(possibleKey func(File) string) ([]Group, error) {
-	groups, err := s.Groups(possibleKey)
+	groups, err := s.groupsToReview(possibleKey)
+	if err != nil {
+		return nil, err
+	}
+	return groups, s.fillGroups(groups, briefColumns)
+}
+
+// groupsToReview is GroupsToReview with only the ID of each file.
+func (s *Store) groupsToReview(possibleKey func(File) string) ([]Group, error) {
+	groups, err := s.groupKeys(possibleKey)
+	if err != nil || len(groups) == 0 {
+		return nil, err
+	}
+	reviews, err := s.reviewIndex()
 	if err != nil {
 		return nil, err
 	}
 	var waiting []Group
 	for _, g := range groups {
-		reviewed, err := s.Reviewed(g.Kind, g.IDs())
-		if err != nil {
-			return nil, err
-		}
-		if !reviewed {
+		if !reviews.covers(g.Kind, g.IDs()) {
 			waiting = append(waiting, g)
 		}
 	}
 	return waiting, nil
+}
+
+// reviewIndex is every review's members, read once to answer for many groups
+// what Reviewed answers for one.
+type reviewIndex struct {
+	members [][]int64 // per review, sorted
+	// with lists, by kind and file ID, the reviews of that kind the file is
+	// a member of.
+	with map[GroupKind]map[int64][]int
+}
+
+// reviewIndex reads the members of every review.
+func (s *Store) reviewIndex() (*reviewIndex, error) {
+	rows, err := s.db.Query(`SELECT kind, members FROM dup_reviews ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("reading duplicate reviews: %w", err)
+	}
+	defer rows.Close()
+	x := &reviewIndex{with: make(map[GroupKind]map[int64][]int)}
+	for rows.Next() {
+		var kind, data string
+		if err := rows.Scan(&kind, &data); err != nil {
+			return nil, fmt.Errorf("reading duplicate reviews: %w", err)
+		}
+		var members []int64
+		if err := json.Unmarshal([]byte(data), &members); err != nil {
+			return nil, fmt.Errorf("reading duplicate reviews: %w", err)
+		}
+		slices.Sort(members)
+		with := x.with[GroupKind(kind)]
+		if with == nil {
+			with = make(map[int64][]int)
+			x.with[GroupKind(kind)] = with
+		}
+		for _, id := range members {
+			with[id] = append(with[id], len(x.members))
+		}
+		x.members = append(x.members, members)
+	}
+	return x, rows.Err()
+}
+
+// covers reports whether some review of kind holds every one of members.
+func (x *reviewIndex) covers(kind GroupKind, members []int64) bool {
+	if len(members) == 0 {
+		return false
+	}
+	for _, r := range x.with[kind][members[0]] {
+		all := true
+		for _, id := range members[1:] {
+			if _, ok := slices.BinarySearch(x.members[r], id); !ok {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
 }
 
 // WithdrawReviews takes back the decisions the run runID carried out, so
