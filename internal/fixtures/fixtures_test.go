@@ -4,10 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 
+	"go.senan.xyz/taglib"
+
+	"tagshelf/internal/marker"
+	"tagshelf/internal/rules"
 	"tagshelf/internal/tag"
 	"tagshelf/internal/tag/mbz"
 )
@@ -20,7 +27,63 @@ func allFixtures() []string {
 	for _, ext := range Extensions() {
 		names = append(names, "untagged"+ext, "tagged"+ext)
 	}
-	return append(names, UntaggedOddWAV, UntaggedSV8MPC, TaggedID3v2AAC, TaggedVAM4A)
+	for _, ext := range ManualExtensions() {
+		names = append(names, "manual"+ext)
+	}
+	return append(names, UntaggedOddWAV, UntaggedSV8MPC, TaggedID3v2AAC, TaggedVAM4A, ManualNoAlbumFLAC, RipperFLAC)
+}
+
+// TestEveryFixtureIsListed checks that testdata/audio holds the fixtures
+// this package names and no others.
+func TestEveryFixtureIsListed(t *testing.T) {
+	entries, err := os.ReadDir(Dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != "README.md" {
+			got = append(got, e.Name())
+		}
+	}
+	want := allFixtures()
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("testdata/audio holds\n%q\nwant\n%q", got, want)
+	}
+}
+
+// id3v2Size returns the length of the ID3v2 tag that starts b, header
+// included: its size is four bytes of seven bits each.
+func id3v2Size(b []byte) int {
+	return 10 + (int(b[6])<<21 | int(b[7])<<14 | int(b[8])<<7 | int(b[9]))
+}
+
+// TestID3v2Size checks the size against tags whose last size byte has the
+// bits of the header's ten set, where adding the ten and or-ing it in
+// differ.
+func TestID3v2Size(t *testing.T) {
+	for _, tt := range []struct {
+		size [4]byte
+		want int
+	}{
+		{[4]byte{0, 0, 4, 0x45}, 591},
+		{[4]byte{0, 0, 1, 0x3e}, 200},
+		{[4]byte{0, 0, 0, 0x0a}, 20},
+		{[4]byte{0, 0, 0, 0x7f}, 137},
+		{[4]byte{1, 2, 3, 4}, 10 + 1<<21 + 2<<14 + 3<<7 + 4},
+	} {
+		b := append([]byte{'I', 'D', '3', 4, 0, 0}, tt.size[:]...)
+		if got := id3v2Size(b); got != tt.want {
+			t.Errorf("id3v2Size with size bytes % x = %d, want %d", tt.size, got, tt.want)
+		}
+	}
+	// The manual MP3 is such a tag: the audio starts right after it.
+	b := readFixture(t, "manual.mp3")
+	if n := id3v2Size(b); n != len(b)-len(readFixture(t, "untagged.mp3")) {
+		t.Errorf("manual.mp3: ID3v2 tag of %d bytes, want %d", n, len(b)-len(readFixture(t, "untagged.mp3")))
+	}
 }
 
 func readFixture(t *testing.T, name string) []byte {
@@ -63,7 +126,7 @@ func TestFormatSignatures(t *testing.T) {
 	check := func(name string, ok func([]byte) bool) {
 		b := readFixture(t, name)
 		if bytes.HasPrefix(b, []byte("ID3")) && len(b) >= 10 {
-			b = b[10+int(b[6])<<21|int(b[7])<<14|int(b[8])<<7|int(b[9]):]
+			b = b[id3v2Size(b):]
 		}
 		if len(b) < 12 {
 			t.Errorf("%s is too short to hold a signature", name)
@@ -85,39 +148,61 @@ func TestFormatSignatures(t *testing.T) {
 		}
 		panic(ext)
 	}
+	for _, ext := range ManualExtensions() {
+		check("manual"+ext, byExt(ext))
+	}
+	check(ManualNoAlbumFLAC, byExt(".flac"))
+	check(RipperFLAC, byExt(".flac"))
 	check(UntaggedOddWAV, byExt(".wav"))
 	check(TaggedID3v2AAC, byExt(".aac"))
 	check(TaggedVAM4A, byExt(".m4a"))
 	check(UntaggedSV8MPC, func(b []byte) bool { return string(b[:4]) == "MPCK" })
 }
 
-// TestReadableTags reads the tagged fixtures of the formats internal/tag
-// reads today, and checks the untagged ones carry no tags.
+// TestReadableTags reads every tagged fixture with internal/tag, and checks
+// the untagged ones carry no tags.
 func TestReadableTags(t *testing.T) {
-	for _, name := range []string{"tagged.mp3", "tagged.flac", "tagged.ogg", "tagged.m4a", "tagged.m4b",
-		"tagged.wav", "tagged.ape", "tagged.mpc", "tagged.aac", TaggedID3v2AAC} {
+	tagged := []string{TaggedID3v2AAC, TaggedVAM4A}
+	untagged := []string{UntaggedOddWAV, UntaggedSV8MPC}
+	for _, ext := range Extensions() {
+		tagged = append(tagged, "tagged"+ext)
+		untagged = append(untagged, "untagged"+ext)
+	}
+	for _, name := range tagged {
 		t.Run(name, func(t *testing.T) {
 			m := readTags(t, name)
 			if m == nil {
 				t.Fatal("no tags read")
 			}
-			if m.Title() != Title || m.Artist() != Artist || m.AlbumArtist() != AlbumArtist || m.Album() != Album || m.Year() != Year {
+			albumArtist, albumArtistID, trackTotal := AlbumArtist, AlbumArtistID, TrackTotal
+			switch name {
+			case TaggedVAM4A: // known only by its album artist ID
+				albumArtist, albumArtistID = "", rules.VariousArtistsMBID
+			case "tagged.wma": // Picard writes no total for WMA
+				trackTotal = 0
+			}
+			if m.Title() != Title || m.Artist() != Artist || m.AlbumArtist() != albumArtist || m.Album() != Album || m.Year() != Year {
 				t.Errorf("got %q / %q / %q / %q / %d", m.Title(), m.Artist(), m.AlbumArtist(), m.Album(), m.Year())
 			}
-			if n, total := m.Track(); n != Track || total != TrackTotal {
-				t.Errorf("track %d/%d, want %d/%d", n, total, Track, TrackTotal)
+			if n, total := m.Track(); n != Track || total != trackTotal {
+				t.Errorf("track %d/%d, want %d/%d", n, total, Track, trackTotal)
 			}
 			if n, total := m.Disc(); n != Disc || total != DiscTotal {
 				t.Errorf("disc %d/%d, want %d/%d", n, total, Disc, DiscTotal)
 			}
-			// Every ID per format is checked in the mbz tests.
-			if got := mbz.Extract(m).AlbumID; got != ReleaseID {
-				t.Errorf("release ID = %q, want %q", got, ReleaseID)
+			want := mbz.IDs{
+				RecordingID: RecordingID, ReleaseTrackID: ReleaseTrackID, AlbumID: ReleaseID, ReleaseGroupID: ReleaseGroupID,
+				ArtistIDs: []string{ArtistID}, AlbumArtistIDs: []string{albumArtistID},
+			}
+			if got := mbz.Extract(m); !reflect.DeepEqual(got, want) {
+				t.Errorf("MusicBrainz IDs = %+v, want %+v", got, want)
+			}
+			if got, ok := marker.Read(m); ok {
+				t.Errorf("has the manual marker %q", got)
 			}
 		})
 	}
-	for _, name := range []string{"untagged.mp3", "untagged.flac", "untagged.ogg", "untagged.m4a", "untagged.m4b",
-		"untagged.wav", "untagged.ape", "untagged.mpc", "untagged.aac", UntaggedOddWAV, UntaggedSV8MPC} {
+	for _, name := range untagged {
 		t.Run(name, func(t *testing.T) {
 			if m := readTags(t, name); m != nil && (m.Title() != "" || m.Artist() != "" || m.Album() != "") {
 				t.Errorf("untagged fixture has tags: %q / %q / %q", m.Title(), m.Artist(), m.Album())
@@ -236,17 +321,103 @@ func TestManualFixtures(t *testing.T) {
 			if m.Title() != Title || m.Artist() != Artist || m.AlbumArtist() != AlbumArtist || m.Album() != album || m.Year() != Year {
 				t.Errorf("got %q / %q / %q / %q / %d", m.Title(), m.Artist(), m.AlbumArtist(), m.Album(), m.Year())
 			}
-			if n, _ := m.Track(); n != Track {
-				t.Errorf("track %d, want %d", n, Track)
+			if n, total := m.Track(); n != Track || total != TrackTotal {
+				t.Errorf("track %d/%d, want %d/%d", n, total, Track, TrackTotal)
 			}
-			if ids := mbz.Extract(m); ids.AlbumID != "" || ids.RecordingID != "" || ids.ReleaseTrackID != "" || len(ids.AlbumArtistIDs) != 0 {
+			if n, total := m.Disc(); n != Disc || total != DiscTotal {
+				t.Errorf("disc %d/%d, want %d/%d", n, total, Disc, DiscTotal)
+			}
+			if ids := mbz.Extract(m); !reflect.DeepEqual(ids, mbz.IDs{}) {
 				t.Errorf("carries MusicBrainz IDs: %+v", ids)
 			}
-			hasMarker := bytes.Contains(readFixture(t, name), []byte(ManualMarker))
-			if want := name != RipperFLAC; hasMarker != want {
-				t.Errorf("has the marker value: %t, want %t", hasMarker, want)
+			got, ok := marker.Read(m)
+			if name == RipperFLAC {
+				if ok {
+					t.Errorf("has the manual marker %q, want none", got)
+				}
+				return
+			}
+			if want := marker.New(marker.Hand, time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)); !ok || got != want || got.String() != ManualMarker {
+				t.Errorf("manual marker = %q, %t; want %q", got, ok, ManualMarker)
 			}
 		})
+	}
+}
+
+// TestWhatTheFixturesLack pins what the README says the fixtures do not
+// have, as go-taglib reads them: tests in other packages rely on it, or
+// make up for it in their own copies.
+func TestWhatTheFixturesLack(t *testing.T) {
+	// Every key any fixture holds: the tags tagshelf writes and no others.
+	known := []string{
+		taglib.Title, taglib.Artist, taglib.AlbumArtist, taglib.Album, taglib.Date,
+		taglib.TrackNumber, "TRACKTOTAL", taglib.DiscNumber, "DISCTOTAL",
+		taglib.MusicBrainzArtistID, taglib.MusicBrainzAlbumArtistID, taglib.MusicBrainzAlbumID,
+		taglib.MusicBrainzReleaseGroupID, taglib.MusicBrainzTrackID, taglib.MusicBrainzReleaseTrackID,
+		marker.Key,
+	}
+	for _, name := range allFixtures() {
+		if name == UntaggedSV8MPC {
+			continue // a header only: TagLib does not open it
+		}
+		t.Run(name, func(t *testing.T) {
+			keys, err := taglib.ReadTags(Path(name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for k, v := range keys {
+				if k == "ENCODER" && strings.HasSuffix(name, ".ogg") {
+					continue // ffmpeg's
+				}
+				if !slices.Contains(known, k) {
+					t.Errorf("has %s = %q, a tag tagshelf does not write", k, v)
+				}
+			}
+			props, err := taglib.ReadProperties(Path(name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(props.Images) != 0 {
+				t.Errorf("has %d pictures", len(props.Images))
+			}
+
+			// What the README says of the lengths.
+			switch {
+			case strings.HasSuffix(name, ".aac"):
+				if props.Length != 0 || props.BitRate != 0 {
+					t.Errorf("go-taglib reads %v at %d kb/s: the README says it reads no length", props.Length, props.BitRate)
+				}
+			case strings.HasSuffix(name, ".mpc"):
+				if props.Length != 40*time.Millisecond {
+					t.Errorf("go-taglib reads %v, the README says 40 ms", props.Length)
+				}
+			case props.Length <= 0:
+				t.Errorf("go-taglib reads no length")
+			}
+
+			// The Vorbis fixtures have each total under one key.
+			if ext := strings.TrimPrefix(name[strings.LastIndex(name, "."):], "."); (ext == "flac" || ext == "ogg") && !strings.HasPrefix(name, "untagged") {
+				if !slices.Equal(keys["TRACKTOTAL"], []string{"10"}) || !slices.Equal(keys["DISCTOTAL"], []string{"2"}) {
+					t.Errorf("TRACKTOTAL %q, DISCTOTAL %q; want 10 and 2", keys["TRACKTOTAL"], keys["DISCTOTAL"])
+				}
+			}
+		})
+	}
+}
+
+// The .aac fixtures hold nine ADTS frames of 1024 samples at 8 kHz, 1.152 s,
+// whatever go-taglib makes of them.
+func TestAACFrames(t *testing.T) {
+	b := readFixture(t, "untagged.aac")
+	frames := 0
+	for off := 0; off+7 <= len(b); frames++ {
+		if b[off] != 0xFF || b[off+1]&0xF6 != 0xF0 {
+			t.Fatalf("no ADTS frame at %d", off)
+		}
+		off += int(b[off+3]&3)<<11 | int(b[off+4])<<3 | int(b[off+5])>>5
+	}
+	if frames != 9 {
+		t.Errorf("%d ADTS frames, want 9", frames)
 	}
 }
 
