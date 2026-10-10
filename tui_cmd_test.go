@@ -393,12 +393,12 @@ func TestTUIRunnerSaveTags(t *testing.T) {
 	r, lib := tuiRunnerFor(t, tmp, "")
 	ripped := filepath.Join(lib, "_Untagged", "ripped.flac")
 	bare := filepath.Join(lib, "_Untagged", "bare.flac")
-	data, err := os.ReadFile(filepath.Join(fixturesDir, fixtures.RipperFLAC))
+	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, ripped, string(data))
-	if data, err = os.ReadFile(filepath.Join(fixturesDir, fixtures.ManualNoAlbumFLAC)); err != nil {
+	if data, err = os.ReadFile(fixtures.Path(fixtures.ManualNoAlbumFLAC)); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, bare, string(data))

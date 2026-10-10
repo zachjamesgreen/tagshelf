@@ -12,7 +12,6 @@ import (
 
 	"tagshelf/internal/config"
 	"tagshelf/internal/engine"
-	"tagshelf/internal/fixtures"
 	"tagshelf/internal/store"
 	"tagshelf/internal/tagwrite"
 )
@@ -27,17 +26,12 @@ func TestMain(m *testing.M) {
 	os.Exit(testMain(m))
 }
 
-// fixturesDir is fixtures.Dir(), which finds the audio fixtures from the
-// working directory and so has to be asked before the tests leave it.
-var fixturesDir string
-
 func testMain(m *testing.M) int {
 	start, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fixturesDir = fixtures.Dir()
 	tmp, err := os.MkdirTemp("", "tagshelf-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

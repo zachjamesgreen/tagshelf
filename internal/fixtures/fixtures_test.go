@@ -428,3 +428,16 @@ func utf16le(s string) []byte {
 	}
 	return b
 }
+
+// The fixtures are found from any working directory: a test that changes
+// its own need not ask for them first.
+func TestDirDoesNotGoByTheWorkingDirectory(t *testing.T) {
+	want := Dir()
+	t.Chdir(t.TempDir())
+	if got := Dir(); got != want {
+		t.Errorf("in another working directory Dir() = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(Tagged(".flac")); err != nil {
+		t.Errorf("a fixture is not where Dir says: %v", err)
+	}
+}

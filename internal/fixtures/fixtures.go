@@ -15,6 +15,7 @@ package fixtures
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Extensions lists the formats that have an untagged.<ext> and a
@@ -82,10 +83,18 @@ const (
 	ReleaseTrackID = "66666666-6666-4666-8666-666666666666"
 )
 
-// Dir returns the absolute path of testdata/audio. It looks up from the
-// working directory, which go test and go generate set to the package being
-// run, for the module root.
+// Dir returns the absolute path of testdata/audio. It goes by where this
+// source file is, so that a test may run in any working directory. A binary
+// built with -trimpath does not know where that is: then it looks up from
+// the working directory, which go test and go generate set to the package
+// being run, for the module root.
 func Dir() string {
+	if _, file, _, ok := runtime.Caller(0); ok && filepath.IsAbs(file) {
+		dir := filepath.Join(filepath.Dir(file), "..", "..", "testdata", "audio")
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		panic("fixtures: " + err.Error())
