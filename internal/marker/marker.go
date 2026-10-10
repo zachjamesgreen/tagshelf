@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // Key is the tag name the marker is stored under in every format.

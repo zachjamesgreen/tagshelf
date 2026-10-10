@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // TestLibrarySourceFollowsARunElsewhere drives the model over a real

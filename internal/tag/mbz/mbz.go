@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // UFIDProviderURL is the URL that we match inside a UFID tag.

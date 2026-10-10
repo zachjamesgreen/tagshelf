@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 var fixtureIDs = mbz.IDs{

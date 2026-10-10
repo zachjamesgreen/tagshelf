@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // searchLimit is how many files a library search lists at most.

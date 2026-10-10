@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 func TestSanitizeName(t *testing.T) {

@@ -40,9 +40,9 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/marker"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 // ErrUnsupported is returned for a file whose format tagshelf cannot tag.

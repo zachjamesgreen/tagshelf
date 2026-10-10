@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // phaseTracker follows the current phase and how far it has got.

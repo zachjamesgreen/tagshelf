@@ -14,9 +14,9 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // writeWrong makes Save and Restore write their copy with write for the rest

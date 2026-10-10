@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
 
 const (

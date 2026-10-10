@@ -11,8 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // fakeRunner is a run the test drives: it tells the test it started, feeds

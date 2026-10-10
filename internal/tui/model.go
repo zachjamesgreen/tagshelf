@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // pollInterval is how often the TUI checks whether the library changed.

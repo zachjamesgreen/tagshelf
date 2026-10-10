@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf16"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // asfObject renders an ASF object: GUID, 64-bit size, data.

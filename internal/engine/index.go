@@ -14,11 +14,11 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/marker"
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 // Index rows are committed in batches of this many files, or after this long,

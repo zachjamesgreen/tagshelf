@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // RunKind is a run the TUI can start.

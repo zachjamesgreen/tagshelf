@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/musicbrainz"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // geogaddi is a MusicBrainz that knows one release of three tracks.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // bigLibrary makes the database of a library of the given number of indexed

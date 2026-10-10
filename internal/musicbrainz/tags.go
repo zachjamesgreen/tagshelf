@@ -3,7 +3,7 @@ package musicbrainz
 import (
 	"regexp"
 
-	"tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
 
 // VariousArtistsID is the MusicBrainz ID of the special artist "Various

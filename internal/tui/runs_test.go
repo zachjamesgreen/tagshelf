@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // historySource is a library with one run of every kind and state, newest

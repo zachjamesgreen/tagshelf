@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // openStore opens a real database in a temp folder, closed when the test ends.

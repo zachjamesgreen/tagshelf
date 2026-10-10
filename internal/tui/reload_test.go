@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // everySource is a library with files in _Untagged, duplicate groups waiting

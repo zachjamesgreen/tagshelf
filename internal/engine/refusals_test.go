@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // A tag save or a resolution that names a file in the duplicates folder is

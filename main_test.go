@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/config"
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/config"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // TestMain keeps every test of the package away from the user's own files.

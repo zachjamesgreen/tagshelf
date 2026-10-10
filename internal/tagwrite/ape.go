@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"tagshelf/internal/marker"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // apeKeys are the APEv2 keys of each field: first the one Picard writes,

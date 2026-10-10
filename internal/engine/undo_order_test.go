@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // recordedSaves are a tag save, check and restore that stand in for real

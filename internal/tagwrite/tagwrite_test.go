@@ -18,11 +18,11 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 var day = time.Date(2026, 9, 28, 15, 4, 5, 0, time.UTC)

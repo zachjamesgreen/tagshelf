@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 func TestParse(t *testing.T) {

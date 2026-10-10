@@ -12,12 +12,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/musicbrainz"
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // matchStep is where a release match has got to.

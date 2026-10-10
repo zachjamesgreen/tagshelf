@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // Resolution is a person's decision on one duplicate group: Keeper stays where

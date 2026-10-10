@@ -1,4 +1,4 @@
-module tagshelf
+module github.com/zachjamesgreen/tagshelf
 
 go 1.26.0
 

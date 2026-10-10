@@ -6,10 +6,10 @@ import (
 	"flag"
 	"log"
 
-	"tagshelf/internal/config"
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tui"
+	"github.com/zachjamesgreen/tagshelf/internal/config"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
 
 // showTUI shows the TUI until the user quits or the context is cancelled.

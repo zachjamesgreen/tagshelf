@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // While an action is being carried out nothing else that changes the

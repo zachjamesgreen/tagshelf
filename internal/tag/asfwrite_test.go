@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // asfFileProperties renders a File Properties Object with the given flags

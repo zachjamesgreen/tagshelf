@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/config"
-	"tagshelf/internal/engine"
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
-	"tagshelf/internal/tui"
+	"github.com/zachjamesgreen/tagshelf/internal/config"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
 
 // refusalTimeout bounds a call that is expected to refuse at once. When the

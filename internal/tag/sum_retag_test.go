@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 func sumFile(t *testing.T, name string) string {

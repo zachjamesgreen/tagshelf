@@ -27,8 +27,8 @@ import (
 	"strconv"
 	"strings"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
 
 func main() {

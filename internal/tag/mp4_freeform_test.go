@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // TestMP4FreeFormValuesSkipLocale is the regression test for "----" atom

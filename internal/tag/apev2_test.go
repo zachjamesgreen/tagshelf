@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // apeItem is one APEv2 item for apeTag; binary marks a binary value.

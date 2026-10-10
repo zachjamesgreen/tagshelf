@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // changes are the ways a file can differ from its index row, one sign at a

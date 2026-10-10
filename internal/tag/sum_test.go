@@ -10,7 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 func sha1Hex(b ...[]byte) string {

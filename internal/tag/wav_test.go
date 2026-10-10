@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // wavChunk renders a RIFF chunk with its pad byte.

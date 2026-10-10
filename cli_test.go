@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // TestCLISinkLines pins the exact log line printed for every event, so that

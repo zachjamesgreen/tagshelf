@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // theAudio is the audio the duplicate tests copy: long enough to hash, and

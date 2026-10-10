@@ -11,9 +11,9 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // keysOf reads the file at path with go-taglib: every key as it is stored,

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // dupSource is a library with three groups waiting for review: a release

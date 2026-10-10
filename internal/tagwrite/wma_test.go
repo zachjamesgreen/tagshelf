@@ -11,10 +11,10 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 // asfGUID returns the on-disk bytes of an ASF GUID written as

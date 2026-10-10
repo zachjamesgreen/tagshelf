@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
 
 // DefaultConfigName is the config file picked up from the working directory

@@ -21,9 +21,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // maxCollisionSuffix bounds the " (n)" search so that a permanently unusable

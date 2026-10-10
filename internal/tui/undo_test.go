@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/marker"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // undoSource is the run history with a plan for undoing run 5: most of it

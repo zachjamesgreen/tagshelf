@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // TagCheck reports whether the file at path still holds the tags a save left

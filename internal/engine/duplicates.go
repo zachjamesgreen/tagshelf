@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // dupCopy is a member of an exact duplicate group as a run sees it.

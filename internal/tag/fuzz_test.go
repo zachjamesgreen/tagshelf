@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // dataIssue73 is the input of upstream's issue 73: an ID3v2.3 tag whose

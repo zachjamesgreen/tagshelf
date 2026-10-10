@@ -13,10 +13,10 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/marker"
-	"tagshelf/internal/rules"
-	"tagshelf/internal/tag"
-	"tagshelf/internal/tag/mbz"
+	"github.com/zachjamesgreen/tagshelf/internal/marker"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/tag/mbz"
 )
 
 // maxSize keeps fixtures small; the TagLib APE file is the largest.

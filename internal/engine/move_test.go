@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // errOtherVolume is the rename error otherVolume stands in with.

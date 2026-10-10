@@ -6,7 +6,7 @@ import (
 	"os"
 	"slices"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // TagSave saves the tags a person chose to the indexed file f, recording the

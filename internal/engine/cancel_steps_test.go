@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // cancelAt returns a sink that keeps every event in c and cancels the run at

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
 )
 
 // writeConfig writes a config file named name into a new temp folder and

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // loneSong is a source with one song without tags, organized into the

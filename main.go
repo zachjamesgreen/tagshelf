@@ -10,11 +10,11 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"tagshelf/internal/config"
-	"tagshelf/internal/engine"
-	"tagshelf/internal/rules"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/config"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/rules"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 func main() {

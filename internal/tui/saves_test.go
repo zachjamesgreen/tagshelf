@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // These tests run the save each flow hands the Runner, which the other tests

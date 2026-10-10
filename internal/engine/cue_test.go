@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // A dry run plans the rewrite of a cue sheet and counts it, and leaves the

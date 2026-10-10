@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // noTags is the tag check and restore of runs that saved no tags.

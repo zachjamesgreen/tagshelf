@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // A copy put aside in _Duplicates stays there through later reorganizes,

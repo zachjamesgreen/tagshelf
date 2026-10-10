@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // overwrite is a tag save for the tests: it replaces the file with a fixture

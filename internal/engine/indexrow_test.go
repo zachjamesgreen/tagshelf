@@ -12,9 +12,9 @@ import (
 
 	"go.senan.xyz/taglib"
 
-	"tagshelf/internal/fixtures"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tag"
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tag"
 )
 
 // coverArt is a picture large enough to tell if the index copied it.

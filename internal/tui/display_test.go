@@ -11,9 +11,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"tagshelf/internal/engine"
-	"tagshelf/internal/store"
-	"tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // On a terminal too short for it the help scrolls: every key can be read.

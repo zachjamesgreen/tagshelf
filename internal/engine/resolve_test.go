@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 )
 
 // reviewLibrary is a library holding one exact duplicate group for a person
