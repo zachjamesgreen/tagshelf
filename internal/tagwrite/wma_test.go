@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -55,10 +53,7 @@ func asfFileProperties(t *testing.T, b []byte) int {
 // writes neither for short files.
 func indexedWMA(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile(fixtures.Tagged(".wma"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := mustRead(t, fixtures.Tagged(".wma"))
 	le16 := func(n int) []byte { return binary.LittleEndian.AppendUint16(nil, uint16(n)) }
 	le32 := func(n int) []byte { return binary.LittleEndian.AppendUint32(nil, uint32(n)) }
 	le64 := func(n int) []byte { return binary.LittleEndian.AppendUint64(nil, uint64(n)) }
@@ -70,15 +65,6 @@ func indexedWMA(t *testing.T) []byte {
 	return slices.Concat(b, index, simple)
 }
 
-func writeTemp(t *testing.T, b []byte, name string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 // TestWMAAudioKept saves to a WMA with index objects: everything after the
 // Header Object is byte for byte the same, Sum is unchanged, and File Size is
 // the new length.
@@ -88,16 +74,15 @@ func TestWMAAudioKept(t *testing.T) {
 	if _, err := (Writer{}).Save(path, musicBrainzSave(), marker.New(marker.MusicBrainz, day)); err != nil {
 		t.Fatal(err)
 	}
-	now, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	now := mustRead(t, path)
 	if !bytes.Equal(orig[asfHeaderSize(orig):], now[asfHeaderSize(now):]) {
 		t.Error("the Data Object or the index objects changed")
 	}
-	a, _ := tag.Sum(bytes.NewReader(orig))
-	b, _ := tag.Sum(bytes.NewReader(now))
-	if a == "" || a != b {
+	a, err := tag.Sum(bytes.NewReader(orig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := audioSum(t, path); a == "" || a != b {
 		t.Errorf("Sum changed from %q to %q", a, b)
 	}
 	if got := binary.LittleEndian.Uint64(now[asfFileProperties(t, now)+16:]); got != uint64(len(now)) {
@@ -160,7 +145,7 @@ func TestWMARefused(t *testing.T) {
 		} else {
 			t.Logf("%s: %v", name, err)
 		}
-		if now, _ := os.ReadFile(path); !bytes.Equal(now, b) {
+		if now := mustRead(t, path); !bytes.Equal(now, b) {
 			t.Errorf("%s: the original changed", name)
 		}
 		if l := leftovers(t, path); l != nil {

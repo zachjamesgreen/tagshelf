@@ -2,7 +2,7 @@
 
 Small audio files for testing tag reading, hashing and writing without ffmpeg installed. Tests find them through `internal/fixtures`, which also holds the tag values below as constants.
 
-Every supported format has an `untagged.<ext>` and a `tagged.<ext>`. The ffmpeg-made ones are one second of 8 kHz mono silence. The APE and MPC ones are TagLib test files: `untagged.ape` is 3.6 s of 44.1 kHz audio, `untagged.mpc` a 0.08 s click, and `untagged-sv8.mpc` only a stream header. The tagged files carry the same values under the key names MusicBrainz Picard uses for that format:
+Every supported format has an `untagged.<ext>` and a `tagged.<ext>`. The ffmpeg-made ones are one second of 8 kHz mono silence. The APE and MPC ones are TagLib test files: `untagged.ape` is 3.6 s of 44.1 kHz audio, `untagged.mpc` a 40 ms click, and `untagged-sv8.mpc` only a stream header. The tagged files carry the same values under the key names MusicBrainz Picard uses for that format:
 
 | Field | Value |
 |---|---|
@@ -20,42 +20,50 @@ Every supported format has an `untagged.<ext>` and a `tagged.<ext>`. The ffmpeg-
 | MusicBrainz recording ID | `55555555-5555-4555-8555-555555555555` |
 | MusicBrainz release track ID | `66666666-6666-4666-8666-666666666666` |
 
+## What the fixtures do not have
+
+- **A length for `.aac`.** The `.aac` files hold nine ADTS frames, 1.152 s of audio, but go-taglib reads them as 0 s long at 0 kb/s. A test where the length matters cannot use them.
+- **The second pair of Vorbis total keys.** Picard writes the track and disc totals as `TRACKTOTAL` and `DISCTOTAL` and again as `TOTALTRACKS` and `TOTALDISCS`. The FLAC and OGG fixtures have the first pair only. A test that needs both adds the second to its copy.
+- **Cover art, or any tag tagshelf does not write** (genre, comment, lyrics, ReplayGain), apart from ffmpeg's `ENCODER` comment in the OGG files. A test that needs them adds them to its copy.
+
+`internal/fixtures` has a test for each of these, so this list stays true.
+
 ## Regenerating
 
 ```sh
 go generate ./internal/fixtures
 ```
 
-This runs `internal/fixtures/gen.go`, which needs ffmpeg on PATH (these were made with ffmpeg 7.1). It rewrites every file here except the three TagLib files. ffmpeg runs with bitexact flags, so the same ffmpeg version gives the same bytes.
+This runs `internal/fixtures/gen`, which needs ffmpeg on PATH (these were made with ffmpeg 7.1). It rewrites every file here except the three TagLib files. ffmpeg runs with bitexact flags, so the same ffmpeg version gives the same bytes. To compare before replacing anything, copy the three TagLib files to another folder and run `go run ./internal/fixtures/gen -dir <that folder>`.
 
 ## Where each file comes from
 
 | File | Source | Tags |
 |---|---|---|
 | `untagged.mp3` | ffmpeg, `libmp3lame` 8 kb/s, no Xing header, no ID3 | none |
-| `tagged.mp3` | `untagged.mp3` with an ID3v2.4 tag prepended by `gen.go` | ID3v2.4: text frames, `TXXX:MusicBrainz …`, recording ID in `UFID` (`http://musicbrainz.org`) |
+| `tagged.mp3` | `untagged.mp3` with an ID3v2.4 tag prepended by the generator | ID3v2.4: text frames, `TXXX:MusicBrainz …`, recording ID in `UFID` (`http://musicbrainz.org`) |
 | `untagged.flac`, `tagged.flac` | ffmpeg, `flac` | Vorbis comment written by ffmpeg; recording ID in `MUSICBRAINZ_TRACKID` |
 | `untagged.ogg`, `tagged.ogg` | ffmpeg, `libvorbis` | as FLAC; both also carry ffmpeg's `encoder` comment |
-| `untagged.m4a`, `tagged.m4a` | ffmpeg, `aac` in the `ipod` muxer, brand `M4A ` | `ilst` atoms by ffmpeg, then `----:com.apple.iTunes:MusicBrainz …` atoms added by `gen.go` |
+| `untagged.m4a`, `tagged.m4a` | ffmpeg, `aac` in the `ipod` muxer, brand `M4A ` | `ilst` atoms by ffmpeg, then `----:com.apple.iTunes:MusicBrainz …` atoms added by the generator |
 | `untagged.m4b`, `tagged.m4b` | as M4A, brand `M4B ` | as M4A |
 | `tagged-va.m4a` | as M4A, without an album artist name | as `tagged.m4a`, but the album artist ID is Various Artists (`89ad4ac3-39f7-470e-963a-56509c546377`) |
 | `manual.flac`, `manual.ogg` | as `tagged.flac` / `tagged.ogg`, tagged by hand | the fixture tags without MusicBrainz IDs, plus the manual marker `TAGSHELF_MANUAL=hand 2026-09-27` |
 | `manual-noalbum.flac` | as `manual.flac` | as `manual.flac`, without `ALBUM` |
 | `ripper.flac` | as `manual.flac` | as `manual.flac`, without the manual marker: ripper tags |
-| `manual.m4a` | as `tagged.m4a`, without the MusicBrainz atoms | `ilst` atoms by ffmpeg, then a `----:com.apple.iTunes:TAGSHELF_MANUAL` atom added by `gen.go` |
-| `manual.mp3` | `untagged.mp3` with an ID3v2.4 tag prepended by `gen.go` | text frames as `tagged.mp3`, `TXXX:TAGSHELF_MANUAL`, no MusicBrainz frames |
+| `manual.m4a` | as `tagged.m4a`, without the MusicBrainz atoms | `ilst` atoms by ffmpeg, then a `----:com.apple.iTunes:TAGSHELF_MANUAL` atom added by the generator |
+| `manual.mp3` | `untagged.mp3` with an ID3v2.4 tag prepended by the generator | text frames as `tagged.mp3`, `TXXX:TAGSHELF_MANUAL`, no MusicBrainz frames |
 | `untagged.wav` | ffmpeg, `pcm_s16le` 8 kHz mono | none |
 | `untagged-odd.wav` | ffmpeg, `pcm_u8` at 8001 Hz: an odd-sized `data` chunk plus its pad byte | none |
-| `tagged.wav` | `untagged.wav` with an `id3 ` chunk appended by `gen.go`, as mutagen/Picard write it | the ID3v2.4 tag from `tagged.mp3` |
+| `tagged.wav` | `untagged.wav` with an `id3 ` chunk appended by the generator, as mutagen/Picard write it | the ID3v2.4 tag from `tagged.mp3` |
 | `untagged.wma`, `tagged.wma` | ffmpeg, `wmav2` (no Index objects) | title and artist in the Content Description; `WM/…` and `MusicBrainz/…` descriptors written by ffmpeg |
 | `untagged.aac` | ffmpeg, `aac` in the `adts` muxer | none |
-| `tagged.aac` | `untagged.aac` with an APEv2 tag appended by `gen.go`, as Picard writes .aac | APEv2 with header and footer, Picard's key names (`Musicbrainz_Albumid`, `musicbrainz_trackid` for the recording, …) |
-| `tagged-id3v2.aac` | `untagged.aac` with the ID3v2.4 tag prepended by `gen.go`, as go-taglib writes .aac | ID3v2.4 as `tagged.mp3` |
+| `tagged.aac` | `untagged.aac` with an APEv2 tag appended by the generator, as Picard writes .aac | APEv2 with header and footer, Picard's key names (`Musicbrainz_Albumid`, `musicbrainz_trackid` for the recording, …) |
+| `tagged-id3v2.aac` | `untagged.aac` with the ID3v2.4 tag prepended by the generator, as go-taglib writes .aac | ID3v2.4 as `tagged.mp3` |
 | `untagged.ape` | TagLib `tests/data/mac-399.ape` (Monkey's Audio 3.99), unchanged | none |
-| `tagged.ape` | `untagged.ape` with the APEv2 tag appended by `gen.go` | APEv2 as `tagged.aac` |
+| `tagged.ape` | `untagged.ape` with the APEv2 tag appended by the generator | APEv2 as `tagged.aac` |
 | `untagged.mpc` | TagLib `tests/data/click.mpc` (Musepack SV7), unchanged | none |
 | `untagged-sv8.mpc` | TagLib `tests/data/sv8_header.mpc` (Musepack SV8 header only), unchanged | none |
-| `tagged.mpc` | `untagged.mpc` with the APEv2 tag appended by `gen.go` | APEv2 as `tagged.aac` |
+| `tagged.mpc` | `untagged.mpc` with the APEv2 tag appended by the generator | APEv2 as `tagged.aac` |
 
 ffmpeg makes its audio from the `lavfi` `anullsrc` silence source, so those files carry no third-party content.
 

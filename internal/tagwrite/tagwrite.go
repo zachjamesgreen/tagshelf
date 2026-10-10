@@ -10,8 +10,13 @@
 // WMA and .aac can be tagged. An .aac file is tagged on both sides: go-taglib
 // writes ID3v2, internal/tag the APEv2 tag Picard reads, and both must read
 // back. go-taglib drops the marker from WMA, so internal/tag's ASF writer adds
-// it, and a WMA save checks that the audio's tag.Sum is unchanged. TagLib has
-// no ASF key for the compilation flag, so WMA saves leave it out.
+// it. TagLib has no ASF key for the compilation flag, so WMA saves leave it
+// out. TagLib adds an ID3v1 tag to every MP3 and .aac file it saves; a save
+// takes it off again unless the file had one.
+//
+// Before a copy replaces the original, its audio must have the original's
+// tag.Sum, where the original has one, and the original must be as it was
+// when it was copied.
 package tagwrite
 
 import (
@@ -22,9 +27,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.senan.xyz/taglib"
 
@@ -64,7 +72,18 @@ const (
 	// Marker is the manual marker. Save writes it from its marker argument;
 	// it appears only in a Result's Before and After.
 	Marker Field = "marker"
+
+	// TrackStored and DiscStored hold a track or disc number as it stood in
+	// the file, each go-taglib key as KEY=value, when that is not how Save
+	// writes the number: with a leading zero, or in Vorbis comments with the
+	// total under one key only. Save and Restore add them to a Result's
+	// Before, and Restore writes them back as they were.
+	TrackStored Field = "track_stored"
+	DiscStored  Field = "disc_stored"
 )
+
+// storedForm names the field that holds each number as it stood in the file.
+var storedForm = map[Field]Field{Track: TrackStored, Disc: DiscStored}
 
 // multiValued are the fields that may hold more than one value.
 var multiValued = map[Field]bool{ArtistIDs: true, AlbumArtistIDs: true}
@@ -115,6 +134,7 @@ type Writer struct {
 // format is how one file extension is tagged.
 type format struct {
 	vorbis bool                    // Vorbis comments: track and disc totals are keys of their own
+	id3v1  bool                    // TagLib adds an ID3v1 tag when it saves, which is taken off again
 	ape    bool                    // an APEv2 tag is written too, after go-taglib's ID3v2 tag
 	asf    bool                    // WMA: internal/tag writes and reads the marker, which go-taglib drops
 	is     func(tag.Metadata) bool // whether internal/tag read the file as this format
@@ -129,8 +149,8 @@ func fileType(ft tag.FileType) func(tag.Metadata) bool {
 func isMP4(md tag.Metadata) bool { return md.Format() == tag.MP4 }
 
 var formats = map[string]format{
-	".mp3":  {is: fileType(tag.MP3)},
-	".aac":  {ape: true, is: fileType(tag.AAC)},
+	".mp3":  {id3v1: true, is: fileType(tag.MP3)},
+	".aac":  {id3v1: true, ape: true, is: fileType(tag.AAC)},
 	".flac": {vorbis: true, is: fileType(tag.FLAC)},
 	".ogg":  {vorbis: true, is: fileType(tag.OGG)},
 	".m4a":  {is: isMP4},
@@ -170,13 +190,40 @@ func Read(path string) (Values, error) {
 
 // current reads the named fields of the file at path as they are now.
 func current(f format, path string, named []Field) (Values, error) {
+	v, _, err := currentKeys(f, path, named)
+	return v, err
+}
+
+// currentKeys is current, with the go-taglib properties the values were read
+// from.
+func currentKeys(f format, path string, named []Field) (Values, map[string][]string, error) {
 	keys, err := taglib.ReadTags(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	v := fromKeys(f, keys, named)
 	if f.asf {
 		asfBefore(path, v)
+	}
+	return v, keys, nil
+}
+
+// beforeWrite reads the named fields as a write records them: as current
+// does, with the stored form of each number that a write of its value would
+// not give back.
+func beforeWrite(f format, path string, named []Field) (Values, error) {
+	v, keys, err := currentKeys(f, path, named)
+	if err != nil {
+		return nil, err
+	}
+	for field, stored := range storedForm {
+		vs, ok := v[field]
+		if _, named := v[stored]; !ok || named {
+			continue
+		}
+		if s := asStored(f, keys, field); !slices.Equal(s, asStored(f, toKeys(f, Values{field: vs}), field)) {
+			v[stored] = s
+		}
 	}
 	return v, nil
 }
@@ -217,7 +264,7 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 		delete(want, Compilation)
 	}
 
-	before, err := current(f, path, append(slices.Collect(maps.Keys(want)), Marker))
+	before, err := beforeWrite(f, path, append(slices.Collect(maps.Keys(want)), Marker))
 	if err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: reading its tags: %w", path, err)
 	}
@@ -253,7 +300,9 @@ func Matches(path string, want Values) (bool, error) {
 // Restore undoes a save: the file at path, which must hold the values of
 // from, the save's After, gets those of to, its Before, the marker included.
 // A marker the file did not have is taken away again, except from a WMA
-// file, which keeps it: tagshelf cannot remove it there. The write goes
+// file, which keeps it: tagshelf cannot remove it there. A track or disc
+// number that to holds in its stored form goes back in that form, or by its
+// value alone in a format that does not keep the form. The write goes
 // through the same copy and check as Save and is recorded the same way. A
 // file that does not hold from is left alone with ErrChanged.
 func (w Writer) Restore(path string, to, from Values) (Result, error) {
@@ -264,7 +313,7 @@ func (w Writer) Restore(path string, to, from Values) (Result, error) {
 	if err := checkContent(f, path); err != nil {
 		return Result{}, fmt.Errorf("restoring the tags of %q: %w", path, err)
 	}
-	before, err := current(f, path, slices.Collect(maps.Keys(from)))
+	before, err := beforeWrite(f, path, slices.Collect(maps.Keys(from)))
 	if err != nil {
 		return Result{}, fmt.Errorf("restoring the tags of %q: reading its tags: %w", path, err)
 	}
@@ -273,6 +322,10 @@ func (w Writer) Restore(path string, to, from Values) (Result, error) {
 	}
 	after := Values{}
 	for field, vs := range to {
+		if field == TrackStored || field == DiscStored {
+			after[field] = nonNil(vs) // as it stood, spaces and all
+			continue
+		}
 		after[field] = clean(vs)
 	}
 	if f.asf {
@@ -284,7 +337,20 @@ func (w Writer) Restore(path string, to, from Values) (Result, error) {
 	if equalExcept(before, after, "") {
 		return Result{Before: before, After: before}, nil
 	}
-	if err := w.apply(f, path, before, after); err != nil {
+	err = w.apply(f, path, before, after)
+	_, track := after[TrackStored]
+	_, disc := after[DiscStored]
+	if errors.Is(err, ErrNotVerified) && (track || disc) {
+		// The format does not keep a number as it stood (MP4 holds integers):
+		// its value goes back all the same.
+		delete(after, TrackStored)
+		delete(after, DiscStored)
+		if equalExcept(before, after, "") {
+			return Result{Before: before, After: before}, nil
+		}
+		err = w.apply(f, path, before, after)
+	}
+	if err != nil {
 		return Result{}, fmt.Errorf("restoring the tags of %q: %w", path, err)
 	}
 	return Result{Changed: true, Before: before, After: after}, nil
@@ -293,6 +359,10 @@ func (w Writer) Restore(path string, to, from Values) (Result, error) {
 // apply writes after, which names the marker, to the file at path through a
 // copy that must read back with it, and records the write with before.
 func (w Writer) apply(f format, path string, before, after Values) error {
+	orig, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
 	tmp, err := copyTemp(path)
 	if err != nil {
 		return err
@@ -307,8 +377,13 @@ func (w Writer) apply(f format, path string, before, after Values) error {
 	if f.asf {
 		delete(keys, marker.Key) // go-taglib would drop a new one; an old one it keeps is replaced below
 	}
-	if err := taglib.WriteTags(tmp, keys, 0); err != nil {
+	if err := writeTags(tmp, keys, 0); err != nil {
 		return err
+	}
+	if f.id3v1 {
+		if err := dropNewID3v1(path, tmp); err != nil {
+			return err
+		}
 	}
 	if f.ape {
 		if err := writeAPE(tmp, after); err != nil {
@@ -323,20 +398,25 @@ func (w Writer) apply(f format, path string, before, after Values) error {
 	if err := verify(f, tmp, after); err != nil {
 		return err
 	}
-	if f.asf {
-		if err := sameAudio(path, tmp); err != nil {
-			return err
-		}
+	if err := sameAudio(path, tmp, f.asf); err != nil {
+		return err
 	}
 
 	// The copy takes the original's permissions only now: go-taglib could
 	// not have written a read-only copy.
-	if info, err := os.Stat(path); err == nil {
-		if err := os.Chmod(tmp, info.Mode().Perm()); err != nil {
-			return err
-		}
+	if err := os.Chmod(tmp, orig.Mode().Perm()); err != nil {
+		return err
 	}
-	rename := func() error { return os.Rename(tmp, path) }
+	rename := func() error {
+		// A file another program wrote since it was copied keeps what that
+		// program wrote.
+		if now, err := os.Stat(path); err != nil {
+			return err
+		} else if now.Size() != orig.Size() || !now.ModTime().Equal(orig.ModTime()) {
+			return errChangedMeanwhile
+		}
+		return replace(tmp, path, orig.Mode().Perm())
+	}
 	if w.History == nil {
 		err = rename()
 	} else {
@@ -353,6 +433,74 @@ func (w Writer) apply(f format, path string, before, after Values) error {
 	keep = true
 	return nil
 }
+
+// errChangedMeanwhile is returned for a file that something else wrote
+// between the copy and the rename; the file is left as that left it.
+var errChangedMeanwhile = errors.New("the file changed while its tags were being written")
+
+// replace renames the written copy at tmp, which has the original's
+// permissions perm already, over the original at path. Windows does not
+// replace a read-only file, so there the original is made writable first.
+func replace(tmp, path string, perm os.FileMode) error {
+	readOnly := runtime.GOOS == "windows" && perm&0o200 == 0
+	if readOnly {
+		if err := os.Chmod(path, perm|0o200); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		if readOnly {
+			os.Chmod(path, perm)
+		}
+		return err
+	}
+	return nil
+}
+
+// dropNewID3v1 takes the ID3v1 tag off the end of the written copy at tmp
+// unless the original at path ends with one. TagLib saves every MPEG file
+// with both tags, filling a missing ID3v1 tag from the ID3v2 one, and
+// go-taglib has no option against it. ID3v1 holds 30 Latin-1 characters a
+// field, so the tag has nothing the ID3v2 tag lacks, and cuts or garbles the
+// rest.
+func dropNewID3v1(path, tmp string) error {
+	if had, err := endsWithID3v1(path); err != nil || had {
+		return err
+	}
+	if has, err := endsWithID3v1(tmp); err != nil || !has {
+		return err
+	}
+	info, err := os.Stat(tmp)
+	if err != nil {
+		return err
+	}
+	return os.Truncate(tmp, info.Size()-id3v1Size)
+}
+
+const id3v1Size = 128
+
+// endsWithID3v1 reports whether the file at path ends with an ID3v1 tag.
+// The footer of an APEv2 tag is not taken for one.
+func endsWithID3v1(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.Size() < id3v1Size {
+		return false, err
+	}
+	b := make([]byte, id3v1Size)
+	if _, err := file.ReadAt(b, info.Size()-id3v1Size); err != nil {
+		return false, err
+	}
+	return string(b[:3]) == "TAG" && string(b[id3v1Size-32:id3v1Size-24]) != "APETAGEX", nil
+}
+
+// writeTags is go-taglib's writer. Tests put one in its place that writes
+// the copy wrong, to see the checks refuse it.
+var writeTags = taglib.WriteTags
 
 // checkMarker checks the marker internal/tag reads from md against the one
 // written: want's only value, or none.
@@ -467,11 +615,54 @@ func toKeys(f format, v Values) map[string][]string {
 			xOfNKeys(f, keys, vs, taglib.TrackNumber, "TRACKTOTAL", "TOTALTRACKS")
 		case Disc:
 			xOfNKeys(f, keys, vs, taglib.DiscNumber, "DISCTOTAL", "TOTALDISCS")
+		case TrackStored, DiscStored: // below, over the number's own keys
 		default:
 			keys[simpleKeys[field]] = nonNil(vs)
 		}
 	}
+	for field, stored := range storedForm {
+		vs, ok := v[stored]
+		if !ok {
+			continue
+		}
+		own := numberKeys(f, field)
+		for _, k := range own {
+			keys[k] = []string{}
+		}
+		for _, kv := range vs {
+			if k, value, ok := strings.Cut(kv, "="); ok && slices.Contains(own, k) {
+				keys[k] = append(keys[k], value)
+			}
+		}
+	}
 	return keys
+}
+
+// numberKeys are the go-taglib keys that hold the track or disc number in
+// format f.
+func numberKeys(f format, field Field) []string {
+	keys := []string{taglib.TrackNumber, "TRACKTOTAL", "TOTALTRACKS"}
+	if field == Disc {
+		keys = []string{taglib.DiscNumber, "DISCTOTAL", "TOTALDISCS"}
+	}
+	if !f.vorbis {
+		return keys[:1]
+	}
+	return keys
+}
+
+// asStored returns the track or disc number of go-taglib properties as it
+// is stored: every value of its keys as KEY=value.
+func asStored(f format, keys map[string][]string, field Field) []string {
+	out := []string{}
+	for _, k := range numberKeys(f, field) {
+		for _, v := range keys[k] {
+			if v != "" {
+				out = append(out, k+"="+v)
+			}
+		}
+	}
+	return out
 }
 
 // xOfNKeys writes a track or disc number. Other formats take N/M under one
@@ -510,6 +701,10 @@ func fromKeys(f format, keys map[string][]string, named []Field) Values {
 			v[field] = xOfNFromKeys(f, keys, taglib.TrackNumber, "TRACKTOTAL", "TOTALTRACKS")
 		case Disc:
 			v[field] = xOfNFromKeys(f, keys, taglib.DiscNumber, "DISCTOTAL", "TOTALDISCS")
+		case TrackStored:
+			v[field] = asStored(f, keys, Track)
+		case DiscStored:
+			v[field] = asStored(f, keys, Disc)
 		default:
 			v[field] = clean(keys[simpleKeys[field]])
 		}
@@ -598,7 +793,7 @@ func copyTemp(path string) (_ string, err error) {
 	}
 	defer src.Close()
 	// The prefix is store.OwnFilePrefix, which runs skip, so a copy left by a
-	// crash is never organized as a song.
+	// crash is never organized as a song. RemoveStaleCopies knows the name.
 	dst, err := os.CreateTemp(filepath.Dir(path), ".tagshelf-*"+filepath.Ext(path))
 	if err != nil {
 		return "", fmt.Errorf("copying before writing: %w", err)
@@ -684,9 +879,14 @@ func writeASFMarker(path, value string) (err error) {
 }
 
 // sameAudio checks by tag.Sum that the written copy at tmp holds the audio
-// of the original at path.
-func sameAudio(path, tmp string) error {
+// of the original at path. An original that tag.Sum cannot hash has nothing
+// to compare the copy with: it passes unless strict, as a WMA file is, whose
+// header internal/tag itself rewrites.
+func sameAudio(path, tmp string, strict bool) error {
 	a, err := sum(path)
+	if err != nil && !strict {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNotVerified, err)
 	}
@@ -737,6 +937,11 @@ func verify(f format, path string, want Values) error {
 	}
 
 	md, err := readTags(path)
+	if errors.Is(err, tag.ErrNoTagsFound) && wantsNothing(want) {
+		// A restore of a file that had no tags leaves it with none again:
+		// no tags to tell, as checkContent finds it before a first save.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNotVerified, err)
 	}
@@ -753,6 +958,17 @@ func verify(f format, path string, want Values) error {
 		return verifyAPE(path, want)
 	}
 	return nil
+}
+
+// wantsNothing reports whether want has no value for any field, the marker
+// among them.
+func wantsNothing(want Values) bool {
+	for _, vs := range want {
+		if len(vs) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyReader checks the fields internal/tag reads against want.
@@ -778,6 +994,13 @@ func verifyReader(md tag.Metadata, want Values) error {
 			got = md.Year()
 			ok = got == leadingYear(first(vs))
 		case Track, Disc:
+			if _, stored := want[storedForm[field]]; stored {
+				// Put back as it stood, which go-taglib has checked key by
+				// key: internal/tag reads that as it did before the save,
+				// and of the total keys it knows one.
+				ok = true
+				break
+			}
 			x, n := md.Track()
 			if field == Disc {
 				x, n = md.Disc()
@@ -828,4 +1051,46 @@ func leadingYear(s string) int {
 	}
 	y, _ := strconv.Atoi(s[:4])
 	return y
+}
+
+// StaleAfter is how old a temporary copy must be before RemoveStaleCopies
+// takes it for one a crash left: no save takes anywhere near as long.
+const StaleAfter = time.Hour
+
+// tempCopy matches the names copyTemp gives its copies, for the extensions
+// that can be tagged.
+var tempCopy = regexp.MustCompile(`^\.tagshelf-[0-9]+(\.[A-Za-z0-9]+)$`)
+
+// RemoveStaleCopies removes the temporary copies in the folder dir, not the
+// folders below it, that a save which crashed left behind: the files named
+// as copyTemp names them and last written more than age ago, so that a save
+// going on now keeps its copy. It returns the paths removed. A copy that
+// cannot be removed is left, and the first such error returned after the
+// rest have been tried.
+func RemoveStaleCopies(dir string, age time.Duration) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var removed []string
+	var first error
+	for _, e := range entries {
+		m := tempCopy.FindStringSubmatch(e.Name())
+		if m == nil || !e.Type().IsRegular() || !Supported(m[1]) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) <= age {
+			continue // gone already, or a save in progress
+		}
+		path := filepath.Join(dir, e.Name())
+		if err := os.Remove(path); err != nil {
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		removed = append(removed, path)
+	}
+	return removed, first
 }

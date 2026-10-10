@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -17,30 +18,25 @@ import (
 // readAPESide reads the APEv2 side of an .aac file.
 func readAPESide(t *testing.T, path string) tag.Metadata {
 	t.Helper()
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	md, err := tag.ReadAPEv2Tags(f)
+	md, err := readAPE(path)
 	if err != nil {
 		t.Fatalf("reading the APEv2 tag of %s: %v", path, err)
 	}
 	return md
 }
 
-func audioSum(t *testing.T, path string) string {
+// setAPEItems sets text items of the APEv2 tag of the file at path behind
+// tagshelf's back.
+func setAPEItems(t *testing.T, path string, set map[string][]string) {
 	t.Helper()
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	s, err := tag.Sum(f)
-	if err != nil {
+	if err := tag.WriteAPEv2Tags(f, set); err != nil {
 		t.Fatal(err)
 	}
-	return s
 }
 
 // sides are the values both tags of an .aac file must agree on.
@@ -74,11 +70,7 @@ func checkBothSides(t *testing.T, name, path string) sides {
 	if !reflect.DeepEqual(a, b) {
 		t.Errorf("%s: the sides differ\nID3v2: %+v\nAPEv2: %+v", name, a, b)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := bytes.Count(data, []byte("APETAGEX")); n != 2 {
+	if n := bytes.Count(mustRead(t, path), []byte("APETAGEX")); n != 2 {
 		t.Errorf("%s: %d APEv2 headers and footers, want one tag with both", name, n)
 	}
 	return a
@@ -89,41 +81,43 @@ func checkBothSides(t *testing.T, name, path string) sides {
 // Picard key names and that the audio hash is kept.
 func TestAACBothSides(t *testing.T) {
 	for _, src := range []string{fixtures.Untagged(".aac"), fixtures.Tagged(".aac"), fixtures.Path(fixtures.TaggedID3v2AAC)} {
-		path := copyFixture(t, src, "song.aac")
-		sumBefore := audioSum(t, path)
-		m := marker.New(marker.MusicBrainz, day)
-		fields := musicBrainzSave()
-		if _, err := (Writer{}).Save(path, fields, m); err != nil {
-			t.Fatalf("%s: %v", src, err)
-		}
-		got := checkBothSides(t, src, path)
-		if got.Title != "New Title" || got.Marker != m.String() || got.IDs.RecordingID != fields[RecordingID][0] {
-			t.Errorf("%s: read %+v", src, got)
-		}
+		t.Run(filepath.Base(src), func(t *testing.T) {
+			path := copyFixture(t, src, "song.aac")
+			sumBefore := audioSum(t, path)
+			m := marker.New(marker.MusicBrainz, day)
+			fields := musicBrainzSave()
+			if _, err := (Writer{}).Save(path, fields, m); err != nil {
+				t.Fatal(err)
+			}
+			got := checkBothSides(t, src, path)
+			if got.Title != "New Title" || got.Marker != m.String() || got.IDs.RecordingID != fields[RecordingID][0] {
+				t.Errorf("read %+v", got)
+			}
 
-		want := map[string]interface{}{
-			"Title":                      "New Title",
-			"Artist":                     "New Artist feat. Other",
-			"Album Artist":               "New Album Artist",
-			"Album":                      "New Album",
-			"Year":                       "2003-04-05",
-			"Track":                      "4/9",
-			"Disc":                       "2/3",
-			"Compilation":                "1",
-			"musicbrainz_trackid":        fields[RecordingID][0],
-			"musicbrainz_releasetrackid": fields[ReleaseTrackID][0],
-			"Musicbrainz_Albumid":        fields[AlbumID][0],
-			"Musicbrainz_Releasegroupid": fields[ReleaseGroupID][0],
-			"Musicbrainz_Artistid":       fields[ArtistIDs][0] + "\x00" + fields[ArtistIDs][1],
-			"Musicbrainz_Albumartistid":  fields[AlbumArtistIDs][0],
-			"TAGSHELF_MANUAL":            m.String(),
-		}
-		if raw := readAPESide(t, path).Raw(); !reflect.DeepEqual(raw, want) {
-			t.Errorf("%s: APEv2 items\n%q\nwant\n%q", src, raw, want)
-		}
-		if s := audioSum(t, path); s != sumBefore {
-			t.Errorf("%s: Sum changed from %s to %s", src, sumBefore, s)
-		}
+			want := map[string]interface{}{
+				"Title":                      "New Title",
+				"Artist":                     "New Artist feat. Other",
+				"Album Artist":               "New Album Artist",
+				"Album":                      "New Album",
+				"Year":                       "2003-04-05",
+				"Track":                      "4/9",
+				"Disc":                       "2/3",
+				"Compilation":                "1",
+				"musicbrainz_trackid":        fields[RecordingID][0],
+				"musicbrainz_releasetrackid": fields[ReleaseTrackID][0],
+				"Musicbrainz_Albumid":        fields[AlbumID][0],
+				"Musicbrainz_Releasegroupid": fields[ReleaseGroupID][0],
+				"Musicbrainz_Artistid":       fields[ArtistIDs][0] + "\x00" + fields[ArtistIDs][1],
+				"Musicbrainz_Albumartistid":  fields[AlbumArtistIDs][0],
+				"TAGSHELF_MANUAL":            m.String(),
+			}
+			if raw := readAPESide(t, path).Raw(); !reflect.DeepEqual(raw, want) {
+				t.Errorf("APEv2 items\n%q\nwant\n%q", raw, want)
+			}
+			if s := audioSum(t, path); s != sumBefore {
+				t.Errorf("Sum changed from %s to %s", sumBefore, s)
+			}
+		})
 	}
 }
 
@@ -134,14 +128,7 @@ func TestAACBothSides(t *testing.T) {
 func TestAACPicardUpdate(t *testing.T) {
 	path := copyFixture(t, fixtures.Tagged(".aac"), "song.aac")
 	cover := "cover.jpg\x00\xff\xd8\xff\xe0"
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tag.WriteAPEv2Tags(f, map[string][]string{"DATE": {"1999"}}); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
+	setAPEItems(t, path, map[string][]string{"DATE": {"1999"}})
 	// A cover is a binary item, which WriteAPEv2Tags cannot add: append it by
 	// hand as the last item.
 	addBinaryAPEItem(t, path, "Cover Art (Front)", cover)
@@ -186,10 +173,7 @@ func TestAACPicardUpdate(t *testing.T) {
 // that ends the file at path.
 func addBinaryAPEItem(t *testing.T, path, key, value string) {
 	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := mustRead(t, path)
 	le := binary.LittleEndian
 	footer := b[len(b)-32:]
 	if string(footer[:8]) != "APETAGEX" {
@@ -230,14 +214,7 @@ func TestAACNoChange(t *testing.T) {
 
 	// The APEv2 side goes stale behind tagshelf's back: the same save
 	// writes again and brings it back in line.
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tag.WriteAPEv2Tags(f, map[string][]string{"Title": {"Stale"}}); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
+	setAPEItems(t, path, map[string][]string{"Title": {"Stale"}})
 	res, err = Writer{}.Save(path, fields, marker.New(marker.Hand, day))
 	if err != nil {
 		t.Fatal(err)
