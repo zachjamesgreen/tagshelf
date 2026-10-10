@@ -2,7 +2,10 @@ package musicbrainz
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"tagshelf/internal/rules"
 )
 
 const (
@@ -10,9 +13,9 @@ const (
 	dlGroupID = "4a0f4b1c-2d3e-4f5a-8b6c-7d8e9f0a1b2c"
 )
 
-// TestTagsForRecordedReleases checks the mapping against Picard's tag table
-// (docs/research/musicbrainz-api.md) for the recorded lookups.
-func TestTagsForRecordedReleases(t *testing.T) {
+// TestTagsForFixtureReleases checks the mapping against Picard's tag table
+// (docs/research/musicbrainz-api.md) for the hand-written lookups in testdata.
+func TestTagsForFixtureReleases(t *testing.T) {
 	deluxe := lookupFixture(t, "release-dua-lipa-deluxe.json")
 	various := lookupFixture(t, "release-various-artists.json")
 
@@ -170,10 +173,32 @@ func TestTagsForFallbacksAndClearing(t *testing.T) {
 				AlbumArtistIDs: []string{VariousArtistsID}, ArtistIDs: []string{"band-id"},
 			},
 		},
+		{
+			// The ID is the one the rules place a compilation by, compared
+			// as they compare it: whatever its case. It is written as it came.
+			"various artists by an upper-case ID",
+			Release{
+				ID: "rel", Title: "Hits", Date: "2001",
+				ArtistCredit: []ArtistCredit{{Name: "Various Artists", Artist: Artist{ID: strings.ToUpper(VariousArtistsID)}}},
+				Media: []Medium{{Position: 1, TrackCount: 1, Tracks: []Track{{
+					ID: "trk", Position: 1, Title: "Song", ArtistCredit: []ArtistCredit{band},
+				}}}},
+			},
+			Tags{
+				Title: "Song", Artist: "Band", AlbumArtist: "Various Artists", Album: "Hits",
+				Date: "2001", Track: 1, TrackTotal: 1, Disc: 1, DiscTotal: 1, Compilation: true,
+				ReleaseTrackID: "trk", AlbumID: "rel",
+				AlbumArtistIDs: []string{strings.ToUpper(VariousArtistsID)}, ArtistIDs: []string{"band-id"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		if got := TagsFor(&tt.rel, TrackRef{}); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%s:\n got %+v\nwant %+v", tt.desc, got, tt.want)
 		}
+	}
+	// One definition of the ID, and one way to compare it.
+	if VariousArtistsID != rules.VariousArtistsMBID || !rules.HasVariousArtistsID([]string{VariousArtistsID}) {
+		t.Errorf("VariousArtistsID = %q, the rules' is %q", VariousArtistsID, rules.VariousArtistsMBID)
 	}
 }

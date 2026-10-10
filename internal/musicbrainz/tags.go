@@ -1,10 +1,16 @@
 package musicbrainz
 
-import "regexp"
+import (
+	"regexp"
+
+	"tagshelf/internal/rules"
+)
 
 // VariousArtistsID is the MusicBrainz ID of the special artist "Various
-// Artists", the album artist of compilations.
-const VariousArtistsID = "89ad4ac3-39f7-470e-963a-56509c546377"
+// Artists", the album artist of compilations. It is the rules package's,
+// which decides by it where a compilation goes; compare IDs with
+// rules.HasVariousArtistsID, which ignores case.
+const VariousArtistsID = rules.VariousArtistsMBID
 
 // VariousArtists is the album artist Picard writes for a Various Artists
 // release (its default va_name).
@@ -76,7 +82,7 @@ func TagsFor(rel *Release, ref TrackRef) Tags {
 	}
 	// Picard compares the whole album artist ID value, so a release credited
 	// to Various Artists and someone else is not a compilation.
-	if len(tags.AlbumArtistIDs) == 1 && tags.AlbumArtistIDs[0] == VariousArtistsID {
+	if len(tags.AlbumArtistIDs) == 1 && rules.HasVariousArtistsID(tags.AlbumArtistIDs) {
 		tags.Compilation = true
 		tags.AlbumArtist = VariousArtists
 	}
