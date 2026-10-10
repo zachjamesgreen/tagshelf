@@ -158,13 +158,19 @@ func (m *Model) closeMatch() {
 // matchSearch asks MusicBrainz for releases like what the form holds.
 func (m *Model) matchSearch() tea.Cmd {
 	x := m.match
+	// A whole folder of loose files taken by a slip, not a release: nothing
+	// is asked for it, and no file's tags are read.
+	if n := len(x.files); n > musicbrainz.MaxMatchFiles {
+		x.problem = fmt.Sprintf("%d files are too many for one release (at most %d): select fewer", n, musicbrainz.MaxMatchFiles)
+		return nil
+	}
 	q := musicbrainz.ReleaseQuery{Album: strings.TrimSpace(x.album), Artist: strings.TrimSpace(x.artist)}
 	for _, field := range []struct {
-		name  string
-		typed string
-		into  *int
+		name string
+		text string
+		into *int
 	}{{"number of tracks", x.tracks, &q.Tracks}, {"year", x.year, &q.Year}} {
-		s := strings.TrimSpace(field.typed)
+		s := strings.TrimSpace(field.text)
 		if s == "" {
 			continue
 		}
@@ -183,20 +189,9 @@ func (m *Model) matchSearch() tea.Cmd {
 	x.problem, x.releases, x.cursor = "", nil, 0
 	x.step = matchSearching
 	ctx, seq := m.matchRequest()
-	// The files' own searches go by the album and artist typed here, not by
-	// what their folder's name suggested: the person has said what they are.
-	typed := make([]musicbrainz.FileInfo, len(x.infos))
-	for i, info := range x.infos {
-		info.Folder = ""
-		if q.Album != "" {
-			info.Album = q.Album
-		}
-		if f := x.files[i]; f.Artist == "" && f.AlbumArtist == "" {
-			info.Artist = q.Artist
-		}
-		typed[i] = info
-	}
-	mb, src, boost := m.mb, m.src, musicbrainz.BoostQueries(typed)
+	// The files' own searches take the album and artist typed here into
+	// account: BoostQueries says how.
+	mb, src, boost := m.mb, m.src, musicbrainz.BoostQueries(x.infos, q)
 	return func() tea.Msg {
 		// A library that cannot be read only costs the ranking a tie-break.
 		inLibrary, _ := src.LibraryReleases()
@@ -253,8 +248,8 @@ func (m *Model) matchLoad() tea.Cmd {
 			msg.orig = append(msg.orig, v)
 		}
 		// Putting many files on many tracks takes a while: not on the UI
-		// goroutine.
-		msg.mapping = musicbrainz.Assign(msg.release, infos)
+		// goroutine, and stopped with the request.
+		msg.mapping, msg.err = musicbrainz.Assign(ctx, msg.release, infos)
 		return msg
 	}
 }
