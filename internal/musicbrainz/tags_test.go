@@ -14,7 +14,7 @@ const (
 )
 
 // TestTagsForFixtureReleases checks the mapping against Picard's tag table
-// (docs/research/musicbrainz-api.md) for the hand-written lookups in testdata.
+// (https://picard-docs.musicbrainz.org/en/appendices/tag_mapping.html) for the hand-written lookups in testdata.
 func TestTagsForFixtureReleases(t *testing.T) {
 	deluxe := lookupFixture(t, "release-dua-lipa-deluxe.json")
 	various := lookupFixture(t, "release-various-artists.json")

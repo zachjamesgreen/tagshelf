@@ -15,7 +15,7 @@ import (
 )
 
 // The responses in testdata are written by hand, in the shape MusicBrainz's
-// documentation gives its answers (docs/research/musicbrainz-api.md). They
+// documentation gives its answers (https://musicbrainz.org/doc/MusicBrainz_API). They
 // are not recordings of the live service: their IDs are made up, and a page
 // holds a few hits where a real one holds 25. The tests that serve them show
 // that the client reads that shape, not that the service still sends it.
