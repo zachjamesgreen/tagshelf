@@ -72,12 +72,31 @@ func startLockHelper(t *testing.T, lib, db string) *lockHelper {
 		cmd.Wait()
 	})
 
-	line, err := bufio.NewReader(stdout).ReadString('\n')
-	if _, scanErr := fmt.Sscanf(line, "locked %d", &h.runID); err != nil || scanErr != nil {
-		t.Fatalf("helper did not take the lock: %q, %v", line, err)
+	// A helper that hangs before it prints must fail this test, not hold it
+	// until go test gives up on the whole package.
+	type firstLine struct {
+		line string
+		err  error
+	}
+	read := make(chan firstLine, 1)
+	go func() {
+		line, err := bufio.NewReader(stdout).ReadString('\n')
+		read <- firstLine{line, err}
+	}()
+	select {
+	case got := <-read:
+		if _, scanErr := fmt.Sscanf(got.line, "locked %d", &h.runID); got.err != nil || scanErr != nil {
+			t.Fatalf("helper did not take the lock: %q, %v", got.line, got.err)
+		}
+	case <-time.After(lockHelperStartup):
+		t.Fatalf("helper printed nothing in %s", lockHelperStartup)
 	}
 	return h
 }
+
+// lockHelperStartup is how long a helper process may take to open the library
+// and say so.
+const lockHelperStartup = 30 * time.Second
 
 func TestLockSecondProcessFailsWithHolder(t *testing.T) {
 	useDataDir(t)

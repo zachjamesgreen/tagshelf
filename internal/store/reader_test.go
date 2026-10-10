@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,9 +140,16 @@ func TestReadLock(t *testing.T) {
 	if err != nil || !held || h.PID != os.Getpid() {
 		t.Fatalf("own lock: holder %+v, held %t, %v; want held by pid %d", h, held, err, os.Getpid())
 	}
+	if data, err := os.ReadFile(LockPath(db)); err != nil || !strings.Contains(string(data), fmt.Sprintf("pid=%d\n", os.Getpid())) {
+		t.Errorf("the held lock file holds %q (%v), want this process named", data, err)
+	}
 	l.Release()
 	if _, held, err := ReadLock(db); err != nil || held {
 		t.Fatalf("after release: held = %t, %v; want free", held, err)
+	}
+	// Given up, the lock names nobody: only a holder that died is left in it.
+	if data, err := os.ReadFile(LockPath(db)); err != nil || len(data) != 0 {
+		t.Errorf("after release the lock file holds %q (%v), want it empty", data, err)
 	}
 
 	// Another process's lock names it, and ReadLock does not disturb it.
@@ -252,14 +260,19 @@ func TestOverview(t *testing.T) {
 
 	lib := setRoot(t, s, RootLibrary, `C:\Music`)
 	unt := setRoot(t, s, RootUntagged, `C:\Music\_Untagged`)
+	oth := setRoot(t, s, RootOther, `C:\Music\_Other`)
 	dup := setRoot(t, s, RootDuplicates, `C:\Music\_Duplicates`)
+	src := setRoot(t, s, RootSource, `C:\Incoming`)
 	file := func(root int64, rel, sum string) File {
 		return File{RootID: root, RelPath: rel, Sum: sum, Size: 1, ModTime: time.Unix(1, 0), IndexedAt: time.Now()}
 	}
 	putFiles(t, s,
 		file(lib, "a.mp3", "x"), file(lib, "b.mp3", "y"), file(lib, "c.mp3", ""),
 		file(unt, "a.mp3", "x"), file(unt, "d.mp3", "z"),
+		file(oth, "f.mp3", "w"), file(oth, "g.mp3", "v"), file(oth, "h.mp3", "u"), file(oth, "i.mp3", "t"),
 		file(dup, "d.mp3", "z"), file(dup, "e.mp3", "y"),
+		// Not the library's until a run moves it there.
+		file(src, "j.mp3", "s"),
 	)
 
 	first, err := s.StartRun(KindOrganize, false, "s", "d", time.Now())
@@ -277,8 +290,8 @@ func TestOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Library != 3 || o.Untagged != 2 || o.Other != 0 || o.Duplicates != 2 {
-		t.Errorf("counts = %+v, want library 3, untagged 2, other 0, duplicates 2", o)
+	if o.Library != 3 || o.Untagged != 2 || o.Other != 4 || o.Duplicates != 2 {
+		t.Errorf("counts = %+v, want library 3, untagged 2, other 4, duplicates 2", o)
 	}
 	// x is in the library and _Untagged; z and y each have their second copy
 	// in _Duplicates only, which does not make a group.

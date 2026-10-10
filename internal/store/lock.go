@@ -37,20 +37,44 @@ type LockHolder struct {
 	Started time.Time
 }
 
-// LockPath is the library lock file of the database at dbPath.
+// The library lock is two lock files, taken in this order and held together:
+// one in the library's destination root, so that two processes working on one
+// library exclude each other whatever database each was told to use, and one
+// beside the database, so that two libraries never write one database.
+
+// LibraryLockFile is the lock file in a library's destination root. Like the
+// library ID file beside it, walks and cleanup leave it alone.
+const LibraryLockFile = OwnFilePrefix + "lock"
+
+// LibraryLockPath is the lock file in the destination root of a library.
+func LibraryLockPath(destination string) string {
+	return filepath.Join(destination, LibraryLockFile)
+}
+
+// LockPath is the lock file of the database at dbPath.
 func LockPath(dbPath string) string {
 	return dbPath + ".lock"
 }
 
-// Lock is a held library lock: an exclusive OS lock on <db>.lock, which the
-// OS releases if the process dies. The file itself stays; it names the holder
-// while the lock is held.
+// Lock is a held lock file: an exclusive OS lock on it, which the OS releases
+// if the process dies. The file itself stays; it names the holder while the
+// lock is held.
 type Lock struct {
 	f *os.File
 }
 
-// AcquireLock takes the library lock of the database at dbPath without
-// waiting. If another process holds it, the error is a *LockedError.
+// AcquireLibraryLock takes the lock in the destination root of a library
+// without waiting, creating the destination if needed. If another process
+// holds it, the error is a *LockedError.
+func AcquireLibraryLock(destination string) (*Lock, error) {
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return nil, fmt.Errorf("creating the destination: %w", err)
+	}
+	return acquireLock(LibraryLockPath(destination))
+}
+
+// AcquireLock takes the lock of the database at dbPath without waiting. If
+// another process holds it, the error is a *LockedError.
 //
 // The lock is per open file, not per process: a second AcquireLock in the same
 // process fails too.
@@ -59,12 +83,32 @@ func AcquireLock(dbPath string) (*Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("creating the database folder: %w", err)
 	}
+	return acquireLock(path)
+}
+
+// lockTries and lockRetryEvery are how AcquireLock outlasts a ReadLock that
+// is checking a stale holder: that check holds the lock for an instant, and
+// must not be taken for a run.
+const (
+	lockTries      = 5
+	lockRetryEvery = 10 * time.Millisecond
+)
+
+func acquireLock(path string) (*Lock, error) {
 	// Never truncated on open: until the lock is ours, the file names the holder.
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening the library lock: %w", err)
 	}
-	held, err := tryLock(f)
+	var held bool
+	for try := range lockTries {
+		if try > 0 {
+			time.Sleep(lockRetryEvery)
+		}
+		if held, err = tryLock(f); err != nil || !held {
+			break
+		}
+	}
 	if err != nil {
 		f.Close()
 		return nil, fmt.Errorf("taking the library lock %q: %w", path, err)
