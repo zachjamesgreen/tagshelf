@@ -37,8 +37,9 @@ func onlyRun(t *testing.T, s *store.Store) store.Run {
 	return runs[0]
 }
 
-// movesOf returns a run's moves without their times, sorted by source path,
-// since workers record them in no particular order.
+// movesOf returns a run's moves without their times, sequence numbers and
+// cue sheet texts, sorted by source path, since workers record them in no
+// particular order.
 func movesOf(t *testing.T, s *store.Store, runID int64) []store.Move {
 	t.Helper()
 	moves, err := s.Moves(runID)
@@ -49,7 +50,10 @@ func movesOf(t *testing.T, s *store.Store, runID int64) []store.Move {
 		if moves[i].At.IsZero() {
 			t.Errorf("move %+v has no time", moves[i])
 		}
-		moves[i].At, moves[i].ID = time.Time{}, 0
+		if moves[i].Seq == 0 {
+			t.Errorf("move %+v has no sequence number", moves[i])
+		}
+		moves[i] = store.Move{From: moves[i].From, To: moves[i].To, Reason: moves[i].Reason}
 	}
 	sort.Slice(moves, func(i, j int) bool { return moves[i].From < moves[j].From })
 	return moves

@@ -79,6 +79,14 @@ type Move struct {
 	From, To string
 	Reason   MoveReason
 	At       time.Time
+	// Seq is the move's place among its run's moves and tag saves, from 1 in
+	// the order they were made; 0 for a move recorded before they were
+	// numbered.
+	Seq int
+	// CueBefore and CueAfter are what a cue sheet held before and after a
+	// cue-rewrite move rewrote it; nil for other moves and for rewrites
+	// recorded without them.
+	CueBefore, CueAfter []byte
 }
 
 // RunError is a file a run failed on.
@@ -140,17 +148,39 @@ func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) er
 	return nil
 }
 
+// nextSeq is the SQL for the next sequence number of a run's moves and tag
+// saves, which share one numbering. It takes the run's ID twice.
+const nextSeq = `(SELECT 1 + COALESCE(MAX(seq), 0) FROM (
+	SELECT MAX(seq) AS seq FROM moves WHERE run_id = ?
+	UNION ALL SELECT MAX(seq) FROM tag_writes WHERE run_id = ?))`
+
 // RecordMove records that a run moved a file and, in the same transaction,
-// moves the file's index row with it. A cue rewrite keeps the cue sheet where
-// it is, so its row stays put.
+// moves the file's index row with it, giving the row the modification time
+// the file has at to: a copy to another file system may not have kept the
+// source's to the nanosecond. A cue rewrite keeps the cue sheet where it is,
+// so its row stays put; it is recorded with RecordCueRewrite.
 func (s *Store) RecordMove(runID int64, from, to string, reason MoveReason) error {
+	return s.recordMove(runID, from, to, reason, nil, nil)
+}
+
+// RecordCueRewrite records that a run rewrote the cue sheet at cue, keeping
+// its first original at orig. before is what the sheet held before this
+// rewrite, which undoing the run writes back, and after what the rewrite
+// left it holding.
+func (s *Store) RecordCueRewrite(runID int64, cue, orig string, before, after []byte) error {
+	// Not nil: a rewrite recorded with what it changed, be it nothing.
+	return s.recordMove(runID, cue, orig, ReasonCueRewrite, append([]byte{}, before...), append([]byte{}, after...))
+}
+
+func (s *Store) recordMove(runID int64, from, to string, reason MoveReason, cueBefore, cueAfter []byte) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("recording the move of %q: %w", from, err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO moves (run_id, from_path, to_path, reason, moved_at) VALUES (?, ?, ?, ?, ?)`,
-		runID, from, to, string(reason), formatTime(time.Now())); err != nil {
+	if _, err := tx.Exec(`INSERT INTO moves (run_id, from_path, to_path, reason, moved_at, cue_before, cue_after, seq)
+		VALUES (?, ?, ?, ?, ?, ?, ?, `+nextSeq+`)`,
+		runID, from, to, string(reason), formatTime(time.Now()), cueBefore, cueAfter, runID, runID); err != nil {
 		return fmt.Errorf("recording the move of %q: %w", from, err)
 	}
 	if reason != ReasonCueRewrite {
@@ -162,6 +192,21 @@ func (s *Store) RecordMove(runID int64, from, to string, reason MoveReason) erro
 		return fmt.Errorf("recording the move of %q: %w", from, err)
 	}
 	return nil
+}
+
+// IndexedBefore reports whether some run before the run runID walked the
+// library's folders to the end: an organize, reorganize or index run that
+// was not interrupted and did not crash. Until one has, the index is only
+// part of the library, and a file missing from it is not new.
+func (s *Store) IndexedBefore(runID int64) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM runs WHERE id < ? AND kind IN (?, ?, ?) AND state IN (?, ?, ?)`,
+		runID, string(KindOrganize), string(KindReorganize), string(KindIndex),
+		string(StateOK), string(StateErrors), string(StateUndone)).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("reading the run history: %w", err)
+	}
+	return n > 0, nil
 }
 
 // RecordError records that a run failed on a file.
@@ -208,7 +253,8 @@ func (s *Store) Runs() ([]Run, error) {
 
 // Moves lists the moves a run made, in the order it made them.
 func (s *Store) Moves(runID int64) ([]Move, error) {
-	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason, moved_at FROM moves WHERE run_id = ? ORDER BY id`, runID)
+	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason, moved_at, COALESCE(seq, 0), cue_before, cue_after
+		FROM moves WHERE run_id = ? ORDER BY id`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +264,7 @@ func (s *Store) Moves(runID int64) ([]Move, error) {
 		var m Move
 		var reason string
 		var at sql.NullString
-		if err := rows.Scan(&m.ID, &m.From, &m.To, &reason, &at); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &reason, &at, &m.Seq, &m.CueBefore, &m.CueAfter); err != nil {
 			return nil, err
 		}
 		if m.At, err = parseTime(at); err != nil {

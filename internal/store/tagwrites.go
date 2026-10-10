@@ -12,6 +12,10 @@ type TagWrite struct {
 	Path          string
 	Before, After string
 	At            time.Time
+	// Seq is the save's place among its run's moves and tag saves, from 1 in
+	// the order they were made; 0 for a save recorded before they were
+	// numbered.
+	Seq int
 }
 
 // RecordTagWrite records that a run saved tags to the file at path, with the
@@ -27,8 +31,9 @@ type TagWrite struct {
 // skips because the file does not hold the tags the record says it was left
 // with.
 func (s *Store) RecordTagWrite(runID int64, path, before, after string, apply func() error) error {
-	res, err := s.db.Exec(`INSERT INTO tag_writes (run_id, path, before, after, written_at) VALUES (?, ?, ?, ?, ?)`,
-		runID, path, before, after, formatTime(time.Now()))
+	res, err := s.db.Exec(`INSERT INTO tag_writes (run_id, path, before, after, written_at, seq)
+		VALUES (?, ?, ?, ?, ?, `+nextSeq+`)`,
+		runID, path, before, after, formatTime(time.Now()), runID, runID)
 	if err != nil {
 		return fmt.Errorf("recording the tag save of %q: %w", path, err)
 	}
@@ -45,7 +50,7 @@ func (s *Store) RecordTagWrite(runID int64, path, before, after string, apply fu
 
 // TagWrites lists the tag saves a run made, in the order it made them.
 func (s *Store) TagWrites(runID int64) ([]TagWrite, error) {
-	rows, err := s.db.Query(`SELECT path, before, after, written_at FROM tag_writes WHERE run_id = ? ORDER BY id`, runID)
+	rows, err := s.db.Query(`SELECT path, before, after, written_at, COALESCE(seq, 0) FROM tag_writes WHERE run_id = ? ORDER BY id`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +59,7 @@ func (s *Store) TagWrites(runID int64) ([]TagWrite, error) {
 	for rows.Next() {
 		var w TagWrite
 		var at sql.NullString
-		if err := rows.Scan(&w.Path, &w.Before, &w.After, &at); err != nil {
+		if err := rows.Scan(&w.Path, &w.Before, &w.After, &at, &w.Seq); err != nil {
 			return nil, err
 		}
 		if w.At, err = parseTime(at); err != nil {

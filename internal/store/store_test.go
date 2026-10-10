@@ -254,8 +254,8 @@ func TestRunRecording(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMoves := []Move{
-		{From: `C:\src\a.mp3`, To: `C:\lib\A\a.mp3`, Reason: ReasonOrganized},
-		{From: `C:\lib\x.cue`, To: `C:\lib\x.cue.orig`, Reason: ReasonCueRewrite},
+		{From: `C:\src\a.mp3`, To: `C:\lib\A\a.mp3`, Reason: ReasonOrganized, Seq: 1},
+		{From: `C:\lib\x.cue`, To: `C:\lib\x.cue.orig`, Reason: ReasonCueRewrite, Seq: 2},
 	}
 	if len(moves) != len(wantMoves) {
 		t.Fatalf("moves = %+v, want %+v", moves, wantMoves)

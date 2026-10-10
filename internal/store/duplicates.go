@@ -90,6 +90,29 @@ func (s *Store) Reviewed(kind GroupKind, members []int64) (bool, error) {
 	return n > 0, nil
 }
 
+// ReviewedTogether reports whether some review of this kind holds two or
+// more of members: whether a decision was made about these files as copies
+// of each other. A keep-both review does for as long as its copies are
+// there; a resolved one stops once the copies not kept have moved to the
+// duplicates folder, since only its keeper is then left among a group's
+// members. A group with such a review and a member the review has not seen
+// needs review again, by a person: nothing may settle it on its own.
+func (s *Store) ReviewedTogether(kind GroupKind, members []int64) (bool, error) {
+	data, err := json.Marshal(members)
+	if err != nil {
+		return false, err
+	}
+	var n int
+	err = s.db.QueryRow(`SELECT count(*) FROM dup_reviews r WHERE r.kind = ?
+		AND (SELECT count(*) FROM json_each(?) m
+			WHERE m.value IN (SELECT value FROM json_each(r.members))) >= 2`,
+		string(kind), string(data)).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("reading duplicate reviews: %w", err)
+	}
+	return n > 0, nil
+}
+
 // Reviews lists every decision on a duplicate group, oldest first.
 func (s *Store) Reviews() ([]Review, error) {
 	rows, err := s.db.Query(`SELECT id, kind, members, keeper, outcome, decided_by, run_id, reviewed_at

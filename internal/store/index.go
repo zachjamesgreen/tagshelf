@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -66,16 +67,21 @@ type File struct {
 	ModTime   time.Time
 	IndexedAt time.Time
 	TagsJSON  string // everything the tag reader returned
+	// HasArt is set when the file has embedded art. For a row read before
+	// the index recorded it, it is whether TagsJSON describes a picture.
+	HasArt    bool
 	ReadError string // what could not be read, "" when everything was
 }
 
 // FileStat is what freshness checks compare: a row's identity, size and
-// modification time.
+// modification time, and the audio hash it was indexed with ("" when the
+// audio could not be hashed).
 type FileStat struct {
 	ID      int64
 	RelPath string
 	Size    int64
 	ModTime time.Time
+	Sum     string
 }
 
 // PathKey is the form a path is compared in: cleaned, and case-folded on
@@ -139,7 +145,7 @@ func (s *Store) CountFiles() (int64, error) {
 // RootFiles returns the size and modification time of every file indexed
 // under a root, keyed by the PathKey of its relative path.
 func (s *Store) RootFiles(rootID int64) (map[string]FileStat, error) {
-	rows, err := s.db.Query(`SELECT id, rel_path, path_key, size, mtime FROM files WHERE root_id = ?`, rootID)
+	rows, err := s.db.Query(`SELECT id, rel_path, path_key, size, mtime, COALESCE(audio_sum, '') FROM files WHERE root_id = ?`, rootID)
 	if err != nil {
 		return nil, fmt.Errorf("reading the index: %w", err)
 	}
@@ -149,7 +155,7 @@ func (s *Store) RootFiles(rootID int64) (map[string]FileStat, error) {
 		var st FileStat
 		var key string
 		var mtime int64
-		if err := rows.Scan(&st.ID, &st.RelPath, &key, &st.Size, &mtime); err != nil {
+		if err := rows.Scan(&st.ID, &st.RelPath, &key, &st.Size, &mtime, &st.Sum); err != nil {
 			return nil, fmt.Errorf("reading the index: %w", err)
 		}
 		st.ModTime = time.Unix(0, mtime)
@@ -172,8 +178,8 @@ func (s *Store) PutFiles(files []File) error {
 		artist, album_artist, album, title, track, track_total, disc, disc_total, year,
 		mb_release_id, mb_release_track_id, mb_recording_id, manual,
 		lossless, bitrate, sample_rate, bit_depth, channels, length_ms,
-		audio_sum, size, mtime, indexed_at, tags_json, read_error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		audio_sum, size, mtime, indexed_at, tags_json, read_error, has_art)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (root_id, path_key) DO UPDATE SET rel_path = excluded.rel_path, format = excluded.format,
 		artist = excluded.artist, album_artist = excluded.album_artist, album = excluded.album, title = excluded.title,
 		track = excluded.track, track_total = excluded.track_total, disc = excluded.disc, disc_total = excluded.disc_total,
@@ -182,7 +188,7 @@ func (s *Store) PutFiles(files []File) error {
 		bitrate = excluded.bitrate, sample_rate = excluded.sample_rate, bit_depth = excluded.bit_depth,
 		channels = excluded.channels, length_ms = excluded.length_ms, audio_sum = excluded.audio_sum,
 		size = excluded.size, mtime = excluded.mtime, indexed_at = excluded.indexed_at,
-		tags_json = excluded.tags_json, read_error = excluded.read_error`)
+		tags_json = excluded.tags_json, read_error = excluded.read_error, has_art = excluded.has_art`)
 	if err != nil {
 		return fmt.Errorf("writing the index: %w", err)
 	}
@@ -204,7 +210,7 @@ func (s *Store) PutFiles(files []File) error {
 			f.Artist, f.AlbumArtist, f.Album, f.Title, f.Track, f.TrackTotal, f.Disc, f.DiscTotal, f.Year,
 			f.ReleaseID, f.ReleaseTrackID, f.RecordingID, f.Manual,
 			f.Lossless, f.Bitrate, f.SampleRate, f.BitDepth, f.Channels, f.Length.Milliseconds(),
-			sum, f.Size, f.ModTime.UnixNano(), formatTime(indexedAt), tags, f.ReadError); err != nil {
+			sum, f.Size, f.ModTime.UnixNano(), formatTime(indexedAt), tags, f.ReadError, f.HasArt); err != nil {
 			return fmt.Errorf("indexing %q: %w", f.RelPath, err)
 		}
 	}
@@ -246,7 +252,7 @@ const fileColumns = `f.id, f.root_id, r.kind, f.rel_path, r.path, f.format,
 	f.artist, f.album_artist, f.album, f.title, f.track, f.track_total, f.disc, f.disc_total, f.year,
 	f.mb_release_id, f.mb_release_track_id, f.mb_recording_id, f.manual,
 	f.lossless, f.bitrate, f.sample_rate, f.bit_depth, f.channels, f.length_ms,
-	f.audio_sum, f.size, f.mtime, f.indexed_at, f.tags_json, f.read_error`
+	f.audio_sum, f.size, f.mtime, f.indexed_at, f.tags_json, f.read_error, f.has_art`
 
 // Files lists every indexed file, in the order they were first indexed.
 func (s *Store) Files() ([]File, error) {
@@ -281,17 +287,22 @@ func (s *Store) queryFiles(query string, args ...any) ([]File, error) {
 		var root, kind string
 		var lengthMS, mtime int64
 		var sum, indexedAt sql.NullString
+		var hasArt sql.NullBool
 		if err := rows.Scan(&f.ID, &f.RootID, &kind, &f.RelPath, &root, &f.Format,
 			&f.Artist, &f.AlbumArtist, &f.Album, &f.Title, &f.Track, &f.TrackTotal, &f.Disc, &f.DiscTotal, &f.Year,
 			&f.ReleaseID, &f.ReleaseTrackID, &f.RecordingID, &f.Manual,
 			&f.Lossless, &f.Bitrate, &f.SampleRate, &f.BitDepth, &f.Channels, &lengthMS,
-			&sum, &f.Size, &mtime, &indexedAt, &f.TagsJSON, &f.ReadError); err != nil {
+			&sum, &f.Size, &mtime, &indexedAt, &f.TagsJSON, &f.ReadError, &hasArt); err != nil {
 			return nil, err
 		}
 		f.RootKind = RootKind(kind)
 		f.Path = filepath.Join(root, f.RelPath)
 		f.Length = time.Duration(lengthMS) * time.Millisecond
 		f.Sum = sum.String
+		f.HasArt = hasArt.Bool
+		if !hasArt.Valid {
+			f.HasArt = describesPicture(f.TagsJSON)
+		}
 		f.ModTime = time.Unix(0, mtime)
 		if f.IndexedAt, err = parseTime(indexedAt); err != nil {
 			return nil, err
@@ -301,10 +312,37 @@ func (s *Store) queryFiles(query string, args ...any) ([]File, error) {
 	return files, rows.Err()
 }
 
+// describesPicture reports whether a row's tags_json holds a picture as the
+// index used to describe one: an object with a "picture" key. Only the MP3
+// and MP4 readers put one there, which is why has_art replaced it.
+func describesPicture(tagsJSON string) bool {
+	if !strings.Contains(tagsJSON, `"picture"`) {
+		return false
+	}
+	var tags map[string]any
+	if json.Unmarshal([]byte(tagsJSON), &tags) != nil {
+		return false
+	}
+	for _, v := range tags {
+		if m, ok := v.(map[string]any); ok {
+			if _, ok := m["picture"]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // moveFileRow follows a move made by tagshelf in the index, inside the
 // transaction that logs it: the row of the file at from now describes the
 // file at to. A file moved out of every root loses its row; one moved in from
 // outside gets its row from the next walk.
+//
+// The row takes the modification time the file has at to. A rename keeps it,
+// but a copy to a file system with coarser times (exFAT, FAT32, many network
+// shares) does not, and a row still holding the source's time would no longer
+// match its file. A file whose size is not the row's is left for the next
+// walk to read again.
 func moveFileRow(tx *sql.Tx, from, to string) error {
 	roots, err := queryRoots(tx)
 	if err != nil {
@@ -327,8 +365,17 @@ func moveFileRow(tx *sql.Tx, from, to string) error {
 			return err
 		}
 	}
-	_, err = tx.Exec(`UPDATE files SET root_id = ?, rel_path = ?, path_key = ? WHERE root_id = ? AND path_key = ?`,
-		toRoot, toRel, toKey, fromRoot, fromKey)
+	if _, err := tx.Exec(`UPDATE files SET root_id = ?, rel_path = ?, path_key = ? WHERE root_id = ? AND path_key = ?`,
+		toRoot, toRel, toKey, fromRoot, fromKey); err != nil {
+		return err
+	}
+	info, err := os.Stat(to)
+	if err != nil {
+		// Nothing there to take a time from: the row keeps the one it has.
+		return nil
+	}
+	_, err = tx.Exec(`UPDATE files SET mtime = ? WHERE root_id = ? AND path_key = ? AND size = ?`,
+		info.ModTime().UnixNano(), toRoot, toKey, info.Size())
 	return err
 }
 
