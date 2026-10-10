@@ -1,7 +1,7 @@
-//go:build ignore
-
 // gen regenerates the audio fixtures in testdata/audio. Run it with
-// `go generate ./internal/fixtures`; it needs ffmpeg on PATH.
+// `go generate ./internal/fixtures`; it needs ffmpeg on PATH. With -dir it
+// writes to another folder, which must hold the three TagLib files, so that
+// the result can be compared before it replaces anything.
 //
 // ffmpeg encodes about a second of silence for every format it can write,
 // and tags what it can. Go then adds what ffmpeg cannot write the way
@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -32,10 +33,15 @@ import (
 
 func main() {
 	log.SetFlags(0)
+	out := flag.String("dir", "", "the folder to write to instead of testdata/audio")
+	flag.Parse()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		log.Fatal("gen needs ffmpeg on PATH")
 	}
-	dir := fixtures.Dir()
+	dir := *out
+	if dir == "" {
+		dir = fixtures.Dir()
+	}
 
 	// Untagged, straight from ffmpeg.
 	for _, f := range []struct {
@@ -56,7 +62,9 @@ func main() {
 	// 8001 one-byte samples: an odd data chunk, which ffmpeg pads.
 	ffmpeg(filepath.Join(dir, fixtures.UntaggedOddWAV), 8001, "-c:a", "pcm_u8", "-f", "wav")
 
-	// Tagged by ffmpeg, with Picard's key names for the format.
+	// Tagged by ffmpeg, with Picard's key names for the format. Picard also
+	// writes the totals as TOTALTRACKS and TOTALDISCS; the fixtures have them
+	// once, and tests that need the second pair add it.
 	vorbis := []string{
 		"TITLE=" + fixtures.Title,
 		"ARTIST=" + fixtures.Artist,
@@ -117,7 +125,7 @@ func main() {
 	write(va, addMP4FreeForm(read(va), rules.VariousArtistsMBID))
 
 	// Tagged in Go.
-	id3 := id3v24()
+	id3 := id3v24(false)
 	ape := apev2()
 	write(filepath.Join(dir, "tagged.mp3"), slices.Concat(id3, read(filepath.Join(dir, "untagged.mp3"))))
 	write(filepath.Join(dir, "tagged.wav"), addWAVChunk(read(filepath.Join(dir, "untagged.wav")), "id3 ", id3))
@@ -156,31 +164,7 @@ func manual(dir string, vorbis, mp4 []string) {
 	ffmpeg(m4a, 8000, withMetadata(mp4, "-c:a", "aac", "-b:a", "16k", "-f", "ipod")...)
 	write(m4a, addMP4Atoms(read(m4a), [][2]string{{"TAGSHELF_MANUAL", fixtures.ManualMarker}}))
 
-	write(filepath.Join(dir, "manual.mp3"), slices.Concat(manualID3v24(), read(filepath.Join(dir, "untagged.mp3"))))
-}
-
-// manualID3v24 builds an ID3v2.4 tag with the fixture tags and the manual
-// marker in TXXX:TAGSHELF_MANUAL, but no MusicBrainz IDs.
-func manualID3v24() []byte {
-	var frames bytes.Buffer
-	frame := func(id string, data []byte) {
-		frames.WriteString(id)
-		frames.Write(synchsafe(len(data)))
-		frames.Write([]byte{0, 0})
-		frames.Write(data)
-	}
-	text := func(id, value string) { frame(id, slices.Concat([]byte{3}, []byte(value))) } // 3: UTF-8
-
-	text("TIT2", fixtures.Title)
-	text("TPE1", fixtures.Artist)
-	text("TPE2", fixtures.AlbumArtist)
-	text("TALB", fixtures.Album)
-	text("TDRC", strconv.Itoa(fixtures.Year))
-	text("TRCK", fmt.Sprintf("%d/%d", fixtures.Track, fixtures.TrackTotal))
-	text("TPOS", fmt.Sprintf("%d/%d", fixtures.Disc, fixtures.DiscTotal))
-	frame("TXXX", slices.Concat([]byte{3}, []byte("TAGSHELF_MANUAL"), []byte{0}, []byte(fixtures.ManualMarker)))
-
-	return slices.Concat([]byte{'I', 'D', '3', 4, 0, 0}, synchsafe(frames.Len()), frames.Bytes())
+	write(filepath.Join(dir, "manual.mp3"), slices.Concat(id3v24(true), read(filepath.Join(dir, "untagged.mp3"))))
 }
 
 // ffmpeg encodes a second of mono silence at rate Hz into out.
@@ -207,9 +191,11 @@ func withMetadata(kv []string, args ...string) []string {
 	return append(out, args...)
 }
 
-// id3v24 builds an ID3v2.4 tag the way Picard writes one: MusicBrainz IDs in
-// TXXX frames, and the recording ID in a UFID frame.
-func id3v24() []byte {
+// id3v24 builds an ID3v2.4 tag with the fixture tags. The tagged fixtures
+// have it the way Picard writes one: MusicBrainz IDs in TXXX frames, and the
+// recording ID in a UFID frame. The manual one has the manual marker in
+// TXXX:TAGSHELF_MANUAL instead, and no MusicBrainz IDs.
+func id3v24(manual bool) []byte {
 	var frames bytes.Buffer
 	frame := func(id string, data []byte) {
 		frames.WriteString(id)
@@ -229,12 +215,16 @@ func id3v24() []byte {
 	text("TDRC", strconv.Itoa(fixtures.Year))
 	text("TRCK", fmt.Sprintf("%d/%d", fixtures.Track, fixtures.TrackTotal))
 	text("TPOS", fmt.Sprintf("%d/%d", fixtures.Disc, fixtures.DiscTotal))
-	txxx("MusicBrainz Artist Id", fixtures.ArtistID)
-	txxx("MusicBrainz Album Artist Id", fixtures.AlbumArtistID)
-	txxx("MusicBrainz Album Id", fixtures.ReleaseID)
-	txxx("MusicBrainz Release Group Id", fixtures.ReleaseGroupID)
-	txxx("MusicBrainz Release Track Id", fixtures.ReleaseTrackID)
-	frame("UFID", slices.Concat([]byte("http://musicbrainz.org"), []byte{0}, []byte(fixtures.RecordingID)))
+	if manual {
+		txxx("TAGSHELF_MANUAL", fixtures.ManualMarker)
+	} else {
+		txxx("MusicBrainz Artist Id", fixtures.ArtistID)
+		txxx("MusicBrainz Album Artist Id", fixtures.AlbumArtistID)
+		txxx("MusicBrainz Album Id", fixtures.ReleaseID)
+		txxx("MusicBrainz Release Group Id", fixtures.ReleaseGroupID)
+		txxx("MusicBrainz Release Track Id", fixtures.ReleaseTrackID)
+		frame("UFID", slices.Concat([]byte("http://musicbrainz.org"), []byte{0}, []byte(fixtures.RecordingID)))
+	}
 
 	return slices.Concat([]byte{'I', 'D', '3', 4, 0, 0}, synchsafe(frames.Len()), frames.Bytes())
 }

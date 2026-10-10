@@ -5,10 +5,12 @@
 // about a second of silence made by ffmpeg, or for APE and MPC, which ffmpeg
 // cannot encode, a TagLib test file. Regenerate them with `go generate
 // ./internal/fixtures`, which needs ffmpeg on PATH; tests never do. See
-// testdata/audio/README.md for where each file comes from.
+// testdata/audio/README.md for where each file comes from, and for what
+// the fixtures do not have: cover art, tags tagshelf does not write, and a
+// length that every reader agrees on.
 package fixtures
 
-//go:generate go run gen.go
+//go:generate go run ./gen
 
 import (
 	"os"
@@ -57,8 +59,10 @@ func Manual(ext string) string {
 }
 
 // The tag values every tagged fixture carries, written under the key names
-// MusicBrainz Picard uses for its format. The WMA fixture has no track total,
-// because Picard writes none for WMA.
+// MusicBrainz Picard uses for its format. The FLAC and OGG fixtures have the
+// totals under TRACKTOTAL and DISCTOTAL only, not under TOTALTRACKS and
+// TOTALDISCS as well, where Picard also writes them. The WMA fixture has no
+// track total, because Picard writes none for WMA.
 const (
 	Title       = "Silence Café"
 	Artist      = "Fixture Artist"
