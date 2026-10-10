@@ -53,7 +53,7 @@ func markerOf(t *testing.T, path string) string {
 func TestRestoreUndoesASave(t *testing.T) {
 	saves := map[string]Values{"one field": {Title: {"X"}}, "every field": musicBrainzSave()}
 	for ext, from := range taggableExtensions {
-		for _, src := range []string{fixtures.Untagged(from), fixtures.Tagged(from)} {
+		for _, src := range []string{untagged(t, from), tagged(t, from)} {
 			for name, fields := range saves {
 				t.Run(filepath.Base(src)+"->"+ext+" "+name, func(t *testing.T) {
 					path := copyFixture(t, src, "song"+ext)

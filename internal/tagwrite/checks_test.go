@@ -90,12 +90,12 @@ func damageAudio(t *testing.T, path string) bool {
 }
 
 // TestDamagedAudioIsRefused has go-taglib damage the audio of the copy in a
-// way no tag reader sees: the save is refused in every format. In an OGG
-// file no flipped bit gets past the readers, so there is nothing to try.
+// way no tag reader sees: the save is refused in every format. In an Ogg
+// stream no flipped bit gets past the readers, so there is nothing to try.
 func TestDamagedAudioIsRefused(t *testing.T) {
 	for ext, from := range taggableExtensions {
 		t.Run(ext, func(t *testing.T) {
-			path := copyFixture(t, fixtures.Tagged(from), "song"+ext)
+			path := copyFixture(t, tagged(t, from), "song"+ext)
 			orig := mustRead(t, path)
 			damaged := false
 			writeWrong(t, func(tmp string, keys map[string][]string, opts taglib.WriteOption) error {
@@ -107,7 +107,7 @@ func TestDamagedAudioIsRefused(t *testing.T) {
 			})
 			_, err := Writer{}.Save(path, Values{Title: {"X"}}, marker.New(marker.Hand, day))
 			if !damaged {
-				if ext != ".ogg" {
+				if !slices.Contains([]string{".ogg", ".oga", ".opus"}, ext) {
 					t.Fatal("found no bit to flip that only the audio check can see")
 				}
 				t.Skip("no flipped bit gets past the readers")
@@ -579,7 +579,7 @@ func TestRemoveStaleCopies(t *testing.T) {
 // against the copies a save really makes.
 func TestStaleCopyIsACopyOfASave(t *testing.T) {
 	for ext, from := range taggableExtensions {
-		path := copyFixture(t, fixtures.Tagged(from), "song"+ext)
+		path := copyFixture(t, tagged(t, from), "song"+ext)
 		tmp, err := copyTemp(path)
 		if err != nil {
 			t.Fatal(err)

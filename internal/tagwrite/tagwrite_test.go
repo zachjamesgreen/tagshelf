@@ -5,11 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,13 +94,82 @@ func musicBrainzSave() Values {
 	}
 }
 
-// taggableExtensions are the extensions Save writes, each with the fixture
-// extension it is copied from.
+// taggableExtensions are the extensions Save writes, each with the extension
+// of the files it is copied from: see untagged and tagged.
 var taggableExtensions = map[string]string{
 	".mp3": ".mp3", ".flac": ".flac", ".ogg": ".ogg", ".m4a": ".m4a", ".m4b": ".m4b",
 	".m4r": ".m4a", ".m4p": ".m4a", ".wav": ".wav", ".ape": ".ape", ".mpc": ".mpc",
 	".aac": ".aac",
 	".wma": ".wma",
+	".oga": ".ogg", ".opus": ".opus", ".dsf": ".dsf",
+}
+
+// untagged returns the path of a file of the format of ext without tags:
+// the shared fixture, or for the two formats that have none a file of this
+// package's own. The Opus file is a second of silence from ffmpeg's libopus;
+// the DSF file is built here, since ffmpeg writes none.
+func untagged(t *testing.T, ext string) string {
+	t.Helper()
+	switch ext {
+	case ".opus":
+		return filepath.Join("testdata", "untagged.opus")
+	case ".dsf":
+		return writeTemp(t, untaggedDSF(), "untagged.dsf")
+	}
+	return fixtures.Untagged(ext)
+}
+
+// tagged is untagged with the tags every tagged fixture carries. For Opus
+// and DSF they are written here by TagLib, under the key names Picard uses.
+func tagged(t *testing.T, ext string) string {
+	t.Helper()
+	if ext != ".opus" && ext != ".dsf" {
+		return fixtures.Tagged(ext)
+	}
+	keys := map[string][]string{
+		taglib.Title: {fixtures.Title}, taglib.Artist: {fixtures.Artist}, taglib.AlbumArtist: {fixtures.AlbumArtist},
+		taglib.Album: {fixtures.Album}, taglib.Date: {strconv.Itoa(fixtures.Year)},
+		taglib.MusicBrainzArtistID: {fixtures.ArtistID}, taglib.MusicBrainzAlbumArtistID: {fixtures.AlbumArtistID},
+		taglib.MusicBrainzAlbumID: {fixtures.ReleaseID}, taglib.MusicBrainzReleaseGroupID: {fixtures.ReleaseGroupID},
+		taglib.MusicBrainzTrackID: {fixtures.RecordingID}, taglib.MusicBrainzReleaseTrackID: {fixtures.ReleaseTrackID},
+	}
+	if ext == ".opus" {
+		// Vorbis comments: the totals are keys of their own, here once.
+		keys[taglib.TrackNumber], keys["TRACKTOTAL"] = []string{strconv.Itoa(fixtures.Track)}, []string{strconv.Itoa(fixtures.TrackTotal)}
+		keys[taglib.DiscNumber], keys["DISCTOTAL"] = []string{strconv.Itoa(fixtures.Disc)}, []string{strconv.Itoa(fixtures.DiscTotal)}
+	} else {
+		keys[taglib.TrackNumber] = []string{fmt.Sprintf("%d/%d", fixtures.Track, fixtures.TrackTotal)}
+		keys[taglib.DiscNumber] = []string{fmt.Sprintf("%d/%d", fixtures.Disc, fixtures.DiscTotal)}
+	}
+	path := copyFixture(t, untagged(t, ext), "tagged"+ext)
+	if err := taglib.WriteTags(path, keys, 0); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// untaggedDSF builds a DSF file of two channels of DSD silence, one block
+// each: the DSD chunk, which says how long the file is and that it has no
+// tag, the fmt chunk and the data chunk.
+func untaggedDSF() []byte {
+	const block = 4096
+	audio := bytes.Repeat([]byte{0x69}, 2*block)
+	le := binary.LittleEndian
+	b := append([]byte("DSD "), le.AppendUint64(nil, 28)...)
+	b = le.AppendUint64(b, uint64(28+52+12+len(audio)))
+	b = le.AppendUint64(b, 0) // no ID3v2 tag
+	b = append(b, "fmt "...)
+	b = le.AppendUint64(b, 52)
+	// Version 1, raw DSD, stereo, two channels, 2.8224 MHz, one bit a sample.
+	for _, v := range []uint32{1, 0, 2, 2, 2822400, 1} {
+		b = le.AppendUint32(b, v)
+	}
+	b = le.AppendUint64(b, block*8) // samples in each channel
+	b = le.AppendUint32(b, block)
+	b = le.AppendUint32(b, 0)
+	b = append(b, "data"...)
+	b = le.AppendUint64(b, uint64(12+len(audio)))
+	return append(b, audio...)
 }
 
 // TestRoundTrip saves every field to each taggable format, from untagged and
@@ -107,7 +178,7 @@ var taggableExtensions = map[string]string{
 // and where it is one block of the file, byte for byte.
 func TestRoundTrip(t *testing.T) {
 	for ext, from := range taggableExtensions {
-		for _, src := range []string{fixtures.Untagged(from), fixtures.Tagged(from)} {
+		for _, src := range []string{untagged(t, from), tagged(t, from)} {
 			t.Run(filepath.Base(src)+"->"+ext, func(t *testing.T) {
 				path := copyFixture(t, src, "song"+ext)
 				keysBefore, err := taglib.ReadTags(path)
@@ -245,6 +316,12 @@ func TestWrongExtensionFails(t *testing.T) {
 		{fixtures.Untagged(".mp3"), "song.ogg"},
 		{fixtures.Tagged(".mp3"), "song.aac"},
 		{fixtures.Untagged(".mp3"), "song.aac"},
+		{fixtures.Tagged(".mp3"), "song.dsf"},
+		{fixtures.Tagged(".flac"), "song.opus"},
+		{fixtures.Untagged(".mp3"), "song.opus"},
+		// FLAC in an Ogg stream: TagLib writes its tags, but internal/tag
+		// does not read them back, so the file is left as it was.
+		{filepath.Join("testdata", "oggflac.oga"), "song.oga"},
 	} {
 		path := copyFixture(t, tt.src, tt.name)
 		orig := mustRead(t, path)
@@ -261,9 +338,59 @@ func TestWrongExtensionFails(t *testing.T) {
 	}
 }
 
+// An Ogg stream is tagged for what it holds, Vorbis or Opus, under any of
+// the three extensions a run takes for one.
+func TestOggStreamUnderAnyOggExtension(t *testing.T) {
+	for _, tt := range []struct{ from, name string }{
+		{".opus", "song.ogg"}, {".opus", "song.oga"}, {".ogg", "song.opus"},
+	} {
+		path := copyFixture(t, tagged(t, tt.from), tt.name)
+		before := audioSum(t, path)
+		m := marker.New(marker.Hand, day)
+		if _, err := (Writer{}).Save(path, Values{Title: {"Another"}, Track: {"2/5"}}, m); err != nil {
+			t.Errorf("%s audio as %s: %v", tt.from, tt.name, err)
+			continue
+		}
+		md := read(t, path)
+		if got, ok := marker.Read(md); md.Title() != "Another" || md.Album() != fixtures.Album || !ok || got != m {
+			t.Errorf("%s audio as %s reads back title %q, album %q, marker %v", tt.from, tt.name, md.Title(), md.Album(), got)
+		}
+		if got := audioSum(t, path); got != before {
+			t.Errorf("%s audio as %s: Sum changed from %s to %s", tt.from, tt.name, before, got)
+		}
+	}
+}
+
+// The files this package makes for the formats without a fixture are what
+// they are meant to be: TagLib and internal/tag read them as Opus and DSF,
+// tagged or not, and hash the same audio in both.
+func TestOwnFilesAreWhatTheyClaim(t *testing.T) {
+	for ext, want := range map[string]struct {
+		codec    string
+		fileType tag.FileType
+	}{".opus": {"opus", tag.OGG}, ".dsf": {"dsd", tag.DSF}} {
+		plain, with := untagged(t, ext), tagged(t, ext)
+		props, err := taglib.ReadProperties(plain)
+		if err != nil || props.InnerCodec != want.codec || props.Channels == 0 {
+			t.Errorf("%s: TagLib reads it as %+v, %v; want %s audio", ext, props, err, want.codec)
+		}
+		if keys, err := taglib.ReadTags(plain); err != nil || len(keys[taglib.Title]) != 0 {
+			t.Errorf("untagged%s has tags: %v, %v", ext, keys, err)
+		}
+		md := read(t, with)
+		if x, n := md.Track(); md.FileType() != want.fileType || md.Title() != fixtures.Title || md.Year() != fixtures.Year || x != fixtures.Track || n != fixtures.TrackTotal {
+			t.Errorf("tagged%s reads as %s with title %q, year %d, track %d/%d", ext, md.FileType(), md.Title(), md.Year(), x, n)
+		}
+		if a, b := audioSum(t, plain), audioSum(t, with); a != b {
+			t.Errorf("%s: tagging the file changed its Sum from %s to %s", ext, a, b)
+		}
+	}
+}
+
 func TestUnsupportedFormats(t *testing.T) {
-	// Every fixture format is taggable now; the extension decides.
-	for _, ext := range []string{".dsf", ".opus"} {
+	// Every format a run indexes is taggable; the extension decides. A run
+	// leaves these two with the files that are not audio.
+	for _, ext := range []string{".aiff", ".wv"} {
 		path := copyFixture(t, fixtures.Tagged(".mp3"), "song"+ext)
 		orig := mustRead(t, path)
 		_, err := Writer{}.Save(path, Values{Title: {"X"}}, marker.New(marker.Hand, day))
@@ -453,7 +580,7 @@ func TestClearFields(t *testing.T) {
 	for ext, from := range taggableExtensions {
 		t.Run(ext, func(t *testing.T) {
 			f := formats[ext]
-			path := copyFixture(t, fixtures.Tagged(from), "song"+ext)
+			path := copyFixture(t, tagged(t, from), "song"+ext)
 			if f.vorbis {
 				picardTotals(t, path)
 			}
@@ -515,8 +642,7 @@ func TestVorbisTotals(t *testing.T) {
 
 // TestOtherTagsAndCoverKept gives a file of every format tags tagshelf does
 // not write and a cover, which no fixture has: a save of every field and its
-// restore leave them as they were, but for the order of a list in a WMA
-// file.
+// restore leave them as they were, a list in the order it had.
 func TestOtherTagsAndCoverKept(t *testing.T) {
 	others := map[string][]string{
 		"GENRE": {"Ambient"}, "COMMENT": {"A comment"}, "LYRICS": {"La la\nla"},
@@ -525,7 +651,7 @@ func TestOtherTagsAndCoverKept(t *testing.T) {
 	cover := append([]byte{0xff, 0xd8, 0xff, 0xe0, 0, 16, 'J', 'F', 'I', 'F', 0}, bytes.Repeat([]byte{0x5a}, 300)...)
 	for ext, from := range taggableExtensions {
 		t.Run(ext, func(t *testing.T) {
-			path := copyFixture(t, fixtures.Tagged(from), "song"+ext)
+			path := copyFixture(t, tagged(t, from), "song"+ext)
 			others := maps.Clone(others)
 			if ext == ".wma" {
 				delete(others, "REPLAYGAIN_TRACK_GAIN") // TagLib has no ASF key for it
@@ -546,14 +672,7 @@ func TestOtherTagsAndCoverKept(t *testing.T) {
 				t.Helper()
 				keys := keysOf(t, path)
 				for k, v := range keysBefore {
-					got := keys[k]
-					if ext == ".wma" {
-						// TagLib writes the first value of a list apart from
-						// the rest and reads it back last (see asfBefore), so
-						// every save of a WMA file turns its lists by one.
-						got, v = slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(v))
-					}
-					if _, ok := written[k]; !ok && !slices.Equal(got, v) {
+					if _, ok := written[k]; !ok && !slices.Equal(keys[k], v) {
 						t.Errorf("%s: %s changed from %q to %q", when, k, v, keys[k])
 					}
 				}
@@ -739,7 +858,7 @@ func TestReadReturnsWhatSaveTakes(t *testing.T) {
 	}
 	for ext, from := range taggableExtensions {
 		t.Run("tagged"+ext, func(t *testing.T) {
-			got, err := Read(copyFixture(t, fixtures.Tagged(from), "song"+ext))
+			got, err := Read(copyFixture(t, tagged(t, from), "song"+ext))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -6,12 +6,16 @@
 // nothing, and is recorded in the tag history with the written fields'
 // values before and after.
 //
-// MP3, FLAC, OGG, the MP4 family (.m4a, .m4b, .m4r, .m4p), WAV, APE, MPC,
-// WMA and .aac can be tagged. An .aac file is tagged on both sides: go-taglib
+// MP3, FLAC, OGG (.ogg, .oga and .opus), the MP4 family (.m4a, .m4b, .m4r,
+// .m4p), WAV, APE, MPC, WMA, DSF and .aac can be tagged: every format a run
+// indexes. An Ogg stream may hold Vorbis or Opus audio under any of its three
+// extensions; one that holds FLAC is refused, because internal/tag does not
+// read its tags back. An .aac file is tagged on both sides: go-taglib
 // writes ID3v2, internal/tag the APEv2 tag Picard reads, and both must read
 // back. go-taglib drops the marker from WMA, so internal/tag's ASF writer adds
-// it. TagLib has no ASF key for the compilation flag, so WMA saves leave it
-// out. TagLib adds an ID3v1 tag to every MP3 and .aac file it saves; a save
+// it, and reads a list of a WMA file rotated, so a save gives it back the
+// lists it does not write in the order they had. TagLib has no ASF key for
+// the compilation flag, so WMA saves leave it out. TagLib adds an ID3v1 tag to every MP3 and .aac file it saves; a save
 // takes it off again unless the file had one.
 //
 // Before a copy replaces the original, its audio must have the original's
@@ -153,6 +157,8 @@ var formats = map[string]format{
 	".aac":  {id3v1: true, ape: true, is: fileType(tag.AAC)},
 	".flac": {vorbis: true, is: fileType(tag.FLAC)},
 	".ogg":  {vorbis: true, is: fileType(tag.OGG)},
+	".oga":  {vorbis: true, is: fileType(tag.OGG)},
+	".opus": {vorbis: true, is: fileType(tag.OGG)},
 	".m4a":  {is: isMP4},
 	".m4b":  {is: isMP4},
 	".m4r":  {is: isMP4},
@@ -161,6 +167,7 @@ var formats = map[string]format{
 	".ape":  {is: fileType(tag.APE)},
 	".mpc":  {is: fileType(tag.MPC)},
 	".wma":  {asf: true, is: fileType(tag.WMA)},
+	".dsf":  {is: fileType(tag.DSF)},
 }
 
 // Supported reports whether files with the extension of path can be tagged.
@@ -376,6 +383,7 @@ func (w Writer) apply(f format, path string, before, after Values) error {
 	keys := toKeys(f, after)
 	if f.asf {
 		delete(keys, marker.Key) // go-taglib would drop a new one; an old one it keeps is replaced below
+		keepASFOrder(path, keys)
 	}
 	if err := writeTags(tmp, keys, 0); err != nil {
 		return err
@@ -837,6 +845,54 @@ func asfBefore(path string, before Values) {
 	}
 	if _, ok := before[AlbumArtistIDs]; ok {
 		before[AlbumArtistIDs] = clean(ids.AlbumArtistIDs)
+	}
+}
+
+// keepASFOrder adds to keys, which a save is about to write to a copy of the
+// WMA file at path, every list of the file the save does not write, in the
+// order the file has it. TagLib reads a list rotated (see asfBefore) and
+// would write it back as it read it, turning it by one with every save;
+// given the list in its order, it writes it as it was.
+//
+// Only a list TagLib returns under a property name can be given back to it,
+// and only one that is found again, value for value, among the attributes
+// internal/tag reads: text, since TagLib returns nothing for other types. A
+// list under a name TagLib has no property for is still turned.
+func keepASFOrder(path string, keys map[string][]string) {
+	read, err := taglib.ReadTags(path)
+	if err != nil {
+		return
+	}
+	md, err := readTags(path)
+	if err != nil {
+		return
+	}
+	var lists [][]string
+	for _, v := range md.Raw() {
+		if s, ok := v.(string); ok && strings.Contains(s, "\x00") {
+			lists = append(lists, strings.Split(s, "\x00"))
+		}
+	}
+	sorted := func(vs []string) []string { return slices.Sorted(slices.Values(vs)) }
+	for k, vs := range read {
+		if _, written := keys[k]; written || len(vs) < 2 || slices.Contains(vs, "") {
+			continue
+		}
+		// The one order the file has these values in, if it has one.
+		var order []string
+		for _, l := range lists {
+			if !slices.Equal(sorted(l), sorted(vs)) {
+				continue
+			}
+			if order != nil && !slices.Equal(order, l) {
+				order = nil
+				break
+			}
+			order = l
+		}
+		if order != nil && !slices.Equal(order, vs) {
+			keys[k] = order
+		}
 	}
 }
 

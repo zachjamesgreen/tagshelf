@@ -9,9 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"go.senan.xyz/taglib"
+
 	"tagshelf/internal/fixtures"
 	"tagshelf/internal/marker"
 	"tagshelf/internal/tag"
+	"tagshelf/internal/tag/mbz"
 )
 
 // asfGUID returns the on-disk bytes of an ASF GUID written as
@@ -151,5 +154,70 @@ func TestWMARefused(t *testing.T) {
 		if l := leftovers(t, path); l != nil {
 			t.Errorf("%s: temporary files left behind: %v", name, l)
 		}
+	}
+}
+
+// TagLib writes the first value of a list to the Extended Content
+// Description and the rest to the Metadata Library, and reads the list back
+// with the first value last. A save gives it the lists it does not write in
+// the order the file has them, so that they stay in it save after save.
+func TestWMAListsKeepTheirOrder(t *testing.T) {
+	path := copyFixture(t, fixtures.Tagged(".wma"), "song.wma")
+	lists := map[string][]string{
+		"COMPOSER": {"First", "Second", "Third"},
+		"GENRE":    {"Ambient", "Drone"},
+		"LYRICIST": {"Someone", "Someone"}, // the same twice: nothing to keep in order
+	}
+	if err := taglib.WriteTags(path, lists, 0); err != nil {
+		t.Fatal(err)
+	}
+	// The order in the file, as internal/tag reads it, and the order TagLib
+	// reads it in.
+	inFile := func() map[string]string {
+		t.Helper()
+		got := map[string]string{}
+		for k, v := range read(t, path).Raw() {
+			if s, ok := v.(string); ok && strings.Contains(s, "\x00") {
+				got[k] = strings.ReplaceAll(s, "\x00", ", ")
+			}
+		}
+		return got
+	}
+	fileBefore, keysBefore := inFile(), keysOf(t, path)
+	if fileBefore["WM/Composer"] != "First, Second, Third" || fileBefore["WM/Genre"] != "Ambient, Drone" {
+		t.Fatalf("the lists as written = %v", fileBefore)
+	}
+	if !slices.Equal(keysBefore["COMPOSER"], []string{"Second", "Third", "First"}) {
+		t.Fatalf("TagLib reads the composers as %q: it no longer reads a list rotated, and keepASFOrder may go", keysBefore["COMPOSER"])
+	}
+
+	var results []Result
+	for i, title := range []string{"One", "Two", "Three", "Four"} {
+		res, err := Writer{}.Save(path, Values{Title: {title}, ArtistIDs: {"id-1", "id-2", "id-3"}}, marker.New(marker.Hand, day))
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, res)
+		if got := inFile(); got["WM/Composer"] != fileBefore["WM/Composer"] || got["WM/Genre"] != fileBefore["WM/Genre"] {
+			t.Fatalf("after save %d the file's lists are %v, want them as they were: %v", i+1, got, fileBefore)
+		}
+		if got := keysOf(t, path); !slices.Equal(got["COMPOSER"], keysBefore["COMPOSER"]) || !slices.Equal(got["GENRE"], keysBefore["GENRE"]) || !slices.Equal(got["LYRICIST"], keysBefore["LYRICIST"]) {
+			t.Fatalf("after save %d TagLib reads the lists as %q, %q and %q", i+1, got["COMPOSER"], got["GENRE"], got["LYRICIST"])
+		}
+		// The list the save writes is in the order given.
+		if got := mbz.Extract(read(t, path)).ArtistIDs; !slices.Equal(got, []string{"id-1", "id-2", "id-3"}) {
+			t.Fatalf("after save %d the artist IDs are %q", i+1, got)
+		}
+	}
+	for i := len(results) - 1; i >= 0; i-- {
+		if _, err := (Writer{}).Restore(path, results[i].Before, results[i].After); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := inFile(); got["WM/Composer"] != fileBefore["WM/Composer"] || got["WM/Genre"] != fileBefore["WM/Genre"] {
+		t.Errorf("after the restores the file's lists are %v, want %v", got, fileBefore)
+	}
+	if got := read(t, path).Title(); got != fixtures.Title {
+		t.Errorf("after the restores the title is %q", got)
 	}
 }
