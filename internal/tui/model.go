@@ -21,10 +21,11 @@ const (
 	TabDuplicates
 	TabLibrary
 	TabRuns
+	TabSettings
 	tabCount
 )
 
-var tabNames = [...]string{"Home", "Untagged", "Duplicates", "Library", "Runs"}
+var tabNames = [...]string{"Home", "Untagged", "Duplicates", "Library", "Runs", "Settings"}
 
 func (t Tab) String() string {
 	if t < 0 || t >= tabCount {
@@ -79,6 +80,14 @@ type Model struct {
 	reopen func() (Options, error)
 	// refused is the run that could not start, shown until the next key.
 	refused *refusal
+	// reopening is set while the library is opened again after a save of the
+	// settings: what a poll fails with meanwhile is the old one closing.
+	reopening bool
+
+	// settingsSrc is the config file the Settings tab edits, nil when there
+	// is none to edit.
+	settingsSrc Settings
+	settings    settingsTab
 
 	runner      Runner
 	run         *liveRun // the run this TUI started, nil when none is going
@@ -131,7 +140,7 @@ type refreshMsg struct {
 
 // Init starts the first load and, after it, the poll loop.
 func (m *Model) Init() tea.Cmd {
-	return m.poll(true, true)
+	return tea.Batch(m.poll(true, true), m.settingsShown())
 }
 
 // parts are the lists the tab showing needs. A flow is open over the tab it
@@ -212,6 +221,16 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.refreshed(msg)
 	case reopenedMsg:
 		return m.reopened(msg)
+	case settingsLoadedMsg:
+		m.settingsLoaded(msg)
+	case settingsCheckedMsg:
+		return m.settingsChecked(msg)
+	case settingsSavedMsg:
+		return m.settingsSaved(msg)
+	case settingsHintMsg:
+		if msg.seq == m.settings.hintSeq && m.settings.input != nil {
+			m.settings.hint = msg.text
+		}
 	case runDoneMsg:
 		return m.runEnded(msg.run)
 	case runDetailMsg:
@@ -245,7 +264,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tea.PasteMsg:
 		if m.edit == nil && m.look == nil && m.match == nil && m.undo == nil {
 			m.libraryPaste(msg.Content)
-			return nil
+			return m.settingsPaste(msg.Content)
 		}
 		return m.toFlowForm(msg)
 	case libraryAlbumMsg:
@@ -274,6 +293,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		if m.undo != nil && !m.confirmQuit {
 			return m.undoKey(msg.String())
+		}
+		if m.tab == TabSettings && m.settings.input != nil && !m.confirmQuit && !m.help {
+			return m.settingsType(msg)
 		}
 		// Whatever a key types goes into the query: a word an input method
 		// commits comes as one key press of several characters.
@@ -317,6 +339,9 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	}
 	m.appliedSeq = r.seq
 	if r.err != nil {
+		if m.reopening {
+			return next
+		}
 		m.setToast(false, "Cannot read the library: %v", r.err)
 		m.readErr = true
 		return next
@@ -384,13 +409,17 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 // library is now.
 func (m *Model) shown() tea.Cmd {
 	if m.loaded && m.have.lacks(m.parts()) {
-		return m.poll(true, false)
+		return tea.Batch(m.poll(true, false), m.settingsShown())
 	}
-	return m.libraryShown()
+	return tea.Batch(m.libraryShown(), m.settingsShown())
 }
 
 func (m *Model) key(k string) tea.Cmd {
 	m.toast, m.readErr = "", false
+	// The setting a refused run points at, which 6 then goes to.
+	if m.refused != nil && m.refused.Setting != "" && k == "6" {
+		m.settingsTo(m.refused.Setting)
+	}
 	m.refused = nil
 	if m.confirmQuit {
 		m.confirmQuit = false
@@ -451,6 +480,11 @@ func (m *Model) key(k string) tea.Cmd {
 			return cmd
 		}
 	}
+	if m.tab == TabSettings && !m.help {
+		if cmd, ok := m.settingsKey(k); ok {
+			return cmd
+		}
+	}
 	if m.tab == TabHome && !m.help {
 		switch k {
 		case "o":
@@ -492,7 +526,7 @@ func (m *Model) key(k string) tea.Cmd {
 	case "R":
 		m.setToast(true, "Reloaded")
 		return m.poll(true, false)
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		m.switchTab(Tab(k[0] - '1'))
 	case "tab":
 		m.switchTab((m.tab + 1) % tabCount)

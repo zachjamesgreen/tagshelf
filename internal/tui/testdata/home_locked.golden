@@ -1,5 +1,5 @@
  tagshelf  D:\Music  library 3f2a1b2c
- 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs   6 Settings 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  Organize run in progress (pid 8812, started 2026-09-29 14:05): read-only until it ends 
  audio      ██████████████████████████████░░░░░░░░░░░░░░░░░░░░ 1,234 / 2,050 files
@@ -29,4 +29,4 @@ Needs attention
 
 
 
-read-only while another run holds the library lock   1-5 tabs  R reload  ? help  q quit
+read-only while another run holds the library lock   1-6 tabs  R reload  ? help  q quit

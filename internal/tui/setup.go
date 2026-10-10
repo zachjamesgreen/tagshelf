@@ -27,6 +27,9 @@ type NoLibrary struct {
 	// CanRun reports whether a run can be started all the same: the library
 	// folder is known, and a run would make its index.
 	CanRun bool
+	// Setting is the key of the setting that would put it right, empty when
+	// it is none.
+	Setting string
 }
 
 // StartError is why a run could not start, and what to do about it. A Runner
@@ -34,6 +37,8 @@ type NoLibrary struct {
 type StartError struct {
 	What string // a phrase without a full stop
 	Todo string // whole sentences, empty when there is nothing to do
+	// Setting is the key of the setting to change, empty when it is none.
+	Setting string
 }
 
 func (e *StartError) Error() string { return e.What }
@@ -73,6 +78,12 @@ func (m *Model) open(opts Options, first bool) {
 	m.header = Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: dryRun}
 	m.noLibrary = opts.NoLibrary
 	m.reopen = opts.Reopen
+	m.reopening = false
+	m.settingsSrc = opts.Settings
+	// With nothing to show and no run to start, the settings are where to go.
+	if first && opts.NoLibrary != nil && !opts.NoLibrary.CanRun && opts.Settings != nil {
+		m.tab = TabSettings
+	}
 	m.runner = opts.Runner
 	m.compilations = opts.Compilations
 	m.mb = nil
@@ -110,14 +121,9 @@ func (m *Model) openAgain() tea.Cmd {
 
 // reopened shows the library that was opened again.
 func (m *Model) reopened(msg reopenedMsg) tea.Cmd {
+	m.reopening = false
 	if msg.err != nil {
 		m.setToast(false, "Cannot open the library: %v", msg.err)
-		return nil
-	}
-	// Still none: what is on the screen stands, and so does the toast of the
-	// run that just ended.
-	if msg.opts.NoLibrary != nil && m.noLibrary != nil {
-		m.noLibrary = msg.opts.NoLibrary
 		return nil
 	}
 	m.open(msg.opts, false)
@@ -152,8 +158,12 @@ func (m *Model) refusalView(r *refusal) string {
 	w := max(m.width-2, 20)
 	what := "Cannot start the " + r.kind.String() + ": " + strings.TrimSuffix(clean(r.What), ".") + "."
 	out := badStyle.Render(wrapAll(what, w))
-	if r.Todo != "" {
-		out += "\n" + indent(wrapAll(clean(r.Todo), w-2))
+	todo := r.Todo
+	if r.Setting != "" && m.settingsSrc != nil {
+		todo = strings.TrimSpace(todo + " Press 6 to change it in Settings.")
+	}
+	if todo != "" {
+		out += "\n" + indent(wrapAll(clean(todo), w-2))
 	}
 	return out + "\n"
 }

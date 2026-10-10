@@ -37,6 +37,9 @@ type Options struct {
 	// ended, which may have made one. It is called off the UI goroutine; nil
 	// leaves the TUI with what it was started on.
 	Reopen func() (Options, error)
+	// Settings is the config file the Settings tab edits; nil leaves the
+	// tab with nothing to change.
+	Settings Settings
 
 	// source is read in place of Store when set: the tests' own.
 	source Source

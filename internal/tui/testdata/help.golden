@@ -1,15 +1,14 @@
  tagshelf  D:\Music  library 3f2a1b2c
- 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs 
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs   6 Settings 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Keys
-  1-5    switch tab (tab next, shift+tab previous)
+  1-6    switch tab (tab next, shift+tab previous)
   o      organize the configured source (Home)
   r      reorganize the library in place (Home)
   i      bring the index up to date, moving nothing (Home)
   d      turn dry run on or off (Home)
   ctrl+c interrupt the run going on
-  space  select the file (Untagged)
-  g      select the file's whole group (Untagged)
+  space  select the file, g its whole group (Untagged)
   v      group by original folder, album tag or nothing (Untagged)
   a      accept the tags of the selected files as they are (Untagged)
   e      edit the file's tags (Untagged, Library); ctrl+s saves
@@ -22,11 +21,12 @@ Keys
   b      keep both copies (Duplicates)
   c      confirm a possible group is one song (Duplicates)
   A      resolve all exact groups (Duplicates)
-  R      reload the library now
+  s      save the settings to the config file (Settings)
+  R      reload the library now, and on Settings the config file
   ?      show or hide this help
   esc    back
   q      quit
 
 The view reloads by itself when another tagshelf changes the library.
 
-esc back  1-5 tabs  R reload  ? help  q quit
+esc back  1-6 tabs  R reload  ? help  q quit

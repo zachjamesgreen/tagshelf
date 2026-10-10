@@ -40,6 +40,14 @@ _Avoid_: album lookup, batch tag
 Reversing a whole run or TUI action (its moves, cue rewrites and tag saves), skipping any file that has changed since; itself recorded as a run.
 _Avoid_: rollback, revert
 
+**Config file**:
+The YAML file tagshelf takes its settings from: the one named with `-config`, the `config.yaml` in the working directory, or the user's own under `%APPDATA%`.
+_Avoid_: configuration (for the file), preferences, options file
+
+**Settings**:
+The values in the config file, and the TUI tab that edits them. A flag can stand in for a setting for one session without changing the file.
+_Avoid_: config (for the tab), preferences, options
+
 **Library lock**:
 The exclusive hold one process takes on a library before changing any of its files; only one process holds it at a time.
 _Avoid_: run lock, mutex

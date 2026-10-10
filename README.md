@@ -6,7 +6,7 @@ tagshelf sorts audio files into a music library by their tags. It moves each fil
 
 ```text
  tagshelf  T:\Music  library 345d9616
- 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs
+ 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Duplicates (1 group to review)
   Song                                  Kind           Copies  Keeps
@@ -89,7 +89,7 @@ Say your unsorted music is in `D:\Incoming` and you want the library in `D:\Musi
    tagshelf tui -source D:\Incoming -dest D:\Music
    ```
 
-To avoid typing the folders each time, put them in a [config file](#config-file).
+To avoid typing the folders each time, put them in a [config file](#config-file). The quickest way is `tagshelf tui` with nothing after it: it opens on its Settings tab, where you type the two folders and press `s`.
 
 To tidy a library that is already in place, for example after retagging albums in another program:
 
@@ -207,7 +207,7 @@ tagshelf reads the first of these that exists:
 2. `config.yaml` in the folder it is started in;
 3. your own config file, `%APPDATA%\tagshelf\config.yaml`, so that tagshelf can be started from any folder.
 
-Flags override it. Copy [`config.example.yaml`](config.example.yaml) to start. The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
+Flags override it. To make one, use the [Settings tab](#settings) of the terminal UI, or copy [`config.example.yaml`](config.example.yaml). The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
 
 A `config.yaml` in the folder that is not YAML at all, such as one belonging to another program, is passed over with a warning.
 
@@ -245,13 +245,13 @@ tagshelf tui
 
 It opens on the library named by the flags or the config file, and can stay open while a run goes on in another window.
 
-It also opens when set-up is not finished, and Home then says what is missing: no library folder set, a config file it cannot read, or a library that has no index yet. In the last case `i` on Home indexes it, or `o` organizes the source into it, and the library is shown once the run has ended.
+It also opens when set-up is not finished. With no library folder set it opens on [Settings](#settings). On a library that has no index yet, Home says so: `i` indexes it, or `o` organizes the source into it, and the library is shown once the run has ended.
 
-A run that cannot start from Home says why and what to do, in place: no source folder set, a source folder that is not there, or another run working on the library.
+A run that cannot start from Home says why and what to do, in place: no source folder set, a source folder that is not there, or another run working on the library. Where a setting is the cause, `6` goes straight to it.
 
 ```text
  tagshelf  T:\Music  library 345d9616
- 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs
+ 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Library
   Library              2 files
@@ -264,7 +264,7 @@ Needs attention
   1 duplicate group to review                                3 Duplicates
 
 
-o organize  r reorganize  i index  d dry run   1-5 tabs  R reload  ? help  q quit
+o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q quit
 ```
 
 | Tab | What it is for |
@@ -274,10 +274,11 @@ o organize  r reorganize  i index  d dry run   1-5 tabs  R reload  ? help  q qui
 | **3 Duplicates** | Groups of copies waiting for a decision. |
 | **4 Library** | Search the library, and edit or re-match files in it. |
 | **5 Runs** | Every run and action, what each moved, and undo. |
+| **6 Settings** | The config file: folders and how runs behave. |
 
 | Key | What it does |
 |---|---|
-| `1`-`5`, `tab` | Switch tab. |
+| `1`-`6`, `tab` | Switch tab. |
 | `?` | Show every key. |
 | `q` | Quit. It asks first while a run or an action is going. |
 | `esc` | Back. |
@@ -306,8 +307,28 @@ o organize  r reorganize  i index  d dry run   1-5 tabs  R reload  ? help  q qui
 | **Runs** | |
 | `enter` | Open the run to see what it moved. |
 | `u` | Undo the run. Right after any action, `u` undoes that action. |
+| **Settings** | |
+| `enter` | Change the setting: type a value, or turn it on or off. |
+| `tab` | While typing a path, complete the folder name. |
+| `s` | Save to the config file. |
+| `esc` | Drop the changes that are not saved. |
 
 Once a file's tags qualify, saving them also moves it into the library. Every save shows where the file will go before you confirm.
+
+### Settings
+
+The Settings tab edits the config file tagshelf read: the one named with `-config`, the `config.yaml` in the folder, or else your own, `%APPDATA%\tagshelf\config.yaml`. The top line names it. If it does not exist yet, the first save makes it, from the same commented template as `config.example.yaml`, with dry run on so that the first run of a new set-up is a preview.
+
+- **Change several settings, then press `s`.** Changed rows are marked with `*`. Nothing is written before `s`, and leaving the tab with changes asks first.
+- **Paths can be typed or pasted.** `tab` completes a folder name, and a note under the field says whether the folder exists.
+- **A save is checked first.** A source folder that does not exist, a library folder inside the source, two folders that are the same, or a contact that is not an email address or URL is refused, with the reason beside the setting. Nothing is written until all of them pass.
+- **Some saves ask first.** A library folder that does not exist is made if you say yes. Changing the library folder of a library that is open says plainly that it opens a different library and moves no music.
+- **A save takes effect at once.** The library is opened again with the new settings. Saving is refused while a run or an action is going.
+- **Only the lines you changed are rewritten.** Comments, the order of the keys and everything else in the file stay as they were. If the file was changed in an editor since the tab read it, the save is refused so that neither set of changes is lost.
+- **A flag still wins for the session.** Started as `tagshelf tui -dest E:\Other`, the row shows both the file's value and the session's. What you save is the file's.
+- **Changing where files go does not move them.** After changing the compilations name or one of the three folders, press `r` on Home to reorganize.
+
+`d` on Home still turns dry run on or off for the session alone, without touching the file.
 
 ## MusicBrainz lookups
 
@@ -340,7 +361,7 @@ What undo does not do: bring back a file you deleted, or restore tags another pr
 
 | What | Where |
 |---|---|
-| Your config file | `%APPDATA%\tagshelf\config.yaml`, read when no other is named or found. tagshelf does not make it for you. |
+| Your config file | `%APPDATA%\tagshelf\config.yaml`, read when no other is named or found. The Settings tab makes it on the first save. |
 | Database (index and run history) | `%LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db`, unless `-db` or `database` says otherwise |
 | Database backups | Beside the database, as `tagshelf.db.bak-v<N>`, made before each upgrade |
 | Library ID | `.tagshelf-library` in the library folder |

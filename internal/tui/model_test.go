@@ -325,7 +325,8 @@ func TestTabKeys(t *testing.T) {
 		key  string
 		want Tab
 	}{
-		{"3", TabDuplicates}, {"5", TabRuns}, {"tab", TabHome}, {"shift+tab", TabRuns}, {"2", TabUntagged}, {"1", TabHome}, {"x", TabHome},
+		{"3", TabDuplicates}, {"5", TabRuns}, {"tab", TabSettings}, {"tab", TabHome}, {"shift+tab", TabSettings}, {"shift+tab", TabRuns},
+		{"6", TabSettings}, {"2", TabUntagged}, {"1", TabHome}, {"x", TabHome}, {"7", TabHome},
 	}
 	for _, s := range steps {
 		press(t, m, s.key)

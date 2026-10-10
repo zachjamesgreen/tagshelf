@@ -61,17 +61,17 @@ func TestTUIOpensWithoutALibrary(t *testing.T) {
 	}{
 		{"nothing set up at all", func(t *testing.T, tmp string) []string { return []string{"tui"} },
 			"no library folder is set",
-			[]string{`tagshelf tui -dest "D:\Music"`, `Or set destination in the config file APPDATA\tagshelf\config.yaml, which does not exist yet.`}, false},
+			[]string{`Press 6 to set it in Settings, which keeps it in the config file APPDATA\tagshelf\config.yaml, which does not exist yet.`, `tagshelf tui -dest "D:\Music"`}, false},
 		{"a config file that is named and not there yet", func(t *testing.T, tmp string) []string {
 			return []string{"tui", "-config", filepath.Join(tmp, "new.yaml")}
-		}, "no library folder is set", []string{"tagshelf tui -dest", `Or set destination in the config file TMP\new.yaml, which does not exist yet.`}, false},
+		}, "no library folder is set", []string{`Press 6 to set it in Settings, which keeps it in the config file TMP\new.yaml, which does not exist yet.`, "tagshelf tui -dest"}, false},
 		{"a config file without a destination", func(t *testing.T, tmp string) []string {
 			return []string{"tui", "-config", filepath.Join(tmp, "empty.yaml")}
-		}, "no library folder is set", []string{"tagshelf tui -dest", `Or set destination in the config file TMP\empty.yaml.`}, false},
+		}, "no library folder is set", []string{`Press 6 to set it in Settings, which keeps it in the config file TMP\empty.yaml.`, "tagshelf tui -dest"}, false},
 		{"a config file that is not YAML", func(t *testing.T, tmp string) []string {
 			writeFile(t, filepath.Join(tmp, "bad.yaml"), "destination: [\n")
 			return []string{"tui", "-config", filepath.Join(tmp, "bad.yaml"), "-dest", filepath.Join(tmp, "lib")}
-		}, `the config file TMP\bad.yaml is not valid YAML: `, []string{"Fix the file, then start tagshelf tui again."}, false},
+		}, `the config file TMP\bad.yaml is not valid YAML: `, []string{"Fix the file in an editor, then press R on 6 Settings to read it again."}, false},
 		{"a library folder that is not there", func(t *testing.T, tmp string) []string {
 			return []string{"tui", "-config", filepath.Join(tmp, "empty.yaml"), "-dest", filepath.Join(tmp, "lib")}
 		}, `the library folder TMP\lib does not exist yet`, []string{"Press i to make it, as an empty library."}, true},
@@ -115,7 +115,7 @@ func TestTUIOpensWithoutALibrary(t *testing.T) {
 				t.Errorf("what to do offers to organize the library into itself:\n%s", todo)
 			}
 			// A run can be started exactly when there is a library folder.
-			if (shown.Runner != nil) != tt.canRun || shown.Reopen == nil {
+			if (shown.Runner != nil) != tt.canRun || shown.Reopen == nil || shown.Settings == nil {
 				t.Errorf("runner %v, reopen set %t; want a runner only with a library folder, and a way to open again", shown.Runner, shown.Reopen != nil)
 			}
 			if !tt.canRun && shown.Destination != "" {
