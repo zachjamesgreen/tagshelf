@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,14 +15,18 @@ import (
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/store"
 	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
 
 // TestMain keeps every test of the package away from the user's own files.
 // go test starts in the repository root, where a config.yaml would be the
 // owner's real one, and tagshelf picks that file up when -config is left out;
 // its databases go under the user's application data unless told otherwise.
-// So the tests run in an empty folder with the data folders in a temp dir,
-// and no test has to remember to pass -config or to move the data folder.
+// When the working directory has no config.yaml it reads the user's own
+// config file, under the user's settings. So the tests run in an empty folder
+// with the data and settings folders in a temp dir, and no test has to
+// remember to pass -config or to move a folder. Nor is any test taken for a
+// double click, whatever console go test was started from.
 func TestMain(m *testing.M) {
 	os.Exit(testMain(m))
 }
@@ -39,13 +44,21 @@ func testMain(m *testing.M) int {
 	}
 	defer os.RemoveAll(tmp)
 	defer os.Chdir(start) // a folder cannot be removed from inside it
-	work, data := filepath.Join(tmp, "work"), filepath.Join(tmp, "data")
+	work, data, settings := filepath.Join(tmp, "work"), filepath.Join(tmp, "data"), filepath.Join(tmp, "settings")
+	ownConsole = func() bool { return false }
+	waitForEnter = func() {}
+	// The TUI needs a terminal, and would wait on one for good: a test that
+	// means to open it puts its own stand-in here.
+	showTUI = func(context.Context, tui.Options) error { return errors.New("the tests have no terminal") }
 	for _, step := range []func() error{
 		func() error { return os.Mkdir(work, 0o755) },
 		func() error { return os.Mkdir(data, 0o755) },
+		func() error { return os.Mkdir(settings, 0o755) },
 		func() error { return os.Chdir(work) },
 		func() error { return os.Setenv("LOCALAPPDATA", data) },
 		func() error { return os.Setenv("XDG_DATA_HOME", data) },
+		func() error { return os.Setenv("APPDATA", settings) },
+		func() error { return os.Setenv("XDG_CONFIG_HOME", settings) },
 	} {
 		if err := step(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -68,6 +81,11 @@ func TestTestsRunAwayFromTheUsersFiles(t *testing.T) {
 	}
 	if !strings.Contains(wd, "tagshelf-test-") {
 		t.Errorf("the tests run in %q, want a temp folder", wd)
+	}
+	if user, err := config.UserPath(); err != nil || !strings.Contains(user, "tagshelf-test-") {
+		t.Errorf("the user's config file is %q, %v; want one in a temp folder", user, err)
+	} else if _, err := os.Stat(user); !os.IsNotExist(err) {
+		t.Errorf("the user's config file is there before any test made it: %v", err)
 	}
 
 	// With no -config and no -dest there is nothing to say where the library
@@ -196,10 +214,29 @@ func TestRunRefusesAConfigFileWithAnUnknownKey(t *testing.T) {
 
 				ctx, cancel := context.WithTimeout(context.Background(), refusalTimeout)
 				defer cancel()
+				const want = `unknown key "dry-run" on line 2`
+				if command != nil {
+					// The TUI opens all the same, on what is wrong with the
+					// file: with no library, and no way to start a run.
+					var shown tui.Options
+					real := showTUI
+					defer func() { showTUI = real }()
+					showTUI = func(_ context.Context, opts tui.Options) error {
+						shown = opts
+						return nil
+					}
+					if got := run(ctx, args); got != exitOK {
+						t.Errorf("run(%q) = %d, want %d\n%s", args, got, exitOK, logs)
+					}
+					if n := shown.NoLibrary; n == nil || !strings.Contains(n.What, want) || n.CanRun || shown.Runner != nil || shown.Store != nil {
+						t.Errorf("the TUI was opened with %+v (no library %+v), want only what is wrong with the config file", shown, n)
+					}
+					return
+				}
 				if got := run(ctx, args); got != exitCannotStart {
 					t.Errorf("run(%q) = %d, want %d", args, got, exitCannotStart)
 				}
-				if want := `unknown key "dry-run" on line 2`; !strings.Contains(logs.String(), want) {
+				if !strings.Contains(logs.String(), want) {
 					t.Errorf("log %q lacks %q", logs, want)
 				}
 				if _, err := os.Stat(song); err != nil {

@@ -3,6 +3,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -148,60 +149,143 @@ type Overrides struct {
 // Find reports the config file Load reads when given configPath: that file,
 // which is then explicit, or else a config.yaml in the working directory if
 // one is there. path is empty when there is none.
-func Find(configPath string) (path string, explicit bool) {
-	if configPath != "" {
-		return configPath, true
-	}
-	if _, err := os.Stat(DefaultConfigName); err == nil {
-		return DefaultConfigName, false
-	}
-	return "", false
+// From says how a config file was found.
+type From int
+
+const (
+	// FromNowhere is no config file at all.
+	FromNowhere From = iota
+	// FromFlag is the file named with -config.
+	FromFlag
+	// FromWorkingDir is a config.yaml in the working directory.
+	FromWorkingDir
+	// FromUser is the user's own config file, at UserPath.
+	FromUser
+)
+
+// File is a config file as it was found and read.
+type File struct {
+	// Path is the file, empty when there is none.
+	Path string
+	From From
+	// Config is what the file sets, zero when it could not be read.
+	Config Config
+	// Skipped says why a config.yaml in the working directory was passed
+	// over, empty when none was.
+	Skipped string
 }
 
-// Load merges a YAML config file with the CLI overrides. configPath is the
-// path passed to -config; when it is empty a config.yaml in the working
-// directory is picked up if one happens to be there.
+// userDir is the folder of the user's own settings. The tests put a temp
+// folder in its place.
+var userDir = os.UserConfigDir
+
+// UserPath is the user's own config file: %APPDATA%\tagshelf\config.yaml. It
+// is read when no file is named and the working directory has none, so that
+// tagshelf can be started from any folder, and it is the file the terminal UI
+// writes when there is no other.
+func UserPath() (string, error) {
+	dir, err := userDir()
+	if err != nil {
+		return "", fmt.Errorf("finding the folder of your settings: %w", err)
+	}
+	return filepath.Join(dir, "tagshelf", DefaultConfigName), nil
+}
+
+// Read finds the config file and reads it. configPath is the path passed to
+// -config; when it is empty, a config.yaml in the working directory is read
+// if one is there, and else the file at UserPath if that is there.
 //
 // A config file the user asked for by name is mandatory: failing to read or
 // parse it is an error, because its dry_run setting may be the only thing
-// standing between the user and a destructive run. A file merely discovered in
-// the working directory is advisory and is ignored (with a warning) if it
-// cannot be read or parsed, as when it belongs to some other program.
+// standing between the user and a destructive run. When it does not exist the
+// error is an fs.ErrNotExist. The file at UserPath is tagshelf's own, and as
+// mandatory once it exists.
 //
-// A key tagshelf does not know is an error in either file, for the same
-// reason: a misspelt dry_run must not be dropped in silence.
-func Load(configPath string, ov Overrides) (Config, error) {
-	var cfg Config
-
-	configPath, explicit := Find(configPath)
-
+// A file merely discovered in the working directory is advisory, and is
+// passed over if it cannot be read or parsed, as when it belongs to some
+// other program: File.Skipped then says why.
+//
+// A key tagshelf does not know is an error in any of them, for the same
+// reason as above: a misspelt dry_run must not be dropped in silence.
+//
+// With an error, the File still names the file at fault.
+func Read(configPath string) (File, error) {
 	if configPath != "" {
-		data, err := os.ReadFile(configPath)
-		switch {
-		case err != nil && explicit:
-			return Config{}, fmt.Errorf("the config file %s cannot be read: %w", configPath, err)
-		case err != nil:
-			log.Printf("Warning: ignoring unreadable config file %q: %v\n", configPath, err)
-		default:
-			err := parse(data, &cfg)
-			if unknown, ok := err.(*unknownKeyError); ok {
-				return Config{}, fmt.Errorf("the config file %s has %w", configPath, unknown)
-			}
-			if err != nil {
-				if explicit {
-					return Config{}, fmt.Errorf("the config file %s is not valid YAML: %w", configPath, err)
-				}
-				log.Printf("Warning: ignoring unparsable %s in working directory: %v\n", configPath, err)
-				cfg = Config{}
-			} else if !explicit {
-				abs, absErr := filepath.Abs(configPath)
-				if absErr != nil {
-					abs = configPath
-				}
-				log.Printf("Using config file discovered in working directory: %s\n", abs)
-			}
-		}
+		f := File{Path: configPath, From: FromFlag}
+		err := f.read()
+		return f, err
 	}
+
+	var skipped string
+	if _, err := os.Stat(DefaultConfigName); err == nil {
+		f := File{Path: DefaultConfigName, From: FromWorkingDir}
+		if abs, err := filepath.Abs(f.Path); err == nil {
+			f.Path = abs
+		}
+		err := f.read()
+		var unknown *unknownKeyError
+		if err == nil || errors.As(err, &unknown) {
+			return f, err
+		}
+		skipped = err.Error()
+	}
+
+	user, err := UserPath()
+	if err != nil {
+		// Without a place for it there is no such file to read.
+		return File{Skipped: skipped}, nil
+	}
+	if _, err := os.Stat(user); err != nil {
+		return File{Skipped: skipped}, nil
+	}
+	f := File{Path: user, From: FromUser, Skipped: skipped}
+	err = f.read()
+	return f, err
+}
+
+// read reads the file at f.Path into f.Config.
+func (f *File) read() error {
+	data, err := os.ReadFile(f.Path)
+	if err != nil {
+		return fmt.Errorf("the config file %s cannot be read: %w", f.Path, err)
+	}
+	var cfg Config
+	err = parse(data, &cfg)
+	var unknown *unknownKeyError
+	switch {
+	case errors.As(err, &unknown):
+		return fmt.Errorf("the config file %s has %w", f.Path, unknown)
+	case err != nil:
+		return fmt.Errorf("the config file %s is not valid YAML: %w", f.Path, err)
+	}
+	f.Config = cfg
+	return nil
+}
+
+// Load reads the config file Read finds for configPath and merges it with
+// the CLI overrides. It logs which file it used when the user did not name
+// one, and why it passed over a config.yaml in the working directory.
+func Load(configPath string, ov Overrides) (Config, error) {
+	f, err := Read(configPath)
+	if f.Skipped != "" {
+		log.Printf("Warning: ignoring the %s in the working directory: %s\n", DefaultConfigName, f.Skipped)
+	}
+	if err != nil {
+		return Config{}, err
+	}
+	switch f.From {
+	case FromWorkingDir:
+		log.Printf("Using config file discovered in working directory: %s\n", f.Path)
+	case FromUser:
+		log.Printf("Using your config file: %s\n", f.Path)
+	}
+	return f.Config.With(ov), nil
+}
+
+// With is the config with the settings typed on the command line in place of
+// its own.
+func (c Config) With(ov Overrides) Config {
+	cfg := c
 
 	// CLI flags override config file
 	if ov.Source != "" {
@@ -238,5 +322,5 @@ func Load(configPath string, ov Overrides) (Config, error) {
 		cfg.Database = ov.Database
 	}
 
-	return cfg, nil
+	return cfg
 }

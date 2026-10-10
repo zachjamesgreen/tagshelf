@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -144,10 +143,19 @@ func (f *libraryFlags) overrides() config.Overrides {
 
 // run parses args, does one run (or, for `tagshelf tui`, shows the TUI) and
 // returns the process exit code. With no arguments at all it only shows the
-// help: a run is never started by a config file that happens to be in the
-// working directory, without a word typed to ask for it.
+// help, or the TUI when it was started by a double click: a run is never
+// started by a config file alone, without a word typed to ask for it.
 func run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
+		// Started by a double click there is nobody to read the help: the
+		// window closes with the program. The terminal UI opens instead.
+		if ownConsole() {
+			code := runTUI(ctx, nil)
+			if code != exitOK && code != exitInterrupted {
+				waitForEnter()
+			}
+			return code
+		}
 		set := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
 		organizeFlags(set).help.write(stdout, set, "")
 		return exitOK
@@ -157,7 +165,7 @@ func run(ctx context.Context, args []string) int {
 	}
 	// -version alone, so that it never starts a run beside a config file.
 	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {
-		fmt.Println("tagshelf", version.String())
+		fmt.Fprintln(stdout, "tagshelf", version.String())
 		return exitOK
 	}
 	set := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
@@ -200,8 +208,8 @@ func run(ctx context.Context, args []string) int {
 		return cannotStart(err.Error(), "Check the path.")
 	}
 	if !*indexFlag {
-		if code, ok := sourceIsAFolder(cfg.Source); !ok {
-			return code
+		if p := sourceProblem(cfg.Source); p != nil {
+			return p.print()
 		}
 	}
 
@@ -268,22 +276,6 @@ func organizeFlags(set *flag.FlagSet) *libraryFlags {
 	flags.index = set.Bool("index", false, "Only bring the library's index up to date, and move nothing. Needs only -dest.")
 	flags.rescan = set.Bool("rescan", false, "Read every file into the index again, even one whose size and date have not changed.")
 	return flags
-}
-
-// sourceIsAFolder checks that the source of a run is a folder that is there.
-// When it is not, ok is false and code the exit code.
-func sourceIsAFolder(source string) (code int, ok bool) {
-	const todo = "Check the path given with -source, or as source in the config file."
-	info, err := os.Stat(source)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return cannotStart("the source folder "+source+" does not exist", todo), false
-	case err != nil:
-		return cannotStart(fmt.Sprintf("the source folder cannot be read: %v", err), todo), false
-	case !info.IsDir():
-		return cannotStart("the source "+source+" is a file, not a folder", todo), false
-	}
-	return 0, true
 }
 
 // absolutePaths makes the folders and database a run uses absolute, so that

@@ -278,7 +278,7 @@ func TestLoadConfigForeignDiscoveredFileIsIgnored(t *testing.T) {
 	if want := (Config{Source: "C:\\Src"}); !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want only the CLI flags: %+v", cfg, want)
 	}
-	if !strings.Contains(logs.String(), "Warning: ignoring unparsable config.yaml") {
+	if !strings.Contains(logs.String(), "Warning: ignoring the config.yaml in the working directory: ") {
 		t.Errorf("log %q does not warn that the file was ignored", logs)
 	}
 

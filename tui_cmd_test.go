@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,21 @@ import (
 // it would otherwise sit on the console until go test gave up.
 const refusalTimeout = 5 * time.Second
 
+// tuiConfig works out the configuration `tagshelf tui` started with args
+// goes by. ok is false when the arguments are refused or there is no library
+// folder to go by, and code is then the exit code.
+func tuiConfig(args []string) (cfg config.Config, code int, ok bool) {
+	flags := tuiFlags(flag.NewFlagSet("tagshelf tui", flag.ContinueOnError))
+	if code, done := flags.parse(args); done {
+		return config.Config{}, code, false
+	}
+	cfg, none, err := (&tuiSession{flags: flags}).settings()
+	if err != nil || none != nil {
+		return cfg, exitCannotStart, false
+	}
+	return cfg, exitOK, true
+}
+
 func TestRunTUIRefusesToStart(t *testing.T) {
 	// indexed makes tmp/lib a library with its database at tmp/tagshelf.db.
 	indexed := func(t *testing.T, tmp, config string) (lib, db string) {
@@ -41,18 +57,12 @@ func TestRunTUIRefusesToStart(t *testing.T) {
 		args func(t *testing.T, tmp, config string) []string
 		log  string // part of the error logged, if any
 	}{
-		{"no destination", func(t *testing.T, tmp, config string) []string {
-			return []string{"tui", "-config", config}
-		}, "tagshelf cannot start: no library folder is set."},
 		{"unknown flag", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-no-such-flag", tmp}
 		}, "tagshelf cannot start: there is no flag -no-such-flag."},
 		{"stray argument", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-dest", tmp, "extra", "-dry-run"}
 		}, `tagshelf cannot start: unexpected argument "extra": tagshelf tui takes only flags.`},
-		{"library without an index", func(t *testing.T, tmp, config string) []string {
-			return []string{"tui", "-config", config, "-dest", filepath.Join(tmp, "lib")}
-		}, "Make one first: tagshelf -index -dest"},
 		{"database from a newer tagshelf", func(t *testing.T, tmp, config string) []string {
 			lib, db := indexed(t, tmp, config)
 			setUserVersion(t, db, 1000)
@@ -335,12 +345,15 @@ func TestTUIRunnerRuns(t *testing.T) {
 func TestTUIRunnerRefuses(t *testing.T) {
 	tmp, _, _ := cliEnv(t)
 	r, _ := tuiRunnerFor(t, tmp, "")
-	if _, err := r.Run(context.Background(), tui.RunOrganize, false, func(engine.Event) {}); err == nil || !strings.Contains(err.Error(), "no source directory") {
+	if _, err := r.Run(context.Background(), tui.RunOrganize, false, func(engine.Event) {}); err == nil || err.Error() != "no source folder is set" {
 		t.Errorf("organize without a source: %v", err)
 	}
 
 	// Another holder of the library lock: here, this process's own open.
 	r, lib := tuiRunnerFor(t, tmp, filepath.Join(tmp, "src"))
+	if err := os.Mkdir(filepath.Join(tmp, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	held, err := store.OpenLibrary(lib, r.cfg.Database, false)
 	if err != nil {
 		t.Fatal(err)

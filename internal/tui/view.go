@@ -156,6 +156,9 @@ func fitLines(s string, w, h int) string {
 
 func (m *Model) headerLine() string {
 	line := boldStyle.Render(" tagshelf ") + " " + m.header.Destination
+	if m.noLibrary != nil && m.header.Destination == "" {
+		line += dimStyle.Render("no library yet")
+	}
 	if id := m.header.LibraryID; id != "" {
 		if len(id) > 8 {
 			id = id[:8]
@@ -191,7 +194,7 @@ func (m *Model) tabsLine() string {
 
 // tabCount is the live count a tab shows, if it has one.
 func (m *Model) tabCount(t Tab) (int64, bool) {
-	if !m.loaded {
+	if !m.loaded || m.noLibrary != nil {
 		return 0, false
 	}
 	switch t {
@@ -270,6 +273,9 @@ func (m *Model) tabBody(h int) string {
 	if m.seen.lacks(m.parts()) {
 		return dimStyle.Render("Reading the library…")
 	}
+	if m.noLibrary != nil && m.tab != TabHome {
+		return dimStyle.Render("No library yet: see 1 Home.")
+	}
 	switch m.tab {
 	case TabHome:
 		return m.homeBody()
@@ -288,11 +294,18 @@ func (m *Model) tabBody(h int) string {
 func (m *Model) homeBody() string {
 	o := m.snap.Overview
 	var b strings.Builder
+	if m.refused != nil {
+		b.WriteString(m.refusalView(m.refused) + "\n")
+	}
 	switch {
 	case m.run != nil:
 		b.WriteString(m.runView(m.run) + "\n")
 	case m.last != nil:
 		b.WriteString(m.lastRunView(m.last) + "\n")
+	}
+	if m.noLibrary != nil {
+		b.WriteString(m.noLibraryView())
+		return b.String()
 	}
 	b.WriteString(boldStyle.Render("Library") + "\n")
 	counts := []struct {

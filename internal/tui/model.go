@@ -73,6 +73,13 @@ type Model struct {
 
 	loc *time.Location // where times are shown
 
+	// noLibrary says why there is no library to show, nil when there is one.
+	noLibrary *NoLibrary
+	// reopen opens the library again; nil when there is no way to.
+	reopen func() (Options, error)
+	// refused is the run that could not start, shown until the next key.
+	refused *refusal
+
 	runner      Runner
 	run         *liveRun // the run this TUI started, nil when none is going
 	last        *lastRun // how the latest run this TUI started ended
@@ -203,6 +210,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.poll(false, true)
 	case refreshMsg:
 		return m.refreshed(msg)
+	case reopenedMsg:
+		return m.reopened(msg)
 	case runDoneMsg:
 		return m.runEnded(msg.run)
 	case runDetailMsg:
@@ -382,6 +391,7 @@ func (m *Model) shown() tea.Cmd {
 
 func (m *Model) key(k string) tea.Cmd {
 	m.toast, m.readErr = "", false
+	m.refused = nil
 	if m.confirmQuit {
 		m.confirmQuit = false
 		switch k {

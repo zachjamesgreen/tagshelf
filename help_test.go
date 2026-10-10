@@ -56,7 +56,8 @@ func TestHelpScreen(t *testing.T) {
 		for _, want := range []string{
 			"Usage:\n  " + name + " [flags]", "Examples:\n", "\nFolders:\n",
 			"  -source <folder>  ", "  -compilations <name>  ", "  -workers <n>  ", "  -dry-run  ", "  -config <file>  ",
-			"  -h  ", "\nConfig file:\n  None: no -config was given, and this folder has no config.yaml.\n",
+			"  -h  ", "\nConfig file:\n  None: no -config was given, and this folder has no config.yaml.\n  Your own config file would be " +
+				filepath.Join(os.Getenv("APPDATA"), "tagshelf", "config.yaml") + "\n",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: the help lacks %q:\n%s", name, want, got)
@@ -65,7 +66,9 @@ func TestHelpScreen(t *testing.T) {
 		if strings.Contains(got, "`") {
 			t.Errorf("%s: the help shows a backquote of a usage text:\n%s", name, got)
 		}
-		for _, line := range strings.Split(got, "\n") {
+		// The config file's path is as long as it is.
+		flagsPart, _, _ := strings.Cut(got, "\nConfig file:\n")
+		for _, line := range strings.Split(flagsPart, "\n") {
 			// The default database path is one word, longer than a line.
 			if len(line) > helpWidth && !strings.Contains(line, "%LOCALAPPDATA%") {
 				t.Errorf("%s: a line of help is %d wide, want at most %d: %q", name, len(line), helpWidth, line)
@@ -160,7 +163,13 @@ func TestHelpGoesWhereItWasAskedFor(t *testing.T) {
 			{[]string{"-config", config, "-workers"}, "tagshelf cannot start: the flag -workers needs a value after it.\nThe flags are listed above.\n"},
 			{[]string{"-config", config, "-dry-run", "yes"}, "tagshelf cannot start: unexpected argument \"yes\": " + name + " takes only flags.\n" +
 				"A flag that is on or off is written -flag or -flag=false, with no value after it.\n"},
-			{[]string{"-config", config, "-source", t.TempDir()}, "tagshelf cannot start: no library folder is set.\n" + noDestinationTodo + "\n"},
+		}
+		if command == nil {
+			// The TUI opens without a library folder, and says so itself.
+			mistakes = append(mistakes, struct {
+				args []string
+				last string
+			}{[]string{"-config", config, "-source", t.TempDir()}, "tagshelf cannot start: no library folder is set.\n" + noDestinationTodo + "\n"})
 		}
 		for _, m := range mistakes {
 			out.Reset()

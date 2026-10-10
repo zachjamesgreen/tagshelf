@@ -49,7 +49,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
 ### Download
 
 1. Go to [Releases](https://github.com/zachjamesgreen/tagshelf/releases) and download `tagshelf-<version>-windows-amd64.zip`.
-2. Unzip it anywhere and run `tagshelf.exe` from a terminal (Windows Terminal or PowerShell).
+2. Unzip it anywhere and run `tagshelf.exe` from a terminal (Windows Terminal or PowerShell). Double-clicking it opens the [terminal UI](#the-terminal-ui) in a window of its own.
 
 The exe is not code-signed, so Windows SmartScreen may warn the first time you run it. To check that the download is the one published here, compare its SHA-256 with the `.sha256` file beside it on the release page:
 
@@ -159,7 +159,7 @@ tagshelf -version
 tagshelf -h               the help; tagshelf tui -h for the terminal UI's
 ```
 
-`tagshelf` with nothing after it prints the help and does nothing else. It takes at least one flag to start a run, even when a config file holds every setting: `tagshelf -config config.yaml`, or `tagshelf -dry-run` beside a `config.yaml`.
+`tagshelf` with nothing after it prints the help and does nothing else. (Started by a double click, where the help would vanish with the window, it opens the terminal UI instead.) It takes at least one flag to start a run, even when a config file holds every setting: `tagshelf -config config.yaml`, or `tagshelf -dry-run` beside a `config.yaml`.
 
 A command that was typed wrong (a flag tagshelf does not have, a word that is not a flag, no source or library folder) prints the help and then what was wrong. Any other reason a run cannot start is printed as two lines, what is wrong and what to do about it:
 
@@ -201,7 +201,15 @@ Ctrl-C stops a run after the files it is in the middle of. A second Ctrl-C exits
 
 ## Config file
 
-tagshelf reads `config.yaml` from the folder it is started in, or the file named with `-config`. Flags override it. Copy [`config.example.yaml`](config.example.yaml) to start. The last lines of `tagshelf -h` name the config file that would be read.
+tagshelf reads the first of these that exists:
+
+1. the file named with `-config`;
+2. `config.yaml` in the folder it is started in;
+3. your own config file, `%APPDATA%\tagshelf\config.yaml`, so that tagshelf can be started from any folder.
+
+Flags override it. Copy [`config.example.yaml`](config.example.yaml) to start. The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
+
+A `config.yaml` in the folder that is not YAML at all, such as one belonging to another program, is passed over with a warning.
 
 A config file alone does not start a run: see [Command line](#command-line).
 
@@ -236,6 +244,10 @@ tagshelf tui
 ```
 
 It opens on the library named by the flags or the config file, and can stay open while a run goes on in another window.
+
+It also opens when set-up is not finished, and Home then says what is missing: no library folder set, a config file it cannot read, or a library that has no index yet. In the last case `i` on Home indexes it, or `o` organizes the source into it, and the library is shown once the run has ended.
+
+A run that cannot start from Home says why and what to do, in place: no source folder set, a source folder that is not there, or another run working on the library.
 
 ```text
  tagshelf  T:\Music  library 345d9616
@@ -328,6 +340,7 @@ What undo does not do: bring back a file you deleted, or restore tags another pr
 
 | What | Where |
 |---|---|
+| Your config file | `%APPDATA%\tagshelf\config.yaml`, read when no other is named or found. tagshelf does not make it for you. |
 | Database (index and run history) | `%LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db`, unless `-db` or `database` says otherwise |
 | Database backups | Beside the database, as `tagshelf.db.bak-v<N>`, made before each upgrade |
 | Library ID | `.tagshelf-library` in the library folder |
@@ -339,7 +352,7 @@ Only one tagshelf changes a library at a time. A second run on the same library 
 
 The index is only a record of the files. If the database is lost, `tagshelf -index -dest D:\Music` rebuilds it; the run history, and so the ability to undo earlier runs, is what would be gone.
 
-To stop using tagshelf, delete the database folder and the two `.tagshelf-` files in the library. Your music stays as it is. The only thing tagshelf leaves in the files is the manual marker, a tag named `TAGSHELF_MANUAL`.
+To stop using tagshelf, delete the database folder, your config file and the two `.tagshelf-` files in the library. Your music stays as it is. The only thing tagshelf leaves in the files is the manual marker, a tag named `TAGSHELF_MANUAL`.
 
 ## Building and testing
 
