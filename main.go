@@ -14,6 +14,7 @@ import (
 	"tagshelf/internal/engine"
 	"tagshelf/internal/rules"
 	"tagshelf/internal/store"
+	"tagshelf/internal/tagwrite"
 )
 
 func main() {
@@ -266,5 +267,10 @@ func engineOptions(cfg config.Config) engine.Options {
 		DryRun:        cfg.DryRun,
 		NoCueRewrite:  !cfg.RewriteCues(),
 		NoAutoResolve: !cfg.AutoResolvesExact(),
+		// The temporary copies of a tag save that crashed, which only
+		// tagwrite can tell from a save going on now.
+		RemoveStaleCopies: func(dir string) ([]string, error) {
+			return tagwrite.RemoveStaleCopies(dir, tagwrite.StaleAfter)
+		},
 	}
 }

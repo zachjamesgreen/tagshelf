@@ -8,11 +8,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"tagshelf/internal/config"
 	"tagshelf/internal/engine"
 	"tagshelf/internal/fixtures"
 	"tagshelf/internal/store"
+	"tagshelf/internal/tagwrite"
 )
 
 // TestMain keeps every test of the package away from the user's own files.
@@ -326,7 +328,14 @@ func TestEngineOptions(t *testing.T) {
 		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates",
 		Compilations: "comps", Workers: 7, DryRun: true, NoCueRewrite: true, NoAutoResolve: true,
 	}
-	if got := engineOptions(cfg); !reflect.DeepEqual(got, want) {
+	got := engineOptions(cfg)
+	// A function compares equal to nothing: that the run is given the one
+	// that clears a crashed tag save's copies is TestRunRemovesStaleCopies.
+	if got.RemoveStaleCopies == nil {
+		t.Error("engineOptions leaves RemoveStaleCopies nil: a crashed tag save's copies would never be removed")
+	}
+	got.RemoveStaleCopies = nil
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("engineOptions = %+v\nwant           %+v", got, want)
 	}
 
@@ -388,6 +397,49 @@ func TestRunHandsItsSettingsToTheEngine(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "Untagged files moved:     1") || !strings.Contains(logs.String(), "Duplicates moved:         0") {
 		t.Errorf("want the incoming copy moved as untagged, not as a duplicate:\n%s", logs)
+	}
+}
+
+// TestRunRemovesStaleCopies checks that a real run clears out the copy a tag
+// save that crashed left beside a file, once it is old enough not to belong
+// to a save going on now, and that a dry run does not. The library's ID and
+// lock files, which carry the same prefix, stay.
+func TestRunRemovesStaleCopies(t *testing.T) {
+	for _, dry := range []bool{true, false} {
+		tmp, config, logs := cliEnv(t)
+		writeFile(t, config, "")
+		src, lib := filepath.Join(tmp, "src"), filepath.Join(tmp, "lib")
+		writeFile(t, filepath.Join(src, "Rip", "loose.mp3"), "no tags")
+		stale := filepath.Join(src, "Rip", ".tagshelf-123456.mp3")
+		writeFile(t, stale, "half a save")
+		fresh := filepath.Join(src, "Rip", ".tagshelf-654321.mp3")
+		writeFile(t, fresh, "a save going on")
+		old := time.Now().Add(-2 * tagwrite.StaleAfter)
+		if err := os.Chtimes(stale, old, old); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"-config", config, "-source", src, "-dest", lib, fmt.Sprintf("-dry-run=%t", dry)}
+		if got := run(context.Background(), args); got != exitOK {
+			t.Fatalf("dry %t: run = %d\n%s", dry, got, logs)
+		}
+		_, err := os.Stat(stale)
+		if removed := os.IsNotExist(err); removed == dry {
+			t.Errorf("dry %t: the stale copy removed: %t (%v)\n%s", dry, removed, err, logs)
+		}
+		if _, err := os.Stat(fresh); err != nil {
+			t.Errorf("dry %t: the copy of a save going on now was removed: %v", dry, err)
+		}
+		if dry {
+			continue
+		}
+		if !strings.Contains(logs.String(), "Removed the temporary copy a crash left at") {
+			t.Errorf("the log does not say what was removed:\n%s", logs)
+		}
+		for _, own := range []string{store.LibraryIDFile, store.LibraryLockFile} {
+			if _, err := os.Stat(filepath.Join(lib, own)); err != nil {
+				t.Errorf("the library's %s after the run: %v", own, err)
+			}
+		}
 	}
 }
 

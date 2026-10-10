@@ -199,6 +199,14 @@ func (s *cliSink) warning(e engine.Warning) {
 		s.lg.Printf("Warning: not rewriting cue sheet %q: %q is not next to it after the move\n", e.Path, e.Name)
 	case engine.WarnCueEncoding:
 		s.lg.Printf("Warning: not rewriting cue sheet %q: it is not UTF-8 and %q is not plain ASCII\n", e.Path, e.Name)
+	case engine.WarnLinkSkipped:
+		s.lg.Printf("Warning: leaving %q where it is: it is a link or junction to a folder, or to something that cannot be read\n", e.Path)
+	case engine.WarnStaleCopy:
+		if e.Err != nil {
+			s.lg.Printf("Warning: could not remove the temporary copy a crash left at %q: %v\n", e.Path, e.Err)
+		} else {
+			s.lg.Printf("Removed the temporary copy a crash left at %q\n", e.Path)
+		}
 	}
 }
 
