@@ -1,6 +1,7 @@
 package tagwrite
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -40,6 +41,9 @@ func toAPE(v Values) map[string][]string {
 	set := map[string][]string{}
 	for field, vs := range v {
 		keys := apeKeys[field]
+		if keys == nil {
+			continue // a number's stored form: the ID3v2 tag's, not this one's
+		}
 		set[keys[0]] = vs
 		for _, k := range keys[1:] {
 			set[k] = nil
@@ -118,6 +122,11 @@ func apeUpToDate(path string, want Values) bool {
 // the fields from it as it does from the ID3v2 tag.
 func verifyAPE(path string, want Values) error {
 	md, err := readAPE(path)
+	if errors.Is(err, tag.ErrNoTagsFound) && wantsNothing(want) {
+		// A restore that takes the last item away takes the tag away: the
+		// file had other tags in ID3v2 only.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("%w: the APEv2 tag: %v", ErrNotVerified, err)
 	}
@@ -129,6 +138,9 @@ func verifyAPE(path string, want Values) error {
 	}
 	got := fromAPE(md.Raw(), slices.Collect(maps.Keys(want)))
 	for field, vs := range want {
+		if apeKeys[field] == nil {
+			continue // a number's stored form: the ID3v2 tag's, not this one's
+		}
 		if !slices.Equal(got[field], vs) {
 			return fmt.Errorf("%w: APEv2 %s is %q, want %q", ErrNotVerified, field, got[field], vs)
 		}
