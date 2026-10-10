@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -13,6 +14,9 @@ type fakeClock struct {
 	mu    sync.Mutex
 	now   time.Time
 	slept []time.Duration
+	// onSleep, when set, runs as a sleep starts: what happens while a
+	// caller waits.
+	onSleep func()
 }
 
 func newFakeClock() *fakeClock {
@@ -26,6 +30,9 @@ func (f *fakeClock) Now() time.Time {
 }
 
 func (f *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
+	if f.onSleep != nil {
+		f.onSleep()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -126,5 +133,96 @@ func TestLimiterWaitHonoursCancellation(t *testing.T) {
 	cancel()
 	if err := l.wait(ctx); err != context.Canceled {
 		t.Errorf("wait after cancel = %v, want context.Canceled", err)
+	}
+}
+
+// A lookup dropped while it waits takes no slot: the TUI drops one for every
+// new search, and each would push the next request back an interval.
+func TestLimiterDroppedWaitsTakeNoSlot(t *testing.T) {
+	clk := newFakeClock()
+	l := newLimiter(clk)
+	if err := l.wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Five lookups, each dropped while it waited for its turn.
+	for range 5 {
+		ctx, cancel := context.WithCancel(context.Background())
+		clk.onSleep = cancel
+		if err := l.wait(ctx); err != context.Canceled {
+			t.Fatalf("a wait dropped while sleeping = %v, want context.Canceled", err)
+		}
+	}
+	clk.onSleep = nil
+	if err := l.wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := clk.Slept(), []time.Duration{time.Second}; !slices.Equal(got, want) {
+		t.Errorf("the request after five dropped ones slept %v, want %v", got, want)
+	}
+	// The one that was sent took its slot.
+	if err := l.wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := clk.Slept(), []time.Duration{time.Second, time.Second}; !slices.Equal(got, want) {
+		t.Errorf("the request after it slept %v, want %v", got, want)
+	}
+}
+
+// Callers that wait at once are still let through an interval apart.
+func TestLimiterSpacesConcurrentCallers(t *testing.T) {
+	clk := newFakeClock()
+	l := newLimiter(clk)
+	first := clk.Now()
+	const callers = 8
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := l.wait(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	// Each caller let through moves the next slot on by an interval or more,
+	// so two let through together would leave it short of this.
+	if got, want := l.next.Sub(first), callers*minInterval; got < want {
+		t.Errorf("after %d callers the next slot is %v on, want %v or more", callers, got, want)
+	}
+}
+
+// The real clock's sleep is what a dropped lookup waits in, up to 32 s for
+// each retry while backed off: it has to end with the context.
+func TestRealClockSleepEndsWithTheContext(t *testing.T) {
+	sleep := func(ctx context.Context) error {
+		done := make(chan error, 1)
+		go func() { done <- realClock{}.Sleep(ctx, time.Hour) }()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(10 * time.Second):
+			return errors.New("still asleep")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleep(ctx); err != context.Canceled {
+		t.Errorf("Sleep with a context already done = %v, want context.Canceled", err)
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	if err := sleep(ctx); err != context.Canceled {
+		t.Errorf("Sleep with a context done part way = %v, want context.Canceled", err)
+	}
+
+	// Left alone it sleeps the time through.
+	var clk realClock
+	before := clk.Now()
+	if err := clk.Sleep(context.Background(), 20*time.Millisecond); err != nil {
+		t.Errorf("Sleep = %v", err)
+	}
+	if d := clk.Now().Sub(before); d < 20*time.Millisecond {
+		t.Errorf("Sleep of 20ms came back after %v", d)
 	}
 }
