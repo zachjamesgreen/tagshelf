@@ -22,7 +22,6 @@ func renamed(t *testing.T, m *Model, src *fakeSource, id int64, name string) str
 	for i := range src.snap.Untagged {
 		if f := &src.snap.Untagged[i]; f.ID == id {
 			f.RelPath, f.Path = name, filepath.Join(`D:\Music\_Untagged`, name)
-			src.tags[f.Path] = src.tags[f.Path]
 			src.version++
 			tickNow(t, m)
 			return f.Path

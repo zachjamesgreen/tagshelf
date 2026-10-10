@@ -15,6 +15,7 @@ import (
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
 	"github.com/zachjamesgreen/tagshelf/internal/store"
 	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
+	"github.com/zachjamesgreen/tagshelf/internal/version"
 )
 
 func main() {
@@ -126,6 +127,11 @@ func run(ctx context.Context, args []string) int {
 	if len(args) > 0 && args[0] == "tui" {
 		return runTUI(ctx, args[1:])
 	}
+	// -version alone, so that it never starts a run beside a config file.
+	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {
+		fmt.Println("tagshelf", version.String())
+		return exitOK
+	}
 	set := flag.NewFlagSet("tagshelf", flag.ContinueOnError)
 	flags := addLibraryFlags(set,
 		"Source directory containing audio files",
@@ -136,7 +142,7 @@ func run(ctx context.Context, args []string) int {
 	indexFlag := set.Bool("index", false, "Only bring the library index up to date; move nothing (needs only -dest)")
 	rescanFlag := set.Bool("rescan", false, "Re-read every file into the index, even if its size and modification time match")
 	set.Usage = func() {
-		fmt.Fprintf(set.Output(), "Usage: tagshelf [flags]\n       tagshelf tui [flags]   (the terminal UI; see tagshelf tui -h)\n\nFlags:\n")
+		fmt.Fprintf(set.Output(), "Usage: tagshelf [flags]\n       tagshelf tui [flags]   (the terminal UI; see tagshelf tui -h)\n       tagshelf -version\n\nFlags:\n")
 		set.PrintDefaults()
 	}
 
