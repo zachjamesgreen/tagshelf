@@ -41,6 +41,8 @@ type indexRoot struct {
 	// complete is set when the walk listed the whole root, so that files it
 	// did not find are known to be gone.
 	complete bool
+	// missing is set when the folder was not there to be walked.
+	missing bool
 }
 
 // indexJob is a file the index phase reads.
@@ -48,6 +50,34 @@ type indexJob struct {
 	walkedFile
 	rootID int64
 	rel    string
+	// known is set when the index held a row for the file before the run,
+	// and oldSum is the audio hash of that row.
+	known  bool
+	oldSum string
+}
+
+// modTimeTolerance is how far apart two modification times of a file of one
+// size may be and still be the same file. File systems keep times more or
+// less finely (NTFS to 100 ns, exFAT to 10 ms, FAT32 to 2 s, many network
+// shares to 1 s), so a library indexed on one and copied to another, or
+// indexed before moves recorded the time their destination really has, would
+// otherwise never match its index again.
+const modTimeTolerance = 2 * time.Second
+
+// sameStat reports whether a size and modification time are those the index
+// recorded: the same size, and a time within modTimeTolerance.
+func sameStat(size int64, modTime time.Time, indexedSize int64, indexedModTime time.Time) bool {
+	if size != indexedSize {
+		return false
+	}
+	d := modTime.Sub(indexedModTime)
+	return d >= -modTimeTolerance && d <= modTimeTolerance
+}
+
+// asOnDisk reports whether the file info describes is the one the index
+// recorded with this size and modification time.
+func asOnDisk(info os.FileInfo, indexedSize int64, indexedModTime time.Time) bool {
+	return info.Mode().IsRegular() && sameStat(info.Size(), info.ModTime(), indexedSize, indexedModTime)
 }
 
 // indexRoots lists the folders the index covers: the library, the untagged,
@@ -81,6 +111,11 @@ func (o *organizer) indexRoots() []*indexRoot {
 // new, or whose size or modification time changed (every file with Rescan),
 // are returned to be read; rows of files that are gone are deleted. It also
 // reports whether the index was empty.
+//
+// A root that is missing while the index holds files in it is an error, and
+// keeps its rows: an unplugged drive or an unmounted share looks just like
+// that, and deleting the rows would give every file a new ID when it is back.
+// A missing root with no rows is simply not there yet.
 func (o *organizer) refreshIndex(ctx context.Context, roots []*indexRoot) (jobs []indexJob, first bool) {
 	st := o.cfg.Store
 	n, err := st.CountFiles()
@@ -110,14 +145,21 @@ func (o *organizer) refreshIndex(ctx context.Context, roots []*indexRoot) (jobs 
 			row, known := rows[key]
 			delete(rows, key)
 			switch {
-			case !known || o.cfg.Rescan || row.Size != f.size || !row.ModTime.Equal(f.modTime):
-				jobs = append(jobs, indexJob{walkedFile: f, rootID: id, rel: rel})
+			case !known || o.cfg.Rescan || !sameStat(f.size, f.modTime, row.Size, row.ModTime):
+				jobs = append(jobs, indexJob{walkedFile: f, rootID: id, rel: rel, known: known, oldSum: row.Sum})
 			case row.RelPath != rel:
 				// Same file, respelled, as when a folder above it was renamed.
 				if err := st.RespellFile(row.ID, rel); err != nil {
 					o.fail(f.path, "", OpRecord, err)
 				}
 			}
+		}
+		if root.missing {
+			if len(rows) > 0 {
+				o.fail(root.path, "", OpWalkRoot, fmt.Errorf("the %s folder is not there, though the index holds %d files in it: "+
+					"nothing was removed from the index (is its drive connected?)", root.kind, len(rows)))
+			}
+			continue
 		}
 		// A walk cut short says nothing about the files it did not reach.
 		if !root.complete || ctx.Err() != nil {
@@ -179,7 +221,12 @@ func (o *organizer) indexFiles(ctx context.Context, jobs []indexJob) {
 		if err != nil {
 			o.fail(j.path, "", OpIndex, err)
 		} else {
-			o.reread.Store(rules.PathKey(j.path), struct{}{})
+			// What the index held before the run decides whether the run
+			// adds the file to a duplicate group, not that it was read:
+			// a rescan reads every file, and none of them is new.
+			if !j.known || j.oldSum != f.Sum {
+				o.added.Store(rules.PathKey(j.path), struct{}{})
+			}
 			results <- f
 		}
 		o.phase.advance(j.size)
@@ -189,10 +236,24 @@ func (o *organizer) indexFiles(ctx context.Context, jobs []indexJob) {
 	<-done
 }
 
+// indexedBefore reports whether a run before this one walked the library to
+// the end. A database that cannot say counts as no: fewer files are then
+// taken for new, and none is moved for it.
+func (o *organizer) indexedBefore() bool {
+	st := o.cfg.Store
+	before, err := st.IndexedBefore(o.runID)
+	if err != nil {
+		o.fail(st.Path(), "", OpRecord, err)
+		return false
+	}
+	return before
+}
+
 // readIndexFile reads a file's tags, audio hash and properties into an index
 // row. Only a file that cannot be opened fails; what cannot be read of one
 // that can is noted in the row's ReadError, so a damaged file is not re-read
-// on every run.
+// on every run. So is the first element of its tags the reader had to leave
+// out, though the rest of them were read.
 func readIndexFile(j indexJob) (store.File, error) {
 	f := store.File{RootID: j.rootID, RelPath: j.rel, Size: j.size, ModTime: j.modTime, IndexedAt: time.Now()}
 	file, err := os.Open(j.path)
@@ -206,6 +267,9 @@ func readIndexFile(j indexJob) (store.File, error) {
 	switch {
 	case err == nil:
 		fillTags(&f, md)
+		if skipped := tag.Skipped(md); skipped != nil {
+			problems = append(problems, "tags: "+skipped.Error())
+		}
 	case errors.Is(err, tag.ErrNoTagsFound):
 	default:
 		problems = append(problems, "tags: "+err.Error())
@@ -227,6 +291,9 @@ func readIndexFile(j indexJob) (store.File, error) {
 		f.BitDepth = int(props.BitDepth)
 		f.Channels = int(props.Channels)
 		f.Length = props.Length
+		// go-taglib lists the images of every format; the tag reader finds
+		// those of most.
+		f.HasArt = f.HasArt || len(props.Images) > 0
 	}
 	f.ReadError = strings.Join(problems, "; ")
 	return f, nil
@@ -247,13 +314,16 @@ func fillTags(f *store.File, md tag.Metadata) {
 	if m, ok := marker.Read(md); ok {
 		f.Manual = m.String()
 	}
+	f.HasArt = md.Picture() != nil
 	f.TagsJSON = rawJSON(md.Raw())
 }
 
 // isLossless reports whether go-taglib's properties describe lossless audio.
+// A WAV or AIFF file is a container: it is lossless when it holds PCM, which
+// go-taglib names as its inner codec, and not when it holds ADPCM or MP3.
 func isLossless(p taglib.Properties) bool {
 	switch p.Format {
-	case "flac", "wav", "aiff", "ape", "wavpack", "tta", "dsf", "dsdiff":
+	case "flac", "ape", "wavpack", "tta", "dsf", "dsdiff":
 		return true
 	}
 	switch p.InnerCodec {
@@ -263,12 +333,21 @@ func isLossless(p taglib.Properties) bool {
 	return strings.Contains(p.InnerCodec, "lossless")
 }
 
+// pictureComments are the Vorbis comments that hold a picture as base64
+// text: METADATA_BLOCK_PICTURE, and COVERART, which it replaced.
+var pictureComments = map[string]bool{"metadata_block_picture": true, "coverart": true}
+
 // rawJSON encodes everything the tag reader returned. Pictures and other
 // binary values are described rather than copied: the index is no place for
-// cover art.
+// cover art. That goes for a picture a FLAC or OGG file holds as a base64
+// comment too, which the reader returns as a string like any other.
 func rawJSON(raw map[string]any) string {
 	out := make(map[string]any, len(raw))
 	for k, v := range raw {
+		if s, ok := v.(string); ok && pictureComments[strings.ToLower(k)] {
+			out[k] = map[string]any{"picture": "", "bytes": base64.StdEncoding.DecodedLen(len(s))}
+			continue
+		}
 		switch v := v.(type) {
 		case *tag.Picture:
 			if v != nil {

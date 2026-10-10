@@ -96,11 +96,7 @@ func TestIdenticalIncomingMovesToDuplicates(t *testing.T) {
 		t.Errorf("FilePlaced for the copy = %+v, want Duplicate to %q", placed, dup)
 	}
 
-	runs, err := s.Runs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := runs[len(runs)-1]
+	run := lastRun(t, s)
 	if run.Counters.Duplicates != 1 {
 		t.Errorf("recorded duplicates = %d, want 1", run.Counters.Duplicates)
 	}
@@ -128,24 +124,59 @@ func TestIdenticalIncomingMovesToDuplicates(t *testing.T) {
 	}
 }
 
-func TestHitOnlyInDuplicatesSendsFileThere(t *testing.T) {
-	lib := filepath.Join(t.TempDir(), "lib")
-	writeTestFile(t, filepath.Join(lib, "_Duplicates", "old", "song.mp3"), theAudio)
-	s := openStore(t)
-	indexLibrary(t, s, lib)
+// A file whose only other copy lies in the duplicates folder is organized
+// like any other: the copy that was kept when that one was put aside is gone
+// (thrown away as damaged, say), and sending the file after it would leave
+// the library without the song. This used to send it to the duplicates
+// folder, with auto-resolve off as well.
+func TestHitOnlyInDuplicatesIsOrganized(t *testing.T) {
+	for _, noAutoResolve := range []bool{false, true} {
+		lib := filepath.Join(t.TempDir(), "lib")
+		aside := filepath.Join(lib, "_Duplicates", "old", "song.mp3")
+		writeTestFile(t, aside, theAudio)
+		s := openStore(t)
+		indexLibrary(t, s, lib)
 
-	source := filepath.Join(t.TempDir(), "src")
-	incoming := filepath.Join(source, "song.mp3")
-	writeTaggedMP3(t, incoming, songTags, theAudio)
+		source := filepath.Join(t.TempDir(), "src")
+		incoming := filepath.Join(source, "song.mp3")
+		writeTaggedMP3(t, incoming, songTags, theAudio)
 
-	finish := Run(context.Background(), Options{Source: source, Destination: lib, Store: s})
-	if finish.Counters.Duplicates != 1 || finish.Counters.Organized != 0 {
-		t.Fatalf("run = %+v, want the file sent to the duplicates folder", finish)
+		finish := Run(context.Background(), Options{Source: source, Destination: lib, Store: s, NoAutoResolve: noAutoResolve})
+		if finish.Counters.Duplicates != 0 || finish.Counters.Organized != 1 || finish.State != StateOK {
+			t.Fatalf("auto-resolve off %t: run = %+v, want the file organized", noAutoResolve, finish)
+		}
+		mustExist(t, songPath(lib), aside)
+		mustNotExist(t, incoming, filepath.Join(lib, "_Duplicates", "song.mp3"))
+		if got := reviews(t, s); len(got) != 0 {
+			t.Errorf("auto-resolve off %t: reviews = %+v, want none: there was no group", noAutoResolve, got)
+		}
 	}
-	mustExist(t, filepath.Join(lib, "_Duplicates", "song.mp3"))
-	mustNotExist(t, incoming, songPath(lib))
-	if got := reviews(t, s); len(got) != 0 {
-		t.Errorf("reviews = %+v, want none: there was no group", got)
+}
+
+// With a copy of the audio still in the library, a second copy coming in is
+// a group like any other, whatever lies in the duplicates folder: resolved
+// with auto-resolve on, left for review with it off.
+func TestHitInDuplicatesAndLibrary(t *testing.T) {
+	for _, noAutoResolve := range []bool{false, true} {
+		lib := filepath.Join(t.TempDir(), "lib")
+		writeTaggedMP3(t, songPath(lib), songTags, theAudio)
+		writeTestFile(t, filepath.Join(lib, "_Duplicates", "old", "song.mp3"), theAudio)
+		s := openStore(t)
+		indexLibrary(t, s, lib)
+		source := filepath.Join(t.TempDir(), "src")
+		writeTestFile(t, filepath.Join(source, "song.mp3"), theAudio)
+
+		finish := Run(context.Background(), Options{Source: source, Destination: lib, Store: s, NoAutoResolve: noAutoResolve})
+		if noAutoResolve {
+			if finish.Counters.Duplicates != 0 || finish.Counters.Untagged != 1 || finish.NeedReview != 1 {
+				t.Errorf("auto-resolve off: run = %+v, want the copy placed and one group to review", finish)
+			}
+			continue
+		}
+		if finish.Counters.Duplicates != 1 || finish.NeedReview != 0 {
+			t.Errorf("auto-resolve on: run = %+v, want the copy put aside", finish)
+		}
+		mustExist(t, songPath(lib), filepath.Join(lib, "_Duplicates", "song.mp3"))
 	}
 }
 

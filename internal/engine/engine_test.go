@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -386,7 +388,13 @@ func TestCopyFilePreservesAttributes(t *testing.T) {
 }
 
 func TestIsSubdirectory(t *testing.T) {
-	parent := filepath.Join("C:", "Music")
+	// Absolute paths, as a run has them. ("C:" joined with a name is a path
+	// relative to that drive's current folder.)
+	root := filepath.FromSlash("/")
+	if runtime.GOOS == "windows" {
+		root = `C:\`
+	}
+	parent := filepath.Join(root, "Music")
 	tests := []struct {
 		sub      string
 		expected bool
@@ -397,8 +405,9 @@ func TestIsSubdirectory(t *testing.T) {
 		{filepath.Join(parent, "..hidden"), true},
 		{filepath.Join(parent, "..hidden", "Album"), true},
 		{parent, false},
-		{filepath.Join("C:", "Other"), false},
-		{filepath.Join("C:"), false},
+		{filepath.Join(root, "Other"), false},
+		{filepath.Join(root, "Music2", "Artist"), false},
+		{root, false},
 	}
 
 	for _, tt := range tests {
@@ -428,7 +437,7 @@ func TestCleanupEmptyDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanupEmptyDirectories([]string{srcDir}, []string{destDir, untaggedDir}, nil)
+	cleanupEmptyDirectories([]string{srcDir}, []string{destDir, untaggedDir}, nil, nil)
 
 	if _, err := os.Stat(emptySubDir); !os.IsNotExist(err) {
 		t.Errorf("Expected emptySubDir to be deleted")
@@ -504,9 +513,9 @@ func TestRunEndToEnd(t *testing.T) {
 }
 
 func TestCompanionDir(t *testing.T) {
-	src := filepath.Join("C:", "src")
-	albumA := filepath.Join("C:", "dest", "Artist", "A")
-	albumB := filepath.Join("C:", "dest", "Artist", "B")
+	src := filepath.FromSlash("/src")
+	albumA := filepath.FromSlash("/dest/Artist/A")
+	albumB := filepath.FromSlash("/dest/Artist/B")
 	set := func(albums ...string) map[string]struct{} {
 		s := make(map[string]struct{})
 		for _, a := range albums {
@@ -543,10 +552,61 @@ func TestCompanionDir(t *testing.T) {
 		{src, "", false},
 	}
 	for _, tt := range tests {
-		got, ok := companionDir(src, tree, tt.dir)
+		got, ok := companionDir(src, tree, tt.dir, true)
 		if got != tt.want || ok != tt.wantOK {
 			t.Errorf("companionDir(%q) = %q, %t; want %q, %t", tt.dir, got, ok, tt.want, tt.wantOK)
 		}
+	}
+
+	// Without the climb, as in a reorganize, only a folder's own audio counts.
+	if got, ok := companionDir(src, tree, filepath.Join(src, "Rip", "Scans"), false); ok {
+		t.Errorf("companionDir(Rip/Scans) without the climb = %q, want none", got)
+	}
+	if got, ok := companionDir(src, tree, filepath.Join(src, "Rip"), false); !ok || got != albumA {
+		t.Errorf("companionDir(Rip) without the climb = %q, %t; want %q", got, ok, albumA)
+	}
+}
+
+// TestCompanionDirStopsBelowTheRoot is the downloads folder of finding 27: a
+// source whose only audio is one album. A file elsewhere in the source does
+// not follow that album, and neither does one below a folder that has none;
+// the files of the album's own folders still do, as do those lying in the
+// source itself when the source is the album.
+func TestCompanionDirStopsBelowTheRoot(t *testing.T) {
+	src := filepath.FromSlash("/downloads")
+	album := filepath.FromSlash("/music/Artist/Album")
+	one := func(a string) map[string]struct{} { return map[string]struct{}{a: {}} }
+	tree := buildAlbumTree(src, map[string]map[string]struct{}{
+		filepath.Join(src, "Rip", "CD1"): one(album),
+		filepath.Join(src, "Rip", "CD2"): one(album),
+	})
+	for _, tt := range []struct {
+		dir    string
+		want   string
+		wantOK bool
+	}{
+		{filepath.Join(src, "Taxes"), "", false},
+		{filepath.Join(src, "Taxes", "2025"), "", false},
+		{filepath.Join(src, "Rip"), album, true},
+		{filepath.Join(src, "Rip", "Scans"), filepath.Join(album, "Scans"), true},
+		{filepath.Join(src, "Rip", "CD1", "Booklet"), filepath.Join(album, "Booklet"), true},
+		// The source itself: its own folder is the album's rip.
+		{src, album, true},
+	} {
+		got, ok := companionDir(src, tree, tt.dir, true)
+		if got != tt.want || ok != tt.wantOK {
+			t.Errorf("companionDir(%q) = %q, %t; want %q, %t", tt.dir, got, ok, tt.want, tt.wantOK)
+		}
+	}
+
+	// A song lying directly in the source is followed by what lies beside
+	// it, and by nothing below.
+	loose := map[string]map[string]struct{}{src: one(album)}
+	if got, ok := companionDir(src, buildAlbumTree(src, loose), filepath.Join(src, "Notes"), true); ok {
+		t.Errorf("a file below a source with a loose song follows it to %q", got)
+	}
+	if got, ok := companionDir(src, buildAlbumTree(src, loose), src, true); !ok || got != album {
+		t.Errorf("a file beside a loose song in the source = %q, %t; want %q", got, ok, album)
 	}
 }
 
@@ -556,10 +616,9 @@ func TestRunDryRunLeavesCompanions(t *testing.T) {
 	if err := os.MkdirAll(sourceDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"track.mp3", "album.cue", "cover.png"} {
-		if err := os.WriteFile(filepath.Join(sourceDir, name), []byte("data "+name), 0644); err != nil {
-			t.Fatal(err)
-		}
+	contents := map[string]string{"track.mp3": "data track.mp3", "album.cue": "FILE \"track.mp3\" MP3\n", "cover.png": "data cover.png"}
+	for name, content := range contents {
+		writeTestFile(t, filepath.Join(sourceDir, name), content)
 	}
 
 	stats := Run(context.Background(), Options{
@@ -573,14 +632,12 @@ func TestRunDryRunLeavesCompanions(t *testing.T) {
 		t.Errorf("Expected 2 non-audio files counted, got %d found, %d moved",
 			stats.OtherFound, stats.OtherMoved)
 	}
-	for _, name := range []string{"track.mp3", "album.cue", "cover.png"} {
-		if _, err := os.Stat(filepath.Join(sourceDir, name)); err != nil {
-			t.Errorf("A dry run must leave %s in place: %v", name, err)
+	for name, content := range contents {
+		if got := readTestFile(t, filepath.Join(sourceDir, name)); got != content {
+			t.Errorf("A dry run must leave %s as it is, got %q", name, got)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(tmpDir, "dest")); !os.IsNotExist(err) {
-		t.Errorf("A dry run must not create the destination")
-	}
+	mustNotExist(t, filepath.Join(tmpDir, "dest"), filepath.Join(sourceDir, "album.cue.orig"))
 }
 
 func TestRunDefaultsWorkers(t *testing.T) {
@@ -677,8 +734,9 @@ func TestRunPreservesCollidingFiles(t *testing.T) {
 	}
 }
 
-// TestRunIsIdempotent checks that a second run over the same
-// destination neither duplicates files nor strands them.
+// TestRunIsIdempotent checks that a file already at its place is left
+// there: the second run takes the untagged folder, where the first run put
+// the file, as its source, and neither duplicates the file nor strands it.
 func TestRunIsIdempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
@@ -725,21 +783,26 @@ func TestRunIsIdempotent(t *testing.T) {
 
 func TestDirectoryCache(t *testing.T) {
 	tmpDir := t.TempDir()
-	var cache DirectoryCache
+	var cache directoryCache
 	targetDir := filepath.Join(tmpDir, "artist", "album")
 
 	// First call creates dir
-	if err := cache.EnsureDir(targetDir); err != nil {
-		t.Fatalf("EnsureDir failed on first call: %v", err)
+	if err := cache.ensureDir(targetDir); err != nil {
+		t.Fatalf("ensureDir failed on first call: %v", err)
 	}
 	if fi, err := os.Stat(targetDir); err != nil || !fi.IsDir() {
 		t.Fatalf("Directory was not created")
 	}
 
-	// Second call should return nil and use cache
-	if err := cache.EnsureDir(targetDir); err != nil {
-		t.Fatalf("EnsureDir failed on cached call: %v", err)
+	// The second call answers from the cache: it does not look, so a folder
+	// removed behind its back is not made again.
+	if err := os.Remove(targetDir); err != nil {
+		t.Fatal(err)
 	}
+	if err := cache.ensureDir(targetDir); err != nil {
+		t.Fatalf("ensureDir failed on cached call: %v", err)
+	}
+	mustNotExist(t, targetDir)
 }
 
 // TestDirectoryCacheIsPerRun guards against a process-global cache handing stale
@@ -749,7 +812,7 @@ func TestDirectoryCacheIsPerRun(t *testing.T) {
 	dir := filepath.Join(tmpDir, "artist", "album")
 
 	first := testOrganizer(tmpDir)
-	if err := first.dirCache.EnsureDir(dir); err != nil {
+	if err := first.dirCache.ensureDir(dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(tmpDir, "artist")); err != nil {
@@ -757,7 +820,7 @@ func TestDirectoryCacheIsPerRun(t *testing.T) {
 	}
 
 	second := testOrganizer(tmpDir)
-	if err := second.dirCache.EnsureDir(dir); err != nil {
+	if err := second.dirCache.ensureDir(dir); err != nil {
 		t.Fatalf("A fresh run must recreate the directory: %v", err)
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
@@ -881,6 +944,15 @@ type id3Tags struct {
 	albumArtistID                                        string // TXXX MusicBrainz Album Artist Id
 }
 
+// recordingID is the MusicBrainz recording ID writeTaggedMP3 gives a song
+// with these tags: one for each song, as real files have, and the same again
+// for the same song.
+func recordingID(tags id3Tags) string {
+	sum := sha1.Sum([]byte(tags.artist + "\x00" + tags.albumArtist + "\x00" + tags.album + "\x00" + tags.title))
+	h := fmt.Sprintf("%x", sum)
+	return h[0:8] + "-" + h[8:12] + "-4" + h[13:16] + "-8" + h[17:20] + "-" + h[20:32]
+}
+
 // writeTaggedMP3 writes a file with a real ID3v2.3 tag, MusicBrainz UFID
 // included, followed by body, so that runs exercise the actual tag reader.
 func writeTaggedMP3(t *testing.T, path string, tags id3Tags, body string) {
@@ -917,7 +989,7 @@ func writeTaggedMP3(t *testing.T, path string, tags id3Tags, body string) {
 	if tags.albumArtistID != "" {
 		frame("TXXX", []byte("\x00MusicBrainz Album Artist Id\x00"+tags.albumArtistID))
 	}
-	frame("UFID", []byte("http://musicbrainz.org\x00c83984e7-47b2-4d76-8098-b80c10a48ad1"))
+	frame("UFID", []byte("http://musicbrainz.org\x00"+recordingID(tags)))
 
 	n := len(frames)
 	header := []byte{'I', 'D', '3', 3, 0, 0, byte(n >> 21 & 0x7f), byte(n >> 14 & 0x7f), byte(n >> 7 & 0x7f), byte(n & 0x7f)}
@@ -960,9 +1032,11 @@ func TestRunReorganizesLibrary(t *testing.T) {
 	writeTestFile(t, filepath.Join(oldAlbum, "cover.jpg"), "art")
 	originalCue := "REM GENRE Pop\r\nFILE \"Song.mp3\" MP3\r\n  TRACK 01 AUDIO\r\n    INDEX 01 00:00:00\r\n"
 	writeTestFile(t, filepath.Join(oldAlbum, "album.cue"), originalCue)
-	// Artist-level art and audio without tags must stay where they are.
+	// Artist-level art and audio without tags must stay where they are, also
+	// with a song lying loose in the library root for a climb to find.
 	writeTestFile(t, filepath.Join(lib, "Singer feat. Guest", "artist.jpg"), "artist art")
 	writeTestFile(t, filepath.Join(lib, "Hand Placed", "track.mp3"), "no tags here")
+	writeTaggedMP3(t, filepath.Join(lib, "dropped.mp3"), id3Tags{albumArtist: "Dropped", album: "In", title: "Loose", track: "1"}, "dropped audio")
 
 	cfg := Options{Source: lib, Destination: lib, Workers: 2}
 	stats := Run(context.Background(), cfg).Counters
@@ -1005,6 +1079,24 @@ func TestRunReorganizesLibrary(t *testing.T) {
 	if got := readTestFile(t, filepath.Join(newAlbum, "album.cue.orig")); got != originalCue {
 		t.Errorf("A later run must keep the first original, got %q", got)
 	}
+
+	// The song is retitled, so a third pass rewrites the sheet again: the
+	// original it finds kept is not written over.
+	writeTaggedMP3(t, filepath.Join(newAlbum, "03 - Song.mp3"), id3Tags{
+		artist: "Singer feat. Guest", albumArtist: "Singer", album: "Album", title: "Tune",
+		year: "2001", track: "3/10", disc: "1/1",
+	}, "audio")
+	third := Run(context.Background(), cfg).Counters
+	if third.CueRewritten != 1 || third.Errors != 0 {
+		t.Fatalf("Expected the third reorganize to rewrite the cue sheet again, got %+v", third)
+	}
+	wantCue = "REM GENRE Pop\r\nFILE \"03 - Tune.mp3\" MP3\r\n  TRACK 01 AUDIO\r\n    INDEX 01 00:00:00\r\n"
+	if got := readTestFile(t, filepath.Join(newAlbum, "album.cue")); got != wantCue {
+		t.Errorf("Cue sheet after the second rewrite:\n got %q\nwant %q", got, wantCue)
+	}
+	if got := readTestFile(t, filepath.Join(newAlbum, "album.cue.orig")); got != originalCue {
+		t.Errorf("A second rewrite must keep the first original, got %q", got)
+	}
 }
 
 func TestReorganizePullsTaggedFilesFromUntagged(t *testing.T) {
@@ -1026,20 +1118,30 @@ func TestReorganizePullsTaggedFilesFromUntagged(t *testing.T) {
 	if stats.Organized != 1 || stats.LeftInPlace != 1 {
 		t.Errorf("Expected 1 organized and 1 left, got %d and %d", stats.Organized, stats.LeftInPlace)
 	}
-	if _, err := os.Stat(untagged); err != nil {
-		t.Errorf("The untagged folder itself must never be cleaned up: %v", err)
-	}
+	// That the untagged folder is never cleaned up, however empty, is
+	// TestRootsAreNeverRemoved: here it still holds a file.
+	mustExist(t, untagged)
+}
+
+// swappedLibrary is a library whose two songs must trade names: their tags
+// were corrected after the last run. a is "01 - A.mp3", which holds song B,
+// and b the other way round.
+func swappedLibrary(t *testing.T) (lib, a, b string) {
+	t.Helper()
+	lib = t.TempDir()
+	album := filepath.Join(lib, "Singer", "Album")
+	a, b = filepath.Join(album, "01 - A.mp3"), filepath.Join(album, "02 - B.mp3")
+	writeTaggedMP3(t, a, id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
+	writeTaggedMP3(t, b, id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
+	return lib, a, b
 }
 
 // TestReorganizeSwapGetsCleanNames covers two files trading names: the first
 // one moved finds its name still held and lands on " (1)", and the retry moves
 // it onto the clean name once the other file has left.
 func TestReorganizeSwapGetsCleanNames(t *testing.T) {
-	lib := t.TempDir()
-	album := filepath.Join(lib, "Singer", "Album")
-	// Tags were corrected after the last run: the names are now swapped.
-	writeTaggedMP3(t, filepath.Join(album, "01 - A.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
-	writeTaggedMP3(t, filepath.Join(album, "02 - B.mp3"), id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
+	lib, a, _ := swappedLibrary(t)
+	album := filepath.Dir(a)
 
 	stats := Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1}).Counters
 
@@ -1062,28 +1164,6 @@ func TestReorganizeSwapGetsCleanNames(t *testing.T) {
 	}
 	if stats.Retried != 1 {
 		t.Errorf("Expected 1 retried rename, got %d", stats.Retried)
-	}
-}
-
-func TestCueLeftAloneWhenAudioIsElsewhere(t *testing.T) {
-	tmpDir := t.TempDir()
-	source := filepath.Join(tmpDir, "source")
-	rip := filepath.Join(source, "rip")
-	cue := "FILE \"missing.flac\" WAVE\n  TRACK 01 AUDIO\n"
-	writeTestFile(t, filepath.Join(rip, "album.cue"), cue)
-
-	other := filepath.Join(tmpDir, "other")
-	stats := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "dest"), Other: other, Workers: 1}).Counters
-
-	moved := filepath.Join(other, "rip", "album.cue")
-	if got := readTestFile(t, moved); got != cue {
-		t.Errorf("A cue whose audio is not next to it must be left unchanged, got %q", got)
-	}
-	if _, err := os.Stat(moved + ".orig"); !os.IsNotExist(err) {
-		t.Errorf("No .orig should be written when nothing was rewritten")
-	}
-	if stats.CueRewritten != 0 {
-		t.Errorf("Expected no cue rewrites, got %d", stats.CueRewritten)
 	}
 }
 

@@ -1,14 +1,12 @@
 package engine
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"tagshelf/internal/fixtures"
 	"tagshelf/internal/store"
@@ -93,12 +91,18 @@ func TestUndoPutsAnOrganizeRunBack(t *testing.T) {
 	if first, ok := c.events[0].(RunStarted); !ok || first.Kind != KindUndo {
 		t.Errorf("first event = %+v, want an undo's RunStarted", c.events[0])
 	}
-	// The index followed the files back to the source.
-	for path, f := range indexedFiles(t, s) {
-		if f.RootKind != store.RootSource {
-			t.Errorf("the index still has %s in the %s folder", path, f.RootKind)
+	// The index followed the two songs back to the source.
+	rows := indexedFiles(t, s)
+	for _, song := range []string{filepath.Join(src, "rip", "Song.mp3"), filepath.Join(src, "loose.mp3")} {
+		if row, ok := rows[song]; !ok || row.RootKind != store.RootSource {
+			t.Errorf("row of %s after the undo = %+v, %t; want it under the source root", song, row, ok)
 		}
 	}
+	if len(rows) != 2 {
+		t.Errorf("index after the undo = %v, want the two songs and no row left in the library", rows)
+	}
+	// The library itself and its untagged folder are not cleaned away.
+	mustExist(t, lib, filepath.Join(lib, "_Untagged"))
 
 	// It is not undone twice.
 	again := Undo(context.Background(), Options{Destination: lib, Store: s}, run.ID, check, restore)
@@ -146,8 +150,16 @@ func TestUndoSkipsWhatChangedSince(t *testing.T) {
 	}
 	mustExist(t, filepath.Join(lib, "_Untagged", "loose.mp3"), filepath.Join(src, "rip", "cover.jpg"), filepath.Join(src, "rip", "album.cue"))
 	errs, err := s.RunErrors(lastRun(t, s).ID)
-	if err != nil || len(errs) != 2 || !strings.Contains(errs[0].Message+errs[1].Message, "skipped: ") {
+	if err != nil || len(errs) != 2 || !strings.Contains(errs[0].Message, "skipped: ") || !strings.Contains(errs[1].Message, "skipped: ") {
 		t.Errorf("the undo's errors = %+v, %v; want the two skipped files", errs, err)
+	}
+	// Both skips can pass (an index run, the old path cleared), so the run
+	// waits to be undone again.
+	if was, err := s.Run(run.ID); err != nil || was.State == store.StateUndone {
+		t.Errorf("the run after an undo with steps that can still be undone = %+v, %v", was, err)
+	}
+	if !strings.Contains(finish.NotUndone, "2 of its steps were skipped for a reason that can pass") {
+		t.Errorf("NotUndone = %q", finish.NotUndone)
 	}
 }
 
@@ -175,31 +187,7 @@ func TestUndoSkipsWhatALaterRunMoved(t *testing.T) {
 func taggedRip(t *testing.T) (lib, ripped, dst string, s *store.Store, check TagCheck, restore TagRestore) {
 	t.Helper()
 	lib, ripped, _, _, s = untaggedLibrary(t)
-	bytesOf := func(name string) []byte {
-		if name == "manual" {
-			return []byte(readTestFile(t, fixtures.Manual(".flac")))
-		}
-		return []byte(readTestFile(t, fixtures.Path(fixtures.RipperFLAC)))
-	}
-	// The saves stand in for real tags: a file holds the tags "manual" or
-	// "ripper" when it has that fixture's bytes.
-	write := func(st *store.Store, runID int64, path, before, after string) error {
-		return st.RecordTagWrite(runID, path, `"`+before+`"`, `"`+after+`"`, func() error {
-			return os.WriteFile(path, bytesOf(after), 0644)
-		})
-	}
-	check = func(path, after string) error {
-		if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, bytesOf(strings.Trim(after, `"`))) {
-			return errors.New("its tags have changed since they were saved")
-		}
-		return nil
-	}
-	restore = func(st *store.Store, runID int64, path, before, after string) error {
-		return write(st, runID, path, strings.Trim(after, `"`), strings.Trim(before, `"`))
-	}
-	save := func(st *store.Store, runID int64, f store.File) error {
-		return write(st, runID, f.Path, "ripper", "manual")
-	}
+	save, check, restore := recordedSaves(t)
 	finish := SaveTags(context.Background(), Options{Destination: lib, Store: s}, []int64{indexedFiles(t, s)[ripped].ID}, save)
 	if finish.State != StateOK || finish.Counters.Organized != 1 {
 		t.Fatalf("save tags = %+v", finish)
@@ -321,8 +309,8 @@ func TestUndoRefusals(t *testing.T) {
 	if finish := Undo(ctx, Options{Destination: lib, Store: s}, run.ID, check, restore); finish.State != StateInterrupted {
 		t.Errorf("cancelled: %+v", finish)
 	}
-	if was, _ := s.Run(run.ID); was.State == store.StateUndone {
-		t.Error("a cancelled undo marked the run undone")
+	if was, err := s.Run(run.ID); err != nil || was.State == store.StateUndone {
+		t.Errorf("a cancelled undo marked the run undone: %+v, %v", was, err)
 	}
 	mustExist(t, filepath.Join(lib, "Singer", "Album", "01 - Song.mp3"))
 }
@@ -358,16 +346,13 @@ func TestUndoInLastInFirstOutOrder(t *testing.T) {
 }
 
 // A step that fails where it should have worked leaves the run to be undone
-// again, and a cue sheet edited since is not replaced.
+// again, and a cue sheet edited since is not replaced: it goes back as
+// edited, with the original the run kept beside it.
 func TestUndoThatFailsCanBeTriedAgain(t *testing.T) {
 	src, lib, s, run := organizedRip(t)
 	cue := filepath.Join(lib, "Singer", "Album", "album.cue")
 	edited := cueOf("01 - Song.mp3") + "REM my note\r\n"
 	writeTestFile(t, cue, edited)
-	later := time.Now().Add(time.Hour)
-	if err := os.Chtimes(cue, later, later); err != nil {
-		t.Fatal(err)
-	}
 	// The folder the rip came from cannot be made again: a file is in its
 	// place.
 	if err := os.RemoveAll(filepath.Join(src, "rip")); err != nil {
@@ -380,8 +365,11 @@ func TestUndoThatFailsCanBeTriedAgain(t *testing.T) {
 	if finish.State != StateErrors || finish.Counters.OtherMoved != 1 {
 		t.Fatalf("undo = %+v, want only the loose song back", finish)
 	}
-	if was, _ := s.Run(run.ID); was.State == store.StateUndone {
-		t.Fatal("a run whose undo failed in part is marked undone")
+	if was, err := s.Run(run.ID); err != nil || was.State == store.StateUndone {
+		t.Fatalf("a run whose undo failed in part is marked undone: %+v, %v", was, err)
+	}
+	if !strings.Contains(finish.NotUndone, "steps failed") {
+		t.Errorf("NotUndone = %q, want it to say that steps failed", finish.NotUndone)
 	}
 	if got := readTestFile(t, cue); got != edited {
 		t.Errorf("the edited cue sheet was replaced: %q", got)
@@ -392,14 +380,26 @@ func TestUndoThatFailsCanBeTriedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	finish = Undo(context.Background(), Options{Destination: lib, Store: s}, run.ID, check, restore)
-	if finish.Counters.OtherMoved != 3 {
-		t.Fatalf("the second undo = %+v, want the rip's three files back", finish)
+	if finish.Counters.OtherMoved != 4 || finish.NotUndone != "" {
+		t.Fatalf("the second undo = %+v, want the rip's three files and the cue sheet's original back", finish)
 	}
-	if was, _ := s.Run(run.ID); was.State != store.StateUndone {
-		t.Errorf("the run after its second undo = %+v, want it undone", was)
+	if was, err := s.Run(run.ID); err != nil || was.State != store.StateUndone {
+		t.Errorf("the run after its second undo = %+v, %v; want it undone", was, err)
 	}
 	if got := readTestFile(t, filepath.Join(src, "rip", "album.cue")); got != edited {
 		t.Errorf("the cue sheet back in the source = %q, want it as edited", got)
 	}
 	mustExist(t, filepath.Join(src, "rip", "Song.mp3"), filepath.Join(src, "rip", "cover.jpg"))
+	// Finding 60: the original used to stay behind in the library, alone in
+	// a folder that could then never be removed.
+	if got := readTestFile(t, filepath.Join(src, "rip", "album.cue.orig")); got != cueOf("Song.mp3") {
+		t.Errorf("the original beside the cue sheet = %q, want the sheet as the rip had it", got)
+	}
+	mustNotExist(t, filepath.Join(lib, "Singer"))
+	errs, err := s.RunErrors(lastRun(t, s).ID)
+	if err != nil || !slices.ContainsFunc(errs, func(e store.RunError) bool {
+		return strings.HasSuffix(e.Path, "album.cue") && strings.Contains(e.Message, "edited") && strings.Contains(e.Message, "renames back")
+	}) {
+		t.Errorf("the undo's errors = %+v, %v; want the cue sheet skipped as edited and naming renamed files", errs, err)
+	}
 }

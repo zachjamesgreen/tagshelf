@@ -98,6 +98,13 @@ func (o *organizer) endAction(ctx context.Context) RunFinished {
 		o.startPhase(PhaseCompanions, 0, 0)
 		o.followAudio()
 		o.startPhase(PhaseCleanup, 0, 0)
+		// A copy left by a crash would keep its folder from being removed.
+		var emptied []string
+		o.touched.Range(func(dir, _ any) bool {
+			emptied = append(emptied, dir.(string))
+			return true
+		})
+		o.removeStaleCopies(emptied)
 		cleanupEmptyDirectories(o.walkRoots(), nil, func(dir string) {
 			o.emit(DirRemoved{Path: dir})
 			o.phase.advance(0)
@@ -176,7 +183,7 @@ func asIndexed(f store.File) error {
 		return fmt.Errorf("it is in the %s folder, not in the library", f.RootKind)
 	}
 	info, err := os.Stat(f.Path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != f.Size || !info.ModTime().Equal(f.ModTime) {
+	if err != nil || !asOnDisk(info, f.Size, f.ModTime) {
 		return errors.New("it is gone or has changed since it was indexed")
 	}
 	return nil

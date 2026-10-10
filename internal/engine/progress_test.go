@@ -55,6 +55,25 @@ func TestPhaseTrackerProgress(t *testing.T) {
 	}
 }
 
+// The index phase reads every byte, so its ETA goes by the bytes left and
+// not by the files: here most of the bytes are in files not yet read.
+func TestPhaseTrackerIndexETAGoesByBytes(t *testing.T) {
+	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	var p phaseTracker
+	p.set(PhaseIndex, 100, 1000, start)
+	p.doneFiles.Store(50)
+	p.doneBytes.Store(100)
+	got := p.progress(Counters{}, start.Add(10*time.Second))
+	if got.Phase != PhaseIndex || got.ByteRate != 10 || got.ETA != 90*time.Second {
+		t.Errorf("progress = %+v, want 900 bytes left at 10 a second: 90 s, not the 10 s the files left would give", got)
+	}
+	// With every byte read there is nothing to wait for.
+	p.doneBytes.Store(1000)
+	if got := p.progress(Counters{}, start.Add(10*time.Second)); got.ETA != 0 {
+		t.Errorf("ETA with every byte read = %v, want 0", got.ETA)
+	}
+}
+
 // phases returns the phases in the order they started.
 func (c *collector) phases() []Phase {
 	c.mu.Lock()
@@ -174,11 +193,7 @@ func TestRunPhaseOrderOrganize(t *testing.T) {
 
 func TestRunPhaseOrderReorganize(t *testing.T) {
 	fastProgress(t)
-	lib := t.TempDir()
-	a := filepath.Join(lib, "Singer", "Album", "01 - One.mp3")
-	b := filepath.Join(lib, "Singer", "Album", "02 - Two.mp3")
-	writeTaggedMP3(t, a, id3Tags{albumArtist: "Singer", album: "Album", title: "Two", track: "2"}, "was one")
-	writeTaggedMP3(t, b, id3Tags{albumArtist: "Singer", album: "Album", title: "One", track: "1"}, "was two")
+	lib, _, _ := swappedLibrary(t)
 	writeTestFile(t, filepath.Join(lib, "stray.mp3"), "no tags")
 
 	var c collector
@@ -206,7 +221,7 @@ func TestRunPhaseOrderDryRunWithoutCues(t *testing.T) {
 
 func TestPhaseNames(t *testing.T) {
 	want := map[Phase]string{
-		PhaseWalk: "walk", PhaseAudio: "audio", PhaseCompanions: "companions",
+		PhaseWalk: "walk", PhaseIndex: "index", PhaseAudio: "audio", PhaseCompanions: "companions",
 		PhaseRetrySuffixed: "retry-suffixed", PhaseCue: "cue", PhaseCleanup: "cleanup",
 	}
 	for p, name := range want {

@@ -103,6 +103,10 @@ const (
 	WarnModTime                         // a copied file lost its modification time
 	WarnCueNotBeside                    // a cue's FILE Name is not next to it after the move
 	WarnCueEncoding                     // a non-UTF-8 cue would need the non-ASCII Name
+	WarnLinkSkipped                     // a link or junction to a folder was left where it is
+	// A temporary copy a crashed tag save or move left behind was removed,
+	// or with Err set could not be.
+	WarnStaleCopy
 )
 
 // Warning reports something that went less than right without failing the
@@ -111,7 +115,7 @@ type Warning struct {
 	Kind WarningKind
 	Path string
 	Name string // cue warnings: the FILE name concerned
-	Err  error  // copy warnings: the underlying error
+	Err  error  // copy and stale copy warnings: the underlying error
 }
 
 // Rename is one FILE line of a cue sheet pointed at a new name.
@@ -203,6 +207,10 @@ type RunFinished struct {
 	State      RunState
 	Err        error
 	NeedReview int
+	// NotUndone is set by Undo when the run it was to undo is not marked
+	// undone and can be undone again, and says why. It is "" when that run
+	// is now undone, and for every run that is not an undo.
+	NotUndone string
 }
 
 func (RunStarted) event()   {}

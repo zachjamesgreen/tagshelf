@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,15 +32,17 @@ func TestMoveOfOpenFileFails(t *testing.T) {
 	}
 	defer f.Close()
 
+	// The rename's failure is the answer: the file is not copied to find out
+	// that its source cannot be removed either.
+	watchCopies(t, func(dst io.Writer, src io.Reader) (int64, error) {
+		t.Error("the held file was copied")
+		return io.Copy(dst, src)
+	})
+
 	var c collector
 	finish := Run(context.Background(), Options{Source: source, Destination: dest, Workers: 2, Sink: c.sink})
 
-	var errs []FileError
-	for _, e := range c.events {
-		if fe, ok := e.(FileError); ok {
-			errs = append(errs, fe)
-		}
-	}
+	errs := c.fileErrors()
 	if len(errs) != 1 || errs[0].Path != held || errs[0].Op != OpMove {
 		t.Fatalf("FileErrors = %+v, want one OpMove for %q", errs, held)
 	}
@@ -77,15 +80,33 @@ func TestReadOfLockedFileFails(t *testing.T) {
 	finish := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "lib"), Workers: 1, Sink: c.sink})
 
 	var ops []Operation
-	for _, e := range c.events {
-		if fe, ok := e.(FileError); ok {
-			ops = append(ops, fe.Op)
-		}
+	for _, fe := range c.fileErrors() {
+		ops = append(ops, fe.Op)
 	}
 	if !reflect.DeepEqual(ops, []Operation{OpOpen}) || finish.State != StateErrors {
 		t.Errorf("FileError ops = %v, state %v; want one OpOpen and StateErrors", ops, finish.State)
 	}
 	if _, err := os.Stat(locked); err != nil {
 		t.Errorf("locked file is gone: %v", err)
+	}
+}
+
+// isSubdirectory with the paths Windows has: another drive, another case, a
+// folder whose name starts like the parent's, and a share.
+func TestIsSubdirectoryAcrossDrivesAndCase(t *testing.T) {
+	for _, tt := range []struct {
+		parent, sub string
+		want        bool
+	}{
+		{`C:\Music`, `D:\Music\Artist`, false},
+		{`C:\Music`, `c:\music\Artist`, true},
+		{`C:\Music`, `C:\Music2\Artist`, false},
+		{`C:\Music\`, `C:\Music\Artist`, true},
+		{`\\nas\share\Music`, `\\nas\share\Music\Artist`, true},
+		{`\\nas\share\Music`, `\\nas\other\Music\Artist`, false},
+	} {
+		if got := isSubdirectory(tt.parent, tt.sub); got != tt.want {
+			t.Errorf("isSubdirectory(%q, %q) = %t, want %t", tt.parent, tt.sub, got, tt.want)
+		}
 	}
 }

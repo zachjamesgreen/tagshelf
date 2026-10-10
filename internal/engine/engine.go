@@ -116,6 +116,13 @@ type Options struct {
 	// IndexOnly brings the index of the library, untagged, other and
 	// duplicates folders up to date and moves nothing. Source is ignored.
 	IndexOnly bool
+	// RemoveStaleCopies removes the temporary copies a tag save that crashed
+	// left in the folder dir, returning the paths removed; the engine does not
+	// know how a save names them. A run that changes files calls it once for
+	// each folder in which it met a file with store.OwnFilePrefix, before it
+	// removes emptied folders; a dry run and an index run never do. It must
+	// leave the library's ID and lock files alone. Nil removes none.
+	RemoveStaleCopies func(dir string) ([]string, error)
 }
 
 // Reorganizing reports whether the run re-sorts an existing library in place.
@@ -123,9 +130,11 @@ func (o Options) Reorganizing() bool {
 	return !o.IndexOnly && o.Source != "" && rules.PathKey(o.Source) == rules.PathKey(o.Destination)
 }
 
-// withDefaults fills in the values a run needs but the caller may have left
-// at zero.
-func (o Options) withDefaults() Options {
+// WithDefaults fills in the values a run needs but the caller may have left
+// at zero. It is idempotent, and the one place the defaults are worked out:
+// config.Config.WithDefaults goes through it, so what the CLI prints is what
+// the run uses.
+func (o Options) WithDefaults() Options {
 	if o.Untagged == "" && o.Destination != "" {
 		o.Untagged = filepath.Join(o.Destination, "_Untagged")
 	}
@@ -150,11 +159,20 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
+// supportedExtensions are the files a run treats as audio: those whose tags
+// the reader reads, whose audio alone tag.Sum hashes, and which the rules can
+// place. Any other file is a non-audio file. .opus and .oga are Ogg streams
+// like .ogg, and .dsf is read and hashed by the DSF reader. .aiff and .wv
+// are left out: the reader knows neither container, so their tags would read
+// as missing and their hash would cover their tags. Which of these tagshelf
+// can also save tags to is tagwrite's list, not this one.
 var supportedExtensions = map[string]bool{
 	".mp3":  true,
 	".flac": true,
 	".m4a":  true,
 	".ogg":  true,
+	".oga":  true,
+	".opus": true,
 	".wma":  true,
 	".aac":  true,
 	".ape":  true,
@@ -163,6 +181,7 @@ var supportedExtensions = map[string]bool{
 	".m4b":  true,
 	".m4r":  true,
 	".wav":  true,
+	".dsf":  true,
 }
 
 func isAudioFile(path string) bool {
@@ -170,11 +189,13 @@ func isAudioFile(path string) bool {
 	return supportedExtensions[ext]
 }
 
-type DirectoryCache struct {
+// directoryCache remembers the folders a run has made, so that it asks the
+// file system once for each.
+type directoryCache struct {
 	created sync.Map
 }
 
-func (c *DirectoryCache) EnsureDir(dir string) error {
+func (c *directoryCache) ensureDir(dir string) error {
 	if _, ok := c.created.Load(dir); ok {
 		return nil
 	}
@@ -245,7 +266,7 @@ const (
 type organizer struct {
 	cfg      Options
 	stats    *stats
-	dirCache DirectoryCache
+	dirCache directoryCache
 	reserved sync.Map // rules.PathKey(path) -> struct{}
 	touched  sync.Map // source directory -> struct{}
 	phase    phaseTracker
@@ -273,15 +294,25 @@ type organizer struct {
 	caseFixesMu sync.Mutex
 	caseFixes   []caseFix
 
-	// firstIndex is set when the index was empty before this run.
+	// firstIndex is set when no run before this one walked the library to
+	// the end, so that the index was empty or only part of it: a file missing
+	// from such an index is not new.
 	firstIndex bool
-	// reread holds rules.PathKey of each file this run read into the index.
-	reread sync.Map
+	// added holds rules.PathKey of each file this run read into the index
+	// that the index did not hold before, or held with another audio hash.
+	added sync.Map
+	// ownFileDirs lists the folders in which the walk met a file with
+	// store.OwnFilePrefix other than the library's ID and lock files: where a
+	// temporary copy left by a crash may lie.
+	ownFileDirs []string
 	// vacated holds rules.PathKey of files a dry run plans to move to the
 	// duplicates folder, whose names are free for the rest of the preview.
 	vacated sync.Map
 	// needReview counts the exact duplicate groups left for review.
 	needReview int
+	// notUndone says why an undo left its run to be undone again, "" when it
+	// marked it undone.
+	notUndone string
 }
 
 type caseFix struct {
@@ -294,7 +325,7 @@ type suffixedMove struct {
 
 func newOrganizer(opts Options) *organizer {
 	return &organizer{
-		cfg:    opts.withDefaults(),
+		cfg:    opts.WithDefaults(),
 		stats:  &stats{},
 		albums: make(map[string]map[string]struct{}),
 	}
@@ -392,13 +423,19 @@ func buildAlbumTree(source string, albums map[string]map[string]struct{}) map[st
 
 // companionDir picks the album directory a non-audio file in dir belongs with.
 //
-// It climbs from dir towards source until it reaches a directory whose subtree
-// holds any audio. If all of that audio went to one tagged album, the file
-// follows it, keeping its path below that directory (so Rip/Scans/front.jpg
-// lands in Album/Scans). Mixed albums or untagged audio report false, as does
-// a file with no audio anywhere above it: guessing wrong would bury artwork in
-// an unrelated album.
-func companionDir(source string, tree map[string]map[string]struct{}, dir string) (string, bool) {
+// The file follows the audio of its own folder, as tree has it. Failing that,
+// and with climb set, it climbs from dir towards root, the walked folder,
+// until it reaches a directory whose subtree holds any audio. If all of that
+// audio went to one tagged album, the file follows it, keeping its path below
+// that directory (so Rip/Scans/front.jpg lands in Album/Scans). Mixed albums
+// or untagged audio report false, as does a file with no audio above it:
+// guessing wrong would bury artwork in an unrelated album.
+//
+// The climb stops below root. The walked folder holds everything the run
+// looks at, so what its subtree holds says nothing about a file somewhere
+// under it: with one album in a downloads folder, or one song lying loose in
+// the root, every document below would follow it into the album.
+func companionDir(root string, tree map[string]map[string]struct{}, dir string, climb bool) (string, bool) {
 	curr := dir
 	for {
 		if set := tree[curr]; len(set) > 0 {
@@ -416,10 +453,11 @@ func companionDir(source string, tree map[string]map[string]struct{}, dir string
 				return filepath.Join(album, rel), true
 			}
 		}
-		if curr == source || !isSubdirectory(source, curr) {
+		parent := filepath.Dir(curr)
+		if !climb || !isSubdirectory(root, parent) {
 			return "", false
 		}
-		curr = filepath.Dir(curr)
+		curr = parent
 	}
 }
 
@@ -442,7 +480,7 @@ func (o *organizer) claim(path string) (bool, error) {
 	}
 
 	dir := filepath.Dir(path)
-	if err := o.dirCache.EnsureDir(dir); err != nil {
+	if err := o.dirCache.ensureDir(dir); err != nil {
 		o.reserved.Delete(key)
 		return false, fmt.Errorf("failed to create directory %q: %w", dir, err)
 	}
@@ -561,31 +599,82 @@ func (o *organizer) resolveDestination(srcPath, desiredDst string, compareBytes 
 	return "", outcomeMove, fmt.Errorf("no free destination name for %q after %d attempts", desiredDst, maxCollisionSuffix)
 }
 
+// renameFile is os.Rename and crossVolume the test of its error for "the two
+// paths are on different volumes". Tests replace them to send a move down the
+// copy path without a second volume at hand.
+var (
+	renameFile  = os.Rename
+	crossVolume = isCrossVolume
+)
+
+// moveTempPrefix starts the name of the temporary copy a move to another
+// volume writes beside its destination. It begins with store.OwnFilePrefix,
+// so no run takes a copy a crash left behind for a file of the library.
+const moveTempPrefix = store.OwnFilePrefix + "move-"
+
+// staleMoveCopyAge is how old such a copy must be before a run removes it.
+const staleMoveCopyAge = time.Hour
+
 func (o *organizer) moveFile(src, dst string) error {
 	dstDir := filepath.Dir(dst)
-	if err := o.dirCache.EnsureDir(dstDir); err != nil {
+	if err := o.dirCache.ensureDir(dstDir); err != nil {
 		return fmt.Errorf("failed to create directory %q: %w", dstDir, err)
 	}
 
 	// Fast atomic rename (replaces the placeholder left by claim)
-	if err := os.Rename(src, dst); err == nil {
+	err := renameFile(src, dst)
+	if err == nil {
 		return nil
 	}
-
-	// Fallback to copy and remove across filesystems/drives
-	if err := copyFile(src, dst, func(w Warning) { o.emit(w) }); err != nil {
+	// Only a move to another volume is worth a copy. Anything else that
+	// stops a rename (the file open in another program, above all) would
+	// stop the removal of the source too, after the whole file was copied.
+	if !crossVolume(err) {
 		return err
 	}
 
+	// The copy is written under a temporary name and renamed onto dst only
+	// when it is complete, so that a process that ends part way never leaves
+	// half a file under a name of the library.
+	tmp, err := copyToTemp(src, dstDir, func(w Warning) { o.emit(w) })
+	if err != nil {
+		return err
+	}
+	if err := renameFile(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("failed to put the copy in place: %w", err)
+	}
+
 	if err := os.Remove(src); err != nil {
-		// On Windows a file another program holds open fails both the rename
-		// and this; take the copy back so the file is not left in two places.
+		// Take the copy back so the file is not left in two places.
 		os.Remove(dst)
 		return fmt.Errorf("failed to remove source after copy: %w", err)
 	}
 
 	return nil
 }
+
+// copyToTemp copies src to a new file in dir named with moveTempPrefix and
+// src's extension, and returns its path. Nothing is left behind on failure.
+func copyToTemp(src, dir string, warn func(Warning)) (string, error) {
+	f, err := os.CreateTemp(dir, moveTempPrefix+"*"+filepath.Ext(src))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary copy: %w", err)
+	}
+	tmp := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("failed to create temporary copy: %w", err)
+	}
+	if err := copyFile(src, tmp, warn); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
+}
+
+// copyData is io.Copy. Tests replace it to watch a copy or make it fail.
+var copyData = io.Copy
 
 // copyFile copies src over dst, restoring the permissions and modification time
 // that a rename would have carried across on its own. Without that, every
@@ -608,7 +697,7 @@ func copyFile(src, dst string, warn func(Warning)) error {
 		return fmt.Errorf("failed to create destination for copy: %w", err)
 	}
 
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := copyData(out, in); err != nil {
 		out.Close()
 		os.Remove(dst)
 		return fmt.Errorf("failed to copy file data: %w", err)
@@ -732,9 +821,11 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			}
 		}
 		if !isRunRoot {
-			// A folder only the index covers may not be there yet.
+			// A folder only the index covers may not be there yet. Or its
+			// drive is not plugged in: refreshIndex tells the two apart by
+			// whether the index holds files in it.
 			if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
-				idx.complete = true
+				idx.missing = true
 				continue
 			}
 		}
@@ -769,7 +860,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	// before anything moves, so every file the run looks at has a row.
 	if len(indexRoots) > 0 && ctx.Err() == nil {
 		jobs, first := o.refreshIndex(ctx, indexRoots)
-		o.firstIndex = first
+		o.firstIndex = first || !o.indexedBefore()
 		if len(jobs) > 0 || cfg.IndexOnly {
 			var bytes int64
 			for _, j := range jobs {
@@ -805,7 +896,8 @@ func Run(ctx context.Context, opts Options) RunFinished {
 		// A fresh rip may keep its audio in CD1/CD2 subfolders with the
 		// artwork above them, so match on whole subtrees. An organized
 		// library holds audio directly in album folders, and matching on
-		// subtrees there would sweep artist-level images into an album.
+		// subtrees there would sweep artist-level images into an album:
+		// there a file follows the audio of its own folder and no other.
 		tree = buildAlbumTree(cfg.Source, o.albums)
 	}
 	o.startPhase(PhaseCompanions, int64(len(companions)), companionBytes)
@@ -844,6 +936,8 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			excluded = nil
 		}
 		o.startPhase(PhaseCleanup, 0, 0)
+		// A copy left by a crash would keep its folder from being removed.
+		o.removeStaleCopies(o.ownFileDirs)
 		cleanupEmptyDirectories(roots, excluded, func(dir string) {
 			o.emit(DirRemoved{Path: dir})
 			o.phase.advance(0)
@@ -873,7 +967,7 @@ func (o *organizer) end(finish RunFinished) RunFinished {
 
 // finish sums up how the run ended.
 func (o *organizer) finish(interrupted bool) RunFinished {
-	finish := RunFinished{Counters: o.stats.snapshot(), State: StateOK, NeedReview: o.needReview}
+	finish := RunFinished{Counters: o.stats.snapshot(), State: StateOK, NeedReview: o.needReview, NotUndone: o.notUndone}
 	switch {
 	case interrupted:
 		finish.State = StateInterrupted
@@ -948,15 +1042,37 @@ func containsPath(paths []string, path string) bool {
 	return false
 }
 
+// atVolumeRoot reports whether dir is the top of a volume, such as M:\ or a
+// share. Tests replace it.
+var atVolumeRoot = func(dir string) bool { return filepath.Dir(dir) == dir }
+
+// isSystemFolder reports whether the folder at path is one Windows keeps at
+// the top of every volume: System Volume Information, which cannot be read,
+// and the recycle bin, whose deleted songs are whole files with their tags.
+func isSystemFolder(path string) bool {
+	name := filepath.Base(path)
+	if !strings.EqualFold(name, "System Volume Information") && !strings.EqualFold(name, "$RECYCLE.BIN") {
+		return false
+	}
+	return atVolumeRoot(filepath.Dir(path))
+}
+
 // walk lists the files under root, calling fn for each, and reports whether
 // it listed all of them. Folders in skip below root are left out: the output
-// folders and the other walked folders, which are walked on their own.
+// folders and the other walked folders, which are walked on their own. So
+// are the system folders at the top of a volume, and links and junctions to
+// folders, which are neither followed nor moved.
 func (o *organizer) walk(ctx context.Context, root string, skip []string, fn func(f walkedFile)) bool {
 	complete := true
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			complete = false
 			return filepath.SkipAll
+		}
+		if d != nil && d.IsDir() && path != root && isSystemFolder(path) {
+			// Before the error is looked at: listing System Volume
+			// Information fails, and would be reported on every run.
+			return filepath.SkipDir
 		}
 		if err != nil {
 			complete = false
@@ -972,8 +1088,24 @@ func (o *organizer) walk(ctx context.Context, root string, skip []string, fn fun
 		if strings.HasPrefix(d.Name(), store.OwnFilePrefix) {
 			// A library's identity stays in its root, and one found in a
 			// source belongs to some other library. Anything else with the
-			// prefix is a tag save's temp copy.
+			// prefix is a temporary copy of a tag save or of a move, which
+			// the end of the run removes if a crash left it there.
+			if name := d.Name(); name != store.LibraryIDFile && name != store.LibraryLockFile {
+				if dir := filepath.Dir(path); !slices.Contains(o.ownFileDirs, dir) {
+					o.ownFileDirs = append(o.ownFileDirs, dir)
+				}
+			}
 			return nil
+		}
+		if d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			// A link or junction to a folder is not a folder to the walk.
+			// Moving it as a file would break a relative link, and walking
+			// through it would organize files that live somewhere else. One
+			// whose target cannot be told is left alone as well.
+			if info, err := os.Stat(path); err != nil || info.IsDir() {
+				o.emit(Warning{Kind: WarnLinkSkipped, Path: path})
+				return nil
+			}
 		}
 		f := walkedFile{path: path}
 		if info, err := d.Info(); err == nil {
@@ -1079,12 +1211,17 @@ func (o *organizer) processFile(path string) {
 // relative to source, and a reorganize leaves it where it is.
 func (o *organizer) processCompanion(c companionFile, tree map[string]map[string]struct{}) {
 	path := c.path
-	if dir, ok := companionDir(c.root, tree, filepath.Dir(path)); ok {
+	reorganizing := o.cfg.Reorganizing()
+	// In a reorganize a file lying loose in the library, untagged or other
+	// folder has no folder of its own: the song dropped next to it is no
+	// reason to move it, or anything below it.
+	loose := reorganizing && rules.PathKey(filepath.Dir(path)) == rules.PathKey(c.root)
+	if dir, ok := companionDir(c.root, tree, filepath.Dir(path), !reorganizing); ok && !loose {
 		o.place(path, c.root, filepath.Join(dir, filepath.Base(path)), Companion)
 		return
 	}
 
-	if o.cfg.Reorganizing() {
+	if reorganizing {
 		o.placed.Store(rules.PathKey(path), path)
 		return
 	}
@@ -1299,7 +1436,9 @@ var cueFileLine = regexp.MustCompile(`^(\s*(?i:FILE)\s+)(?:"([^"]*)"|(\S+))`)
 // rewriteCue points the FILE lines of a moved cue sheet at the new names of
 // its audio. It only rewrites when every referenced file now sits in the cue's
 // own folder, changes nothing but the names, and keeps the first original as
-// <name>.cue.orig.
+// <name>.cue.orig. What the sheet held before and after this rewrite is
+// recorded with the run, which is what undoing the run goes by: the .orig may
+// be an earlier run's.
 func (o *organizer) rewriteCue(src string) {
 	final, ok := o.placedAt(src)
 	if !ok {
@@ -1378,8 +1517,11 @@ func (o *organizer) rewriteCue(src string) {
 		o.fail(final, "", OpRewriteCue, err)
 		return
 	}
-	// Undo restores the cue sheet from its .orig.
-	o.recordMove(final, final+".orig", store.ReasonCueRewrite)
+	if st := o.cfg.Store; st != nil {
+		if err := st.RecordCueRewrite(o.runID, final, final+".orig", data, []byte(rewritten)); err != nil {
+			o.fail(final, final+".orig", OpRecord, err)
+		}
+	}
 	o.emit(CueRewritten{Path: final, Renames: renames})
 	o.stats.CueRewritten.Add(1)
 }
@@ -1446,9 +1588,9 @@ func writeFileExclusive(path string, data []byte, perm os.FileMode) error {
 // cleanupEmptyDirectories removes empty directories under roots, never
 // removing a root itself or anything inside an excluded directory. With
 // touchedDirs it only considers those directories and their ancestors;
-// without, everything under roots. removed, if not nil, is told about each
+// with nil, everything under roots. removed, if not nil, is told about each
 // directory removed.
-func cleanupEmptyDirectories(roots []string, excluded []string, removed func(dir string), touchedDirs ...*sync.Map) {
+func cleanupEmptyDirectories(roots []string, excluded []string, removed func(dir string), touchedDirs *sync.Map) {
 	isExcluded := func(path string) bool {
 		if containsPath(roots, path) {
 			return true
@@ -1470,9 +1612,9 @@ func cleanupEmptyDirectories(roots []string, excluded []string, removed func(dir
 	}
 
 	var dirs []string
-	if len(touchedDirs) > 0 && touchedDirs[0] != nil {
+	if touchedDirs != nil {
 		dirSet := make(map[string]struct{})
-		touchedDirs[0].Range(func(key, value any) bool {
+		touchedDirs.Range(func(key, value any) bool {
 			dir, ok := key.(string)
 			if !ok {
 				return true
@@ -1519,6 +1661,44 @@ func cleanupEmptyDirectories(roots []string, excluded []string, removed func(dir
 			if err := os.Remove(dir); err == nil && removed != nil {
 				removed(dir)
 			}
+		}
+	}
+}
+
+// removeStaleCopies removes from each of dirs the temporary copies a crash
+// left there: those of a tag save, through Options.RemoveStaleCopies, and
+// those of a move to another volume. Each is reported with a warning. The
+// library's ID and lock files carry the same prefix and are never among
+// them.
+func (o *organizer) removeStaleCopies(dirs []string) {
+	for _, dir := range dirs {
+		if remove := o.cfg.RemoveStaleCopies; remove != nil {
+			removed, err := remove(dir)
+			for _, path := range removed {
+				o.emit(Warning{Kind: WarnStaleCopy, Path: path})
+			}
+			if err != nil {
+				o.emit(Warning{Kind: WarnStaleCopy, Path: dir, Err: err})
+			}
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), moveTempPrefix) || !e.Type().IsRegular() {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil || time.Since(info.ModTime()) <= staleMoveCopyAge {
+				continue // gone already, or a move going on now
+			}
+			path := filepath.Join(dir, e.Name())
+			if err := os.Remove(path); err != nil {
+				o.emit(Warning{Kind: WarnStaleCopy, Path: path, Err: err})
+				continue
+			}
+			o.emit(Warning{Kind: WarnStaleCopy, Path: path})
 		}
 	}
 }

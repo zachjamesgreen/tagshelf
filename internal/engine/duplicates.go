@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,8 +16,8 @@ type dupCopy struct {
 	// incoming is set for a file this organize run walked in its source.
 	incoming bool
 	// added is set for a file the run adds to the group: an incoming file, or
-	// one read into the index this run that an earlier run had not seen as it
-	// is now.
+	// one the index did not hold before this run, or held with other audio.
+	// A file that was only read again is not added.
 	added bool
 }
 
@@ -27,10 +26,16 @@ type dupCopy struct {
 // still to be placed.
 //
 // A group the run added a file to is resolved when auto-resolve is on and no
-// review already covers it: the suggested keeper stays, and every other copy
-// moves to the duplicates folder under its path relative to its root. Incoming
-// files whose only copies are already in the duplicates folder go there too.
-// Groups made only of files that were already there are left for review.
+// review holds two of its copies: the suggested keeper stays, and every other
+// copy moves to the duplicates folder under its path relative to its root.
+// Groups made only of files that were already there are left for review, and
+// so is a group a person decided about, such as two copies kept on purpose
+// that a third now joins.
+//
+// Copies already in the duplicates folder do not count. A file whose only
+// other copies are there is placed like any other: the copy that was kept
+// when they were put aside is gone, and the library would otherwise have
+// none.
 func (o *organizer) resolveDuplicates(ctx context.Context, audio []walkedFile) []walkedFile {
 	st := o.cfg.Store
 	if st == nil {
@@ -71,16 +76,8 @@ func (o *organizer) resolveDuplicates(ctx context.Context, audio []walkedFile) [
 // resolveGroup resolves one exact group, if it is the run's to resolve,
 // adding the path keys of the walked files it moved (or failed to) to settled.
 func (o *organizer) resolveGroup(g []store.File, walked, settled map[string]bool) {
-	members, inDuplicates := o.groupMembers(g, walked)
+	members := o.groupMembers(g, walked)
 	if !slices.ContainsFunc(members, func(m dupCopy) bool { return m.added }) {
-		return
-	}
-
-	if inDuplicates > 0 && !slices.ContainsFunc(members, func(m dupCopy) bool { return !m.incoming }) {
-		// Only copies already put aside: this audio was turned down before.
-		for _, m := range members {
-			o.toDuplicates(m, settled)
-		}
 		return
 	}
 
@@ -94,7 +91,10 @@ func (o *organizer) resolveGroup(g []store.File, walked, settled map[string]bool
 		copies[i] = keeperCopy(m.File)
 	}
 	st := o.cfg.Store
-	reviewed, err := st.Reviewed(store.GroupExact, ids)
+	// A review that holds two of these copies is a person's decision about
+	// them, or a run's that a person can see: the whole group is left for a
+	// person, whichever copies the review did not cover.
+	reviewed, err := st.ReviewedTogether(store.GroupExact, ids)
 	if err != nil {
 		o.fail(members[0].Path, "", OpRecord, err)
 		return
@@ -143,10 +143,10 @@ func (o *organizer) resolveGroup(g []store.File, walked, settled map[string]bool
 }
 
 // groupMembers lists the copies in an exact group that are where the index
-// says, with the size and modification time it recorded, and counts those in
-// the duplicates folder separately. A source other than this run's is no
-// concern of the run, and neither is a file it did not walk there.
-func (o *organizer) groupMembers(g []store.File, walked map[string]bool) (members []dupCopy, inDuplicates int) {
+// says, with the size and modification time it recorded, leaving out those
+// in the duplicates folder. A source other than this run's is no concern of
+// the run, and neither is a file it did not walk there.
+func (o *organizer) groupMembers(g []store.File, walked map[string]bool) (members []dupCopy) {
 	reorganizing := o.cfg.Reorganizing()
 	var seen []os.FileInfo
 	for _, f := range g {
@@ -156,7 +156,7 @@ func (o *organizer) groupMembers(g []store.File, walked map[string]bool) (member
 			continue
 		}
 		info, err := os.Stat(f.Path)
-		if err != nil || !info.Mode().IsRegular() || info.Size() != f.Size || !info.ModTime().Equal(f.ModTime) {
+		if err != nil || !asOnDisk(info, f.Size, f.ModTime) {
 			continue
 		}
 		// One file indexed under two roots is still one copy.
@@ -165,13 +165,12 @@ func (o *organizer) groupMembers(g []store.File, walked map[string]bool) (member
 		}
 		seen = append(seen, info)
 		if f.RootKind == store.RootDuplicates {
-			inDuplicates++
 			continue
 		}
-		_, reread := o.reread.Load(key)
-		members = append(members, dupCopy{File: f, incoming: isIncoming, added: isIncoming || (reread && !o.firstIndex)})
+		_, added := o.added.Load(key)
+		members = append(members, dupCopy{File: f, incoming: isIncoming, added: isIncoming || (added && !o.firstIndex)})
 	}
-	return members, inDuplicates
+	return members
 }
 
 // toDuplicates moves a copy to the duplicates folder, under its path relative
@@ -228,26 +227,9 @@ func keeperCopy(f store.File) rules.Copy {
 		InLibrary:      f.RootKind == store.RootLibrary,
 		MusicBrainzIDs: ids,
 		Manual:         f.Manual != "",
-		Art:            hasArt(f.TagsJSON),
+		Art:            f.HasArt,
 		IndexOrder:     f.ID,
 	}
-}
-
-// hasArt reports whether an index row's tags hold a picture, which rawJSON
-// describes as an object with a "picture" key.
-func hasArt(tagsJSON string) bool {
-	var tags map[string]any
-	if json.Unmarshal([]byte(tagsJSON), &tags) != nil {
-		return false
-	}
-	for _, v := range tags {
-		if m, ok := v.(map[string]any); ok {
-			if _, ok := m["picture"]; ok {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // PossibleKey is rules.PossibleKey for an indexed file, comparing its track

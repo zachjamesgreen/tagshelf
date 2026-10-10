@@ -59,11 +59,7 @@ func TestSaveTagsMovesFilesThatQualify(t *testing.T) {
 	mustExist(t, dst, movedArt, noAlbum)
 	mustNotExist(t, ripped, art, filepath.Dir(ripped))
 
-	runs, err := s.Runs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := runs[len(runs)-1]
+	run := lastRun(t, s)
 	if run.Kind != store.KindTUIAction || run.State != store.StateOK {
 		t.Errorf("run = %+v, want a finished tui-action", run)
 	}
@@ -114,8 +110,7 @@ func TestSaveTagsRecordsFailedSaves(t *testing.T) {
 		t.Fatalf("finish = %+v, want one error and one organized", finish)
 	}
 	mustExist(t, noAlbum, manualLibraryPath(lib, ".flac"))
-	runs, _ := s.Runs()
-	errs, err := s.RunErrors(runs[len(runs)-1].ID)
+	errs, err := s.RunErrors(lastRun(t, s).ID)
 	if err != nil || len(errs) != 1 || errs[0].Path != noAlbum {
 		t.Errorf("run errors = %+v, %v", errs, err)
 	}

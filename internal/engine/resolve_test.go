@@ -57,11 +57,7 @@ func TestResolveDuplicatesMovesTheOthers(t *testing.T) {
 	mustExist(t, kept, moved, movedArt)
 	mustNotExist(t, copyPath, art, filepath.Dir(copyPath))
 
-	runs, err := s.Runs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := runs[len(runs)-1]
+	run := lastRun(t, s)
 	if run.Kind != store.KindTUIAction || run.State != store.StateOK {
 		t.Errorf("run = %+v, want a finished tui-action", run)
 	}

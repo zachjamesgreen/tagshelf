@@ -151,12 +151,7 @@ func TestRunRecordsDryRun(t *testing.T) {
 }
 
 func TestRunRecordsRenamed(t *testing.T) {
-	lib := t.TempDir()
-	album := filepath.Join(lib, "Singer", "Album")
-	a := filepath.Join(album, "01 - A.mp3")
-	b := filepath.Join(album, "02 - B.mp3")
-	writeTaggedMP3(t, a, id3Tags{albumArtist: "Singer", album: "Album", title: "B", track: "2"}, "really B")
-	writeTaggedMP3(t, b, id3Tags{albumArtist: "Singer", album: "Album", title: "A", track: "1"}, "really A, longer")
+	lib, _, _ := swappedLibrary(t)
 
 	s := openStore(t)
 	Run(context.Background(), Options{Source: lib, Destination: lib, Workers: 1, Store: s})

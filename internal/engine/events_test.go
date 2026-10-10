@@ -20,6 +20,32 @@ func (c *collector) sink(e Event) {
 	c.events = append(c.events, e)
 }
 
+// fileErrors returns the FileError events, in the order they came.
+func (c *collector) fileErrors() []FileError {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var errs []FileError
+	for _, e := range c.events {
+		if fe, ok := e.(FileError); ok {
+			errs = append(errs, fe)
+		}
+	}
+	return errs
+}
+
+// warnings returns the Warning events of the given kind.
+func (c *collector) warnings(kind WarningKind) []Warning {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var warnings []Warning
+	for _, e := range c.events {
+		if w, ok := e.(Warning); ok && w.Kind == kind {
+			warnings = append(warnings, w)
+		}
+	}
+	return warnings
+}
+
 // placed returns the outcome of each FilePlaced event, keyed by path.
 func (c *collector) placed() map[string]Outcome {
 	got := make(map[string]Outcome)
@@ -97,12 +123,7 @@ func TestRunReportsFileErrors(t *testing.T) {
 		Workers: 1, Sink: c.sink,
 	}).Counters
 
-	var errs []FileError
-	for _, e := range c.events {
-		if fe, ok := e.(FileError); ok {
-			errs = append(errs, fe)
-		}
-	}
+	errs := c.fileErrors()
 	if len(errs) != 1 || errs[0].Path != song || errs[0].Op != OpResolve || errs[0].Err == nil {
 		t.Fatalf("Expected one OpResolve FileError for %q, got %+v", song, errs)
 	}
@@ -112,12 +133,7 @@ func TestRunReportsFileErrors(t *testing.T) {
 }
 
 func TestReorganizeReportsLeftAndRenamed(t *testing.T) {
-	lib := t.TempDir()
-	// Two files trading names, as in TestReorganizeSwapGetsCleanNames.
-	a := filepath.Join(lib, "Singer", "Album", "01 - One.mp3")
-	b := filepath.Join(lib, "Singer", "Album", "02 - Two.mp3")
-	writeTaggedMP3(t, a, id3Tags{albumArtist: "Singer", album: "Album", title: "Two", track: "2"}, "was one")
-	writeTaggedMP3(t, b, id3Tags{albumArtist: "Singer", album: "Album", title: "One", track: "1"}, "was two")
+	lib, _, _ := swappedLibrary(t)
 	stray := filepath.Join(lib, "stray.mp3")
 	writeTestFile(t, stray, "no tags")
 
