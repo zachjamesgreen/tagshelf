@@ -15,18 +15,19 @@ import (
 	"tagshelf/internal/tag/mbz"
 )
 
-// SanitizeName makes a tag value safe as a file or folder name, replacing
-// characters Windows forbids. Empty results become "Unknown".
-func SanitizeName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "Unknown"
-	}
+// nameStandIn is the name of a file or folder whose tag has nothing left once
+// it is made safe, such as "..." or "?".
+const nameStandIn = "_"
 
+// SanitizeName makes a tag value safe as a file or folder name, replacing
+// characters Windows forbids. A value with nothing left becomes "_". Whether
+// a tag is missing is asked of the tag itself (see blank), never of the
+// result: any name returned here may be a real value.
+func SanitizeName(name string) string {
 	// Replace characters forbidden in Windows / general filesystems: <>:"/\|?*
 	invalidChars := `<>:"/\|?*`
 	var sb strings.Builder
-	for _, r := range name {
+	for _, r := range strings.TrimSpace(name) {
 		if strings.ContainsRune(invalidChars, r) || r < 32 {
 			sb.WriteRune('_')
 		} else {
@@ -38,9 +39,14 @@ func SanitizeName(name string) string {
 	// Strip trailing periods or spaces which Windows forbids in file/dir names
 	cleaned = strings.TrimRight(cleaned, ". ")
 	if cleaned == "" {
-		return "Unknown"
+		return nameStandIn
 	}
 	return cleaned
+}
+
+// blank reports whether a tag has no value.
+func blank(value string) bool {
+	return strings.TrimSpace(value) == ""
 }
 
 func isMBZTrackOrAlbumKey(k string) bool {
@@ -208,31 +214,26 @@ func LibraryPath(dest, compilations string, m tag.Metadata, ext string) (string,
 // those a person is still typing.
 func LibraryPathFor(dest, compilations string, t Tags, ext string) (string, bool) {
 	compilation := t.isCompilation()
-	var artist string
-	if compilation {
-		artist = SanitizeName(compilations)
-	} else {
-		artist = SanitizeName(t.AlbumArtist)
-		if artist == "Unknown" {
-			// No album artist tag: fall back to the track artist.
-			artist = SanitizeName(t.Artist)
-		}
+	artist := t.AlbumArtist
+	switch {
+	case compilation:
+		artist = compilations
+	case blank(artist):
+		// No album artist tag: fall back to the track artist.
+		artist = t.Artist
 	}
 	album := t.Album
-	title := SanitizeName(t.Title)
-	if artist == "Unknown" || SanitizeName(album) == "Unknown" || title == "Unknown" {
+	if blank(artist) || blank(album) || blank(t.Title) {
 		return "", false
 	}
 	if t.Year > 0 {
 		album = fmt.Sprintf("%s (%d)", strings.TrimSpace(album), t.Year)
 	}
 
-	name := title
-	if compilation {
+	name := SanitizeName(t.Title)
+	if compilation && !blank(t.Artist) {
 		// The folder no longer says who performs each track, so the name does.
-		if trackArtist := SanitizeName(t.Artist); trackArtist != "Unknown" {
-			name = trackArtist + " - " + title
-		}
+		name = SanitizeName(t.Artist) + " - " + name
 	}
 	if t.Track > 0 {
 		if t.Disc > 0 && (t.DiscTotal > 1 || t.Disc > 1) {
@@ -241,7 +242,7 @@ func LibraryPathFor(dest, compilations string, t Tags, ext string) (string, bool
 			name = fmt.Sprintf("%02d - %s", t.Track, name)
 		}
 	}
-	return filepath.Join(dest, artist, SanitizeName(album), name+ext), true
+	return filepath.Join(dest, SanitizeName(artist), SanitizeName(album), name+ext), true
 }
 
 // Qualifies reports whether a file qualifies for the library, and if so its

@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -171,13 +170,7 @@ func TestCLISinkNeedReview(t *testing.T) {
 // song already in the library, with the duplicates folder moved by
 // -duplicates.
 func TestRunMovesDuplicates(t *testing.T) {
-	var out bytes.Buffer
-	log.SetOutput(&out)
-	defer log.SetOutput(os.Stderr)
-	isolateDataDir(t)
-	tmp := t.TempDir()
-	config := filepath.Join(tmp, "empty.yaml")
-	writeFile(t, config, "")
+	tmp, config, out := cliEnv(t)
 	lib := filepath.Join(tmp, "lib")
 	audio := strings.Repeat("some audio ", 40)
 	writeFile(t, filepath.Join(lib, "_Untagged", "song.mp3"), audio)
@@ -208,11 +201,9 @@ func TestRunMovesDuplicates(t *testing.T) {
 }
 
 // TestRunExitCodes runs the CLI end to end. Every case passes an explicit empty
-// -config, so a config.yaml in the working directory is never picked up.
+// -config, though TestMain has seen to it that there is no config.yaml in the
+// working directory to pick up.
 func TestRunExitCodes(t *testing.T) {
-	log.SetOutput(io.Discard)
-	defer log.SetOutput(os.Stderr)
-
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -260,16 +251,13 @@ func TestRunExitCodes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmp := t.TempDir()
-			isolateDataDir(t)
+			tmp, config, logs := cliEnv(t)
 			song := filepath.Join(tmp, "src", "loose.mp3")
 			writeFile(t, song, "no tags")
-			config := filepath.Join(tmp, "empty.yaml")
-			writeFile(t, config, "")
 			args := append([]string{"-config", config}, tt.args(tmp)...)
 
 			if got := run(tt.ctx, args); got != tt.want {
-				t.Errorf("run(%q) = %d, want %d", args, got, tt.want)
+				t.Errorf("run(%q) = %d, want %d\n%s", args, got, tt.want, logs)
 			}
 			_, err := os.Stat(song)
 			if moved := err != nil; moved != (tt.want == exitOK) {
@@ -303,14 +291,10 @@ func setUserVersion(t *testing.T, path string, v int) {
 }
 
 func TestRunRecordsHistory(t *testing.T) {
-	log.SetOutput(io.Discard)
-	defer log.SetOutput(os.Stderr)
-	data := isolateDataDir(t)
-	tmp := t.TempDir()
+	tmp, config, _ := cliEnv(t)
+	data := os.Getenv("LOCALAPPDATA")
 	song := filepath.Join(tmp, "src", "loose.mp3")
 	writeFile(t, song, "no tags")
-	config := filepath.Join(tmp, "empty.yaml")
-	writeFile(t, config, "")
 	lib := filepath.Join(tmp, "lib")
 
 	if got := run(context.Background(), []string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib}); got != exitOK {
@@ -343,15 +327,9 @@ func TestRunRecordsHistory(t *testing.T) {
 }
 
 func TestRunRefusedWhileLibraryLocked(t *testing.T) {
-	var out bytes.Buffer
-	log.SetOutput(&out)
-	defer log.SetOutput(os.Stderr)
-	isolateDataDir(t)
-	tmp := t.TempDir()
+	tmp, config, out := cliEnv(t)
 	song := filepath.Join(tmp, "src", "loose.mp3")
 	writeFile(t, song, "no tags")
-	config := filepath.Join(tmp, "empty.yaml")
-	writeFile(t, config, "")
 	lib := filepath.Join(tmp, "lib")
 
 	// Another run holds the library. The lock is per open file, so holding it
@@ -363,11 +341,17 @@ func TestRunRefusedWhileLibraryLocked(t *testing.T) {
 	}
 	defer holder.Close()
 
-	for _, extra := range [][]string{nil, {"-dry-run"}} {
+	// Naming another database does not get a run past the lock: it is the
+	// library's, not the database's.
+	elsewhere := filepath.Join(tmp, "another.db")
+	for _, extra := range [][]string{nil, {"-dry-run"}, {"-db", elsewhere}, {"-db", elsewhere, "-index"}} {
 		out.Reset()
 		args := append([]string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib}, extra...)
 		if got := run(context.Background(), args); got != exitCannotStart {
 			t.Fatalf("run(%q) = %d, want %d", args, got, exitCannotStart)
+		}
+		if !strings.Contains(out.String(), "try again when it has finished") {
+			t.Errorf("run(%q) printed %q, want it to say the library is busy", args, out.String())
 		}
 		if want := fmt.Sprintf("pid %d, started ", os.Getpid()); !strings.Contains(out.String(), want) {
 			t.Errorf("run(%q) printed %q, want the holder's %q", args, out.String(), want)
@@ -379,17 +363,16 @@ func TestRunRefusedWhileLibraryLocked(t *testing.T) {
 	if runs, err := holder.Runs(); err != nil || len(runs) != 0 {
 		t.Errorf("runs = %+v, %v; want none recorded by refused runs", runs, err)
 	}
+	if _, err := os.Stat(elsewhere); !os.IsNotExist(err) {
+		t.Errorf("a refused run made its database: %v", err)
+	}
 }
 
 func TestRunDryRunOnUnidentifiedLibraryWritesNothing(t *testing.T) {
-	log.SetOutput(io.Discard)
-	defer log.SetOutput(os.Stderr)
-	data := isolateDataDir(t)
-	tmp := t.TempDir()
+	tmp, config, _ := cliEnv(t)
+	data := os.Getenv("LOCALAPPDATA")
 	song := filepath.Join(tmp, "src", "loose.mp3")
 	writeFile(t, song, "no tags")
-	config := filepath.Join(tmp, "empty.yaml")
-	writeFile(t, config, "")
 	lib := filepath.Join(tmp, "lib")
 	db := filepath.Join(tmp, "explicit.db")
 
@@ -410,6 +393,19 @@ func TestRunDryRunOnUnidentifiedLibraryWritesNothing(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(data); len(entries) != 0 {
 		t.Errorf("a dry run wrote under the data folder: %v", entries)
+	}
+
+	// Nor is anything written in a folder that is there but is not a library
+	// yet: no ID file, and no lock file.
+	if err := os.Mkdir(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"-config", config, "-source", filepath.Join(tmp, "src"), "-dest", lib, "-dry-run"}
+	if got := run(context.Background(), args); got != exitOK {
+		t.Fatalf("run(%q) = %d, want %d", args, got, exitOK)
+	}
+	if entries, err := os.ReadDir(lib); err != nil || len(entries) != 0 {
+		t.Errorf("a dry run wrote %v in the folder (%v)", entries, err)
 	}
 }
 

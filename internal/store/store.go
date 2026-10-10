@@ -35,7 +35,9 @@ type Store struct {
 	db        *sql.DB
 	path      string // "" in memory
 	libraryID string // "" in memory
-	lock      *Lock  // the library lock, when OpenLibrary took it
+	// The library lock, when OpenLibrary took it: the lock in the library's
+	// destination root and the database's.
+	libraryLock, lock *Lock
 }
 
 // Open opens the database file at path, creating it and its folder if needed,
@@ -95,6 +97,9 @@ func open(path string, ms []migration) (*Store, error) {
 func (s *Store) Close() error {
 	err := s.db.Close()
 	if lerr := s.lock.Release(); err == nil {
+		err = lerr
+	}
+	if lerr := s.libraryLock.Release(); err == nil {
 		err = lerr
 	}
 	return err

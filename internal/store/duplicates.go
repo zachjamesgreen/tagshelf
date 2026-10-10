@@ -150,8 +150,8 @@ func (s *Store) ExactGroups() ([][]File, error) {
 	return groups, nil
 }
 
-// Group is a set of files in the collection that are, or may be, copies of
-// one song. Files are in the order they were indexed. AlsoOn lists files of
+// Group is a set of files of the library, outside its duplicates folder, that
+// are, or may be, copies of one song. Files are in the order they were indexed. AlsoOn lists files of
 // the same recording on another release: information, never duplicates.
 type Group struct {
 	Kind   GroupKind
@@ -168,9 +168,11 @@ func (g Group) IDs() []int64 {
 	return ids
 }
 
-// Groups lists the duplicate groups among the files of the collection. A
-// confirmed group joins files with the same audio or the same MusicBrainz
-// release track, transitively; it is exact when all of it has the same audio.
+// Groups lists the duplicate groups among the files of the library outside
+// its duplicates folder, where the copies already set aside are. A confirmed
+// group joins files with the same audio or the same MusicBrainz release
+// track, transitively; it is exact when all of it has the same audio, which
+// files whose audio could not be hashed, or that have none, never show.
 // Files without MusicBrainz IDs whose possibleKey matches form a possible
 // group. It is never merged into a confirmed group, though its files may also
 // be in one: it is left out only when all its files are one confirmed group
@@ -235,6 +237,10 @@ func (s *Store) Groups(possibleKey func(File) string) ([]Group, error) {
 			continue
 		}
 		g := Group{Kind: GroupExact}
+		if sum := files[m[0]].Sum; sum == "" || sum == emptyAudioSum {
+			// Joined by release track alone: no hash says the audio is the same.
+			g.Kind = GroupReleaseTrack
+		}
 		for _, i := range m {
 			g.Files = append(g.Files, files[i])
 			if files[i].Sum != files[m[0]].Sum {
@@ -311,7 +317,7 @@ func sameGroup(group []int, m []int) bool {
 	return true
 }
 
-// GroupsNeedingReview counts the duplicate groups of the collection that no
+// GroupsNeedingReview counts the duplicate groups Groups lists that no
 // review covers: new groups, and reviewed ones that have gained a member.
 // possibleKey is as for Groups.
 func (s *Store) GroupsNeedingReview(possibleKey func(File) string) (int, error) {
@@ -319,8 +325,8 @@ func (s *Store) GroupsNeedingReview(possibleKey func(File) string) (int, error) 
 	return len(groups), err
 }
 
-// GroupsToReview lists the duplicate groups of the collection that no review
-// covers, in the order of Groups. possibleKey is as for Groups.
+// GroupsToReview lists the duplicate groups Groups lists that no review
+// covers, in their order there. possibleKey is as for Groups.
 func (s *Store) GroupsToReview(possibleKey func(File) string) ([]Group, error) {
 	groups, err := s.Groups(possibleKey)
 	if err != nil {

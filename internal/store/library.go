@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,21 +24,60 @@ const LibraryIDFile = OwnFilePrefix + "library"
 
 var libraryIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// ErrOtherLibrary is returned when a database already belongs to a library
+// other than the one it is being opened for.
+var ErrOtherLibrary = errors.New("the database belongs to another library")
+
 // OpenLibrary opens the database of the library at destination for a run.
 // database is the database file to use, or "" for the default location for the
 // library's ID.
 //
-// It first takes the library lock, without waiting: if another process holds
-// it, the error is a *LockedError (errors.Is ErrLocked) and nothing else is
-// touched. The Store holds the lock until Close. Holding it, OpenLibrary marks
-// runs left running as crashed: their process died without finishing them.
+// It first takes the library lock, without waiting: the lock file in the
+// destination, then the database's. If another process holds either, the
+// error is a *LockedError (errors.Is ErrLocked) and nothing else is touched.
+// The Store holds the lock until Close. Holding it, OpenLibrary marks runs
+// left running as crashed: their process died without finishing them.
+//
+// A database belongs to the first library it is opened for, whose ID it then
+// holds: opening it for another library is refused with ErrOtherLibrary, as
+// its index would otherwise be rewritten for that library's files.
 //
 // A library without an ID file gets one, but only once its database has
-// opened, so a database that cannot be opened leaves the library untouched.
+// opened, so a database that cannot be opened leaves the library without an
+// ID (though with its folder and lock file made).
 // A dry run on such a library writes nothing at all: it gets a database in
 // memory, even when database names a file, and takes no lock, as there is no
 // library database yet to guard.
 func OpenLibrary(destination, database string, dryRun bool) (*Store, error) {
+	id, err := ReadLibraryID(destination)
+	if err != nil {
+		return nil, err
+	}
+	if id == "" && dryRun {
+		return OpenMemory()
+	}
+	libraryLock, err := AcquireLibraryLock(destination)
+	if err != nil {
+		return nil, err
+	}
+	s, err := openLocked(destination, database, dryRun)
+	if err != nil {
+		libraryLock.Release()
+		return nil, err
+	}
+	if s.path == "" {
+		// In memory after all: nothing to guard.
+		libraryLock.Release()
+		return s, nil
+	}
+	s.libraryLock = libraryLock
+	return s, nil
+}
+
+// openLocked is OpenLibrary once the lock in the destination is held.
+func openLocked(destination, database string, dryRun bool) (*Store, error) {
+	// Read again now that no other run can be giving the library its ID: two
+	// first runs must not each make one.
 	id, err := ReadLibraryID(destination)
 	if err != nil {
 		return nil, err
@@ -67,6 +107,10 @@ func OpenLibrary(destination, database string, dryRun bool) (*Store, error) {
 		return nil, err
 	}
 	s.lock = lock
+	if err := s.claim(id, destination); err != nil {
+		s.Close()
+		return nil, err
+	}
 	if fresh {
 		if err := writeLibraryID(destination, id); err != nil {
 			s.Close()
@@ -79,6 +123,45 @@ func OpenLibrary(destination, database string, dryRun bool) (*Store, error) {
 	}
 	s.libraryID = id
 	return s, nil
+}
+
+// owner returns the ID of the library the database belongs to, or "" when it
+// has not been opened for a library yet.
+func (s *Store) owner() (string, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM library`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading the database's library ID: %w", err)
+	}
+	return id, nil
+}
+
+// checkOwner refuses a database that belongs to a library other than id, the
+// one at destination.
+func (s *Store) checkOwner(id, destination string) (owner string, err error) {
+	if owner, err = s.owner(); err != nil {
+		return "", err
+	}
+	if owner != "" && owner != id {
+		return owner, fmt.Errorf("%w: %q holds the index of library %s, and the library at %q is %s; name another database with database: or -db",
+			ErrOtherLibrary, s.path, owner, destination, id)
+	}
+	return owner, nil
+}
+
+// claim makes the database the library id's, if it is no library's yet.
+func (s *Store) claim(id, destination string) error {
+	owner, err := s.checkOwner(id, destination)
+	if err != nil || owner != "" {
+		return err
+	}
+	if _, err := s.db.Exec(`INSERT INTO library (id) VALUES (?)`, id); err != nil {
+		return fmt.Errorf("recording the database's library ID: %w", err)
+	}
+	return nil
 }
 
 // ReadLibraryID returns the ID in the library's ID file, or "" when the

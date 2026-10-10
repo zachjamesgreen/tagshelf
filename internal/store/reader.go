@@ -64,7 +64,8 @@ func OpenReader(path string) (*Store, error) {
 //
 // A database older than this tagshelf is first brought up to date the way a
 // run would, which needs the library lock: while another process holds it the
-// error is a *LockedError.
+// error is a *LockedError. A database that belongs to another library is
+// refused with ErrOtherLibrary.
 func OpenLibraryReader(destination, database string) (*Store, error) {
 	id, err := ReadLibraryID(destination)
 	if err != nil {
@@ -91,6 +92,10 @@ func OpenLibraryReader(destination, database string) (*Store, error) {
 		s, err = OpenReader(path)
 	}
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.checkOwner(id, destination); err != nil {
+		s.Close()
 		return nil, err
 	}
 	s.libraryID = id

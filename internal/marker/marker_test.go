@@ -41,9 +41,20 @@ func TestParse(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	when := time.Date(2026, 9, 27, 23, 30, 0, 0, time.FixedZone("x", 5*3600))
-	if got := New(MusicBrainz, when).String(); got != "musicbrainz 2026-09-27" {
-		t.Errorf("New(MusicBrainz, …).String() = %q", got)
+	// The day is the one in when's own time zone. Both times are on another
+	// day in UTC: the 28th west of it, the 26th east of it.
+	for _, zone := range []*time.Location{time.FixedZone("west", -5*3600), time.FixedZone("east", 5*3600)} {
+		hour := 23
+		if zone.String() == "east" {
+			hour = 0
+		}
+		when := time.Date(2026, 9, 27, hour, 30, 0, 0, zone)
+		if when.UTC().Day() == 27 {
+			t.Fatalf("%s is the 27th in UTC too, so it tells nothing", when)
+		}
+		if got := New(MusicBrainz, when).String(); got != "musicbrainz 2026-09-27" {
+			t.Errorf("New(MusicBrainz, %s).String() = %q, want musicbrainz 2026-09-27", when, got)
+		}
 	}
 }
 

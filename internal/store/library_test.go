@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -93,8 +95,8 @@ func TestOpenLibraryExplicitDatabase(t *testing.T) {
 	if s.Path() != db {
 		t.Errorf("Path() = %q, want %q", s.Path(), db)
 	}
-	if _, err := ReadLibraryID(lib); err != nil {
-		t.Error(err)
+	if id, err := ReadLibraryID(lib); err != nil || id == "" || id != s.LibraryID() {
+		t.Errorf("library ID = %q, %v; want the one the library was opened as, %q", id, err, s.LibraryID())
 	}
 	if entries, _ := os.ReadDir(data); len(entries) != 0 {
 		t.Errorf("default location used despite an explicit database: %v", entries)
@@ -120,8 +122,8 @@ func TestOpenLibraryDryRunUnidentifiedIsInMemory(t *testing.T) {
 		s.Close()
 	}
 
-	if _, err := os.Stat(filepath.Join(lib, LibraryIDFile)); !os.IsNotExist(err) {
-		t.Errorf("dry run wrote the ID file: %v", err)
+	if entries, err := os.ReadDir(lib); err != nil || len(entries) != 0 {
+		t.Errorf("dry run wrote in the folder, which is not a library yet: %v, %v", entries, err)
 	}
 	if _, err := os.Stat(explicit); !os.IsNotExist(err) {
 		t.Errorf("dry run created the database file: %v", err)
@@ -133,18 +135,47 @@ func TestOpenLibraryDryRunUnidentifiedIsInMemory(t *testing.T) {
 
 func TestOpenLibraryDatabaseFailureWritesNoID(t *testing.T) {
 	useDataDir(t)
+
+	// A database whose folder cannot be made: nothing gets as far as opening.
 	lib := t.TempDir()
 	blocker := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	if s, err := OpenLibrary(lib, filepath.Join(blocker, "tagshelf.db"), false); err == nil {
 		s.Close()
 		t.Fatal("OpenLibrary with an unusable database path succeeded")
 	}
 	if _, err := os.Stat(filepath.Join(lib, LibraryIDFile)); !os.IsNotExist(err) {
 		t.Errorf("ID file written although the database could not be opened: %v", err)
+	}
+	if !lockFree(t, LibraryLockPath(lib)) {
+		t.Error("the failed open still holds the library's lock")
+	}
+
+	// A database that is there, with its lock free to take, and cannot be
+	// opened: one from a newer tagshelf.
+	lib = filepath.Join(t.TempDir(), "lib")
+	db := filepath.Join(t.TempDir(), "newer.db")
+	newer, err := Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newer.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", len(migrations)+1)); err != nil {
+		t.Fatal(err)
+	}
+	newer.Close()
+	if s, err := OpenLibrary(lib, db, false); !errors.Is(err, ErrNewerDatabase) {
+		if err == nil {
+			s.Close()
+		}
+		t.Fatalf("OpenLibrary with a newer database: %v, want ErrNewerDatabase", err)
+	}
+	if id, err := ReadLibraryID(lib); err != nil || id != "" {
+		t.Errorf("ID file written although the database was refused: %q, %v", id, err)
+	}
+	if !lockFree(t, LockPath(db)) || !lockFree(t, LibraryLockPath(lib)) {
+		t.Error("the refused open still holds the library lock")
 	}
 }
 

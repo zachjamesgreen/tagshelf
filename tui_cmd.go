@@ -14,40 +14,9 @@ import (
 
 // runTUI runs `tagshelf tui [flags]` and returns the process exit code.
 func runTUI(ctx context.Context, args []string) int {
-	flags := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
-	configPath := flags.String("config", "", "Path to YAML configuration file")
-	sourceFlag := flags.String("source", "", "Source directory that o organizes into the library")
-	destFlag := flags.String("dest", "", "The library: the destination directory of organized music")
-	dbFlag := flags.String("db", "", "Library database file (default: %LOCALAPPDATA%/tagshelf/libraries/<library-id>/tagshelf.db)")
-	dryRunFlag := flags.Bool("dry-run", false, "Start with dry run on")
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitCannotStart
-	}
-	if flags.NArg() > 0 {
-		log.Printf("Error: unexpected arguments %q", flags.Args())
-		return exitCannotStart
-	}
-	ov := config.Overrides{Source: *sourceFlag, Destination: *destFlag, Database: *dbFlag}
-	flags.Visit(func(f *flag.Flag) {
-		if f.Name == "dry-run" {
-			ov.DryRun = dryRunFlag
-		}
-	})
-	cfg, err := config.Load(*configPath, ov)
-	if err != nil {
-		log.Printf("Error: %v", err)
-		return exitCannotStart
-	}
-	if cfg.Destination == "" {
-		log.Println("Error: destination directory must be specified via -dest or config file")
-		return exitCannotStart
-	}
-	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
-		log.Printf("Error: %v", err)
-		return exitCannotStart
+	cfg, code, ok := tuiConfig(args)
+	if !ok {
+		return code
 	}
 	dest, database := cfg.Destination, cfg.Database
 
@@ -78,6 +47,36 @@ func runTUI(ctx context.Context, args []string) int {
 		return exitErrors
 	}
 	return exitOK
+}
+
+// tuiConfig works out the configuration `tagshelf tui` was started with, with
+// defaults filled in and paths made absolute. ok is false when the TUI should
+// not open, and code is then the exit code. It takes the CLI's folder flags,
+// so that the runs the TUI starts use the folders a CLI run with the same
+// flags would.
+func tuiConfig(args []string) (cfg config.Config, code int, ok bool) {
+	set := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
+	flags := addLibraryFlags(set,
+		"Source directory that o organizes into the library",
+		"The library: the destination directory of organized music",
+		"Start with dry run on")
+	if code, done := flags.parse(args); done {
+		return config.Config{}, code, false
+	}
+	cfg, err := config.Load(*flags.config, flags.overrides())
+	if err != nil {
+		log.Printf("Error: %v", err)
+		return config.Config{}, exitCannotStart, false
+	}
+	if cfg.Destination == "" {
+		log.Println("Error: destination directory must be specified via -dest or config file")
+		return config.Config{}, exitCannotStart, false
+	}
+	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
+		log.Printf("Error: %v", err)
+		return config.Config{}, exitCannotStart, false
+	}
+	return cfg, exitOK, true
 }
 
 // tuiRunner does the runs started from the TUI with the configuration it was

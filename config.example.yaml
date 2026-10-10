@@ -1,6 +1,7 @@
 # tagshelf configuration
 # Copy to config.yaml and adjust. Command-line flags override these values.
 # Set source and destination to the same path to reorganize an existing library.
+# A key tagshelf does not know stops the run, so a misspelt dry_run is never ignored.
 source: "D:\\Incoming"                 # folder to organize
 destination: "D:\\Music"               # organized library
 #untagged: "D:\\Music\\_Untagged"      # audio without usable tags (default: <destination>/_Untagged)
