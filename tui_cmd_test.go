@@ -124,6 +124,72 @@ func TestRunTUIOpensAnIndexedLibraryWithoutTheLock(t *testing.T) {
 	}
 }
 
+// TestRunTUIExitCodeWhenTheTUIEnds covers the TUI ending on its own, by q or
+// by an error of its own: the exit code says which, the library's database
+// is open for as long as the TUI shows and closed once it has returned.
+func TestRunTUIExitCodeWhenTheTUIEnds(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		err  error // what the TUI ends with
+		want int
+		log  string
+	}{
+		{"the user quits", nil, nil, exitOK, ""},
+		{"started with dry run on", []string{"-dry-run"}, nil, exitOK, ""},
+		{"the TUI fails", nil, errors.New("the terminal went away"), exitErrors, "Error: the terminal went away"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp, config, logs := cliEnv(t)
+			lib, db := filepath.Join(tmp, "lib"), filepath.Join(tmp, "tagshelf.db")
+			if got := run(context.Background(), []string{"-config", config, "-dest", lib, "-db", db, "-index"}); got != exitOK {
+				t.Fatalf("-index exit code = %d\n%s", got, logs)
+			}
+			logs.Reset()
+
+			var shown tui.Options
+			calls := 0
+			real := showTUI
+			defer func() { showTUI = real }()
+			showTUI = func(ctx context.Context, opts tui.Options) error {
+				calls++
+				shown = opts
+				if _, err := opts.Store.DataVersion(); err != nil {
+					t.Errorf("the database cannot be read while the TUI shows: %v", err)
+				}
+				return tt.err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), refusalTimeout)
+			defer cancel()
+			args := append([]string{"tui", "-config", config, "-dest", lib, "-db", db}, tt.args...)
+			if got := run(ctx, args); got != tt.want {
+				t.Errorf("exit code = %d, want %d\n%s", got, tt.want, logs)
+			}
+			if calls != 1 {
+				t.Fatalf("the TUI was shown %d times", calls)
+			}
+			if tt.log == "" && logs.Len() != 0 || !strings.Contains(logs.String(), tt.log) {
+				t.Errorf("log = %q, want %q", logs.String(), tt.log)
+			}
+			id, err := store.ReadLibraryID(lib)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if shown.Destination != lib || shown.LibraryID != id || id == "" || shown.DryRun != (len(tt.args) > 0) || shown.Compilations == "" {
+				t.Errorf("the TUI was shown with %+v, want the library %s (%s)", shown, lib, id)
+			}
+			if r, ok := shown.Runner.(tuiRunner); !ok || r.cfg.Destination != lib || r.cfg.Database != db {
+				t.Errorf("the TUI's runner = %+v, want one for the library", shown.Runner)
+			}
+			// Closed behind it.
+			if _, err := shown.Store.DataVersion(); err == nil {
+				t.Error("the database is still open after tagshelf tui returned")
+			}
+		})
+	}
+}
+
 // TestTUIConfigTakesTheFolderFlags checks tagshelf tui goes by the same
 // folder flags as the CLI, so that the runs it starts use the folders a CLI
 // run with those flags would.

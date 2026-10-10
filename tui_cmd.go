@@ -12,6 +12,10 @@ import (
 	"tagshelf/internal/tui"
 )
 
+// showTUI shows the TUI until the user quits or the context is cancelled.
+// The tests put a stand-in in its place: the real one needs a terminal.
+var showTUI = tui.Run
+
 // runTUI runs `tagshelf tui [flags]` and returns the process exit code.
 func runTUI(ctx context.Context, args []string) int {
 	cfg, code, ok := tuiConfig(args)
@@ -35,9 +39,11 @@ func runTUI(ctx context.Context, args []string) int {
 		log.Printf("Error: cannot open the library database: %v", err)
 		return exitCannotStart
 	}
+	// The database closes once the TUI has returned, which it does only
+	// after stopping whatever run or action it had going.
 	defer st.Close()
 
-	err = tui.Run(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Compilations: cfg.Compilations,
+	err = showTUI(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Compilations: cfg.Compilations,
 		MusicBrainzContact: cfg.MusicBrainzContact, Runner: tuiRunner{cfg: cfg}})
 	if ctx.Err() != nil {
 		return exitInterrupted
