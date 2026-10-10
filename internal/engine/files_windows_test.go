@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"syscall"
 	"testing"
 )
 
@@ -66,15 +65,7 @@ func TestReadOfLockedFileFails(t *testing.T) {
 	locked := filepath.Join(source, "locked.mp3")
 	writeTaggedMP3(t, locked, id3Tags{albumArtist: "Singer", album: "Album", title: "Locked", track: "1"}, "locked")
 
-	name, err := syscall.UTF16PtrFromString(locked)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer syscall.CloseHandle(h)
+	lockPath(t, locked)
 
 	var c collector
 	finish := Run(context.Background(), Options{Source: source, Destination: filepath.Join(tmpDir, "lib"), Workers: 1, Sink: c.sink})

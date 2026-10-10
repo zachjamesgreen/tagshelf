@@ -6,9 +6,15 @@
 /config.yaml
 /music.csv
 
-# Editor and agent folders
+# Working notes, research and reviews
+/docs/
+
+# Editor and agent folders and files
 .idea/
 .junie/
 .serena/
 .agents/
 .claude/
+/AGENTS.md
+/.mcp.json
+/skills-lock.json

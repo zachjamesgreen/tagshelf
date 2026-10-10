@@ -1,0 +1,49 @@
+name: Bug report
+description: Something tagshelf did wrong, or did not do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting it. Please leave out anything private: real paths can be shortened, and nobody needs your MusicBrainz contact.
+  - type: input
+    id: version
+    attributes:
+      label: tagshelf version
+      description: What `tagshelf -version` prints.
+      placeholder: tagshelf v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The command you ran, or the keys you pressed in the TUI. Say whether dry run was on.
+      placeholder: tagshelf -source D:\Incoming -dest D:\Music
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: Paste the output or the message shown. For a file that ended up in the wrong place, give its format and the tags that matter (artist, album artist, album, title, track, year).
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Is the library on another drive than the source, on a network share, or on a drive that is not NTFS?

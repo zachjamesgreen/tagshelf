@@ -14,11 +14,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/zachjamesgreen/tagshelf/internal/version"
 )
 
 // DefaultBaseURL is the MusicBrainz web service root.
@@ -77,18 +78,7 @@ func New(contact string) (*Client, error) {
 // UserAgent is the User-Agent MusicBrainz asks for:
 // "tagshelf/<version> ( <contact> )".
 func UserAgent(contact string) string {
-	return "tagshelf/" + version() + " ( " + contact + " )"
-}
-
-// version is the module version from the build info, or "dev" for a build
-// without one (go run, go test, a plain go build of a checkout).
-func version() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		if v := bi.Main.Version; v != "" && v != "(devel)" {
-			return v
-		}
-	}
-	return "dev"
+	return "tagshelf/" + version.String() + " ( " + contact + " )"
 }
 
 // SearchRecordings runs a recording search and returns one page of PageSize

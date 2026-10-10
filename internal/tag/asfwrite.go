@@ -238,7 +238,7 @@ func replaceASFDescriptors(data []byte, name string, add []byte) ([]byte, error)
 		n := decodeASFString(r.bytes(r.uint16()))
 		r.bytes(2)
 		r.bytes(r.uint16())
-		if r.err == nil && strings.ToLower(n) != strings.ToLower(name) {
+		if r.err == nil && !strings.EqualFold(n, name) {
 			out = append(out, data[start:len(data)-len(r.b)]...)
 			kept++
 		}
