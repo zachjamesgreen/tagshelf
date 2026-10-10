@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -85,10 +86,16 @@ func TestSettingsLoad(t *testing.T) {
 		t.Errorf("with a file that has an unknown key: %+v", f)
 	}
 
+	// The folder the databases are kept under is named for the row of a
+	// database that is not set.
+	if f.DataFolder != dataFolderName() || f.DataFolder == "" {
+		t.Errorf("the data folder is named %q, want %q", f.DataFolder, dataFolderName())
+	}
+
 	// The flags typed are what the session goes by.
 	writeFile(t, empty, yaml)
-	f = sessionFor(t, "-config", empty, "-dest", tmp+`\lib\.\x\..`, "-dry-run", "-no-cue-rewrite", "-workers", "2", "-compilations", "Mixed", "-db", tmp+`\my.db`).Load()
-	want := map[string]string{"destination": tmp + `\lib`, "dry_run": "on", "cue_rewrite": "off", "workers": "2", "compilations": "Mixed", "database": tmp + `\my.db`}
+	f = sessionFor(t, "-config", empty, "-dest", filepath.FromSlash(tmp+"/lib/./x/.."), "-dry-run", "-no-cue-rewrite", "-workers", "2", "-compilations", "Mixed", "-db", filepath.Join(tmp, "my.db")).Load()
+	want := map[string]string{"destination": filepath.Join(tmp, "lib"), "dry_run": "on", "cue_rewrite": "off", "workers": "2", "compilations": "Mixed", "database": filepath.Join(tmp, "my.db")}
 	if !reflect.DeepEqual(f.Session, want) {
 		t.Errorf("the session's settings = %v\nwant                    %v", f.Session, want)
 	}
@@ -176,7 +183,13 @@ func TestSettingsCheckAsksBeforeLeavingALibrary(t *testing.T) {
 	if got := asked(s, func(c *config.Config) { c.Workers = 2 }); got != nil {
 		t.Errorf("a change that keeps the library asks %q", got)
 	}
-	if got := asked(s, func(c *config.Config) { c.Destination = strings.ToUpper(lib) + `\` }); got != nil {
+	// The same folder written another way: with a separator at its end, and
+	// on Windows, where case does not matter, in capitals as well.
+	another := lib + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		another = strings.ToUpper(lib) + `\`
+	}
+	if got := asked(s, func(c *config.Config) { c.Destination = another }); got != nil {
 		t.Errorf("the same folder written another way asks %q", got)
 	}
 	if got, want := asked(s, func(c *config.Config) { c.Destination = other }), []string{"This opens a different library. Your music in " + lib + " is not moved."}; !reflect.DeepEqual(got, want) {

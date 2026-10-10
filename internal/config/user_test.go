@@ -46,8 +46,9 @@ func userConfig(t *testing.T, yaml string) string {
 func TestUserPath(t *testing.T) {
 	real := userDir
 	defer func() { userDir = real }()
-	userDir = func() (string, error) { return `C:\Users\me\AppData\Roaming`, nil }
-	if got, err := UserPath(); err != nil || got != `C:\Users\me\AppData\Roaming\tagshelf\config.yaml` {
+	settings := filepath.Join(t.TempDir(), "settings")
+	userDir = func() (string, error) { return settings, nil }
+	if got, err := UserPath(); err != nil || got != filepath.Join(settings, "tagshelf", "config.yaml") {
 		t.Errorf("UserPath = %q, %v", got, err)
 	}
 	userDir = func() (string, error) { return "", errors.New("%AppData% is not defined") }

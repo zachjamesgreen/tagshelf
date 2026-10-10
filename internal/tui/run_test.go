@@ -199,10 +199,10 @@ func TestOrganizeFromHome(t *testing.T) {
 	if s := waitStart(t, f); s.kind != RunOrganize || s.dryRun {
 		t.Fatalf("started %+v, want a real organize", s)
 	}
-	f.send(t, engine.RunStarted{Kind: engine.KindOrganize, Source: `E:\Incoming`, Destination: `D:\Music`})
+	f.send(t, engine.RunStarted{Kind: engine.KindOrganize, Source: p(`E:\Incoming`), Destination: p(`D:\Music`)})
 	f.send(t, engine.PhaseStarted{Phase: engine.PhaseAudio, Files: 40})
-	f.send(t, engine.FilePlaced{Path: `E:\Incoming\a.flac`, Destination: `D:\Music\Singer\Album\01 - Song.flac`, Outcome: engine.Organized})
-	f.send(t, engine.FileError{Path: `E:\Incoming\bad.mp3`, Op: engine.OpOpen, Err: errors.New("access denied")})
+	f.send(t, engine.FilePlaced{Path: p(`E:\Incoming\a.flac`), Destination: p(`D:\Music\Singer\Album\01 - Song.flac`), Outcome: engine.Organized})
+	f.send(t, engine.FileError{Path: p(`E:\Incoming\bad.mp3`), Op: engine.OpOpen, Err: errors.New("access denied")})
 	f.send(t, engine.Progress{Phase: engine.PhaseAudio, Files: 17, FilesTotal: 40, Rate: 7.5, ETA: 3 * time.Second,
 		Counters: engine.Counters{Organized: 16, Errors: 1}})
 
@@ -350,7 +350,7 @@ func TestRunRefusedWhileAnotherProcessHoldsTheLock(t *testing.T) {
 // The lock can be taken between polls: then the runner reports it.
 func TestRunnerLockedErrorShowsToast(t *testing.T) {
 	f := newFakeRunner()
-	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	f.err = &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 	m := newRunModel(t, f)
 	press(t, m, "o")
 	if m.run != nil {
@@ -398,8 +398,8 @@ func TestGoldenRunViews(t *testing.T) {
 	press(t, m, "o")
 	waitStart(t, f)
 	f.send(t, engine.PhaseStarted{Phase: engine.PhaseAudio, Files: 2050})
-	f.send(t, engine.FilePlaced{Path: `E:\Incoming\a.flac`, Destination: `D:\Music\Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`, Outcome: engine.Organized})
-	f.send(t, engine.FilePlaced{Path: `E:\Incoming\b.mp3`, Destination: `D:\Music\_Duplicates\Incoming\b.mp3`, Outcome: engine.Duplicate})
+	f.send(t, engine.FilePlaced{Path: p(`E:\Incoming\a.flac`), Destination: p(`D:\Music\Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`), Outcome: engine.Organized})
+	f.send(t, engine.FilePlaced{Path: p(`E:\Incoming\b.mp3`), Destination: p(`D:\Music\_Duplicates\Incoming\b.mp3`), Outcome: engine.Duplicate})
 	f.send(t, engine.Progress{Phase: engine.PhaseAudio, Files: 1234, FilesTotal: 2050, Rate: 41.3, ETA: 20 * time.Second,
 		Counters: engine.Counters{Organized: 1200, Untagged: 20, Duplicates: 14}})
 	got := screen(m)

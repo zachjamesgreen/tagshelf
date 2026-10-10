@@ -46,6 +46,9 @@ type SettingsFile struct {
 	Session map[string]string
 	// Text is the file as read, which Save compares with the file as it is.
 	Text []byte
+	// DataFolder is the folder a library's database is kept under when the
+	// database setting is empty, as it is shown.
+	DataFolder string
 }
 
 // SettingsCheck is what Settings.Check found.
@@ -88,7 +91,7 @@ var settingRows = []settingRow{
 	{"workers", "Files at once", kindNumber, "", "How many files a run works on at once. 0 means one for each CPU."},
 	{"verbose", "Verbose", kindToggle, "", "On: a run from the command line prints a line for every file."},
 	{"musicbrainz_contact", "MusicBrainz contact", kindText, "not set: lookups are off", "An email address or URL MusicBrainz can reach you at. It is sent with every lookup."},
-	{"database", "Database file", kindFile, "kept under %LOCALAPPDATA%\\tagshelf, by the library's ID", "The file the library's index and run history are kept in."},
+	{"database", "Database file", kindFile, "kept with tagshelf's own files, by the library's ID", "The file the library's index and run history are kept in."},
 }
 
 // settingsTab is the state of the Settings tab.
@@ -370,10 +373,11 @@ func pathHint(path string, folder bool) string {
 // offered too unless only folders will do.
 func completePath(typed string, foldersOnly bool) string {
 	typed = strings.TrimLeft(typed, `"`)
-	cut := strings.LastIndexAny(typed, `\/`)
+	cut := lastSeparator(typed)
 	if cut < 0 {
 		return typed
 	}
+	separator := string(filepath.Separator)
 	dir, prefix := typed[:cut+1], typed[cut+1:]
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -387,7 +391,7 @@ func completePath(typed string, foldersOnly bool) string {
 		if len(e.Name()) >= len(prefix) && strings.EqualFold(e.Name()[:len(prefix)], prefix) {
 			name := e.Name()
 			if e.IsDir() {
-				name += `\`
+				name += separator
 			}
 			matches = append(matches, name)
 		}
@@ -398,7 +402,7 @@ func completePath(typed string, foldersOnly bool) string {
 	case 1:
 		return dir + matches[0]
 	}
-	common := []rune(strings.TrimSuffix(matches[0], `\`))
+	common := []rune(strings.TrimSuffix(matches[0], separator))
 	for _, m := range matches[1:] {
 		other := []rune(m)
 		n := 0
@@ -411,6 +415,17 @@ func completePath(typed string, foldersOnly bool) string {
 		return typed
 	}
 	return dir + string(common)
+}
+
+// lastSeparator is where the last path separator of path is, or -1. A
+// backslash is one on Windows only: elsewhere it is a character of a name.
+func lastSeparator(path string) int {
+	for i := len(path) - 1; i >= 0; i-- {
+		if os.IsPathSeparator(path[i]) {
+			return i
+		}
+	}
+	return -1
 }
 
 // settingsAskSave starts saving: the settings are checked first, off the UI
@@ -574,6 +589,9 @@ func (m *Model) settingValue(r settingRow, value any) string {
 		}
 		return strconv.Itoa(v)
 	case string:
+		if v == "" && r.key == "database" && m.settings.file.DataFolder != "" {
+			return dimStyle.Render("(kept under " + clean(m.settings.file.DataFolder) + ", by the library's ID)")
+		}
 		if v == "" {
 			return dimStyle.Render("(" + r.unset + ")")
 		}

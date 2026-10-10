@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -242,7 +243,7 @@ func TestProblemsShowNoHelp(t *testing.T) {
 				t.Errorf("printed %d lines, want two: %q", n+1, got)
 			}
 			for _, want := range tt.want {
-				want = strings.ReplaceAll(want, "TMP", tmp)
+				want = strings.NewReplacer(`TMP\`, tmp+string(filepath.Separator), "TMP", tmp).Replace(want)
 				if !strings.Contains(got, want) {
 					t.Errorf("printed %q, which lacks %q", got, want)
 				}
@@ -312,5 +313,32 @@ func TestWrap(t *testing.T) {
 		if got := wrap(tt.text, tt.width); strings.Join(got, "|") != strings.Join(tt.want, "|") {
 			t.Errorf("wrap(%q, %d) = %q, want %q", tt.text, tt.width, got, tt.want)
 		}
+	}
+}
+
+// TestDataFolderName checks how the folder of the databases is written for a
+// reader: by its variable on Windows, and elsewhere the folder itself, with ~
+// for the home folder when it is under it.
+func TestDataFolderName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		if got := dataFolderName(); got != `%LOCALAPPDATA%\tagshelf` {
+			t.Errorf("dataFolderName() = %q", got)
+		}
+		return
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	if got, want := dataFolderName(), "~/.local/share/tagshelf"; got != want {
+		t.Errorf("dataFolderName() = %q, want %q", got, want)
+	}
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	if got, want := dataFolderName(), "~/data/tagshelf"; got != want {
+		t.Errorf("with XDG_DATA_HOME under the home folder: %q, want %q", got, want)
+	}
+	elsewhere := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", elsewhere)
+	if got, want := dataFolderName(), filepath.Join(elsewhere, "tagshelf"); got != want {
+		t.Errorf("with XDG_DATA_HOME elsewhere: %q, want %q", got, want)
 	}
 }

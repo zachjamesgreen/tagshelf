@@ -52,8 +52,8 @@ func matchSource() *fakeSource {
 	u[0].Length, u[1].Length = 59*time.Second, 300*time.Second
 	third := u[1]
 	third.ID, third.Title, third.Length = 106, "", 37*time.Second
-	third.Path = filepath.Join(`D:\Music\_Untagged`, "zz.flac")
-	third.From = `E:\Rips\Geogaddi\zz.flac`
+	third.Path = filepath.Join(p(`D:\Music\_Untagged`), "zz.flac")
+	third.From = p(`E:\Rips\Geogaddi\zz.flac`)
 	src.snap.Untagged = append(u, third)
 	src.tags = map[string]tagwrite.Values{}
 	for _, f := range src.snap.Untagged {
@@ -142,10 +142,10 @@ func TestReleaseMatchTagsAFolderAsOneRelease(t *testing.T) {
 		t.Errorf("the diff lists the file on no track:\n%s", got)
 	}
 
-	album := `D:\Music\Boards of Canada\Geogaddi (2002)`
+	album := p(`D:\Music\Boards of Canada\Geogaddi (2002)`)
 	f.saveEvents = []engine.Event{
-		engine.FilePlaced{Destination: album + `\01 - Ready Lets Go.flac`, Outcome: engine.Organized},
-		engine.FilePlaced{Destination: album + `\02 - Music Is Math.flac`, Outcome: engine.Organized},
+		engine.FilePlaced{Destination: album + p(`\01 - Ready Lets Go.flac`), Outcome: engine.Organized},
+		engine.FilePlaced{Destination: album + p(`\02 - Music Is Math.flac`), Outcome: engine.Organized},
 	}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 2}}
 	hit(t, m, "enter")
@@ -279,7 +279,7 @@ func TestReleaseMatchStepsBackAndShowsErrors(t *testing.T) {
 		t.Errorf("a save in a dry run: saved %v, step %d, toast %q", f.saved, m.match.step, m.toast)
 	}
 	m.header.DryRun = false
-	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	f.err = &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 	hit(t, m, "enter")
 	if m.match == nil {
 		t.Fatalf("the release match closed on a save that could not start: toast %q", m.toast)
@@ -424,8 +424,8 @@ func TestReleaseMatchRefusesTooManyFiles(t *testing.T) {
 		for i := range tt.files {
 			name := fmt.Sprintf("%04d.mp3", i+1)
 			f := store.File{ID: int64(1000 + i), RootKind: store.RootUntagged, RelPath: name, Format: "MP3"}
-			f.Path = filepath.Join(`D:\Music\_Untagged`, name)
-			src.snap.Untagged = append(src.snap.Untagged, store.UntaggedFile{File: f, From: `E:\Loose\` + name})
+			f.Path = filepath.Join(p(`D:\Music\_Untagged`), name)
+			src.snap.Untagged = append(src.snap.Untagged, store.UntaggedFile{File: f, From: p(`E:\Loose\`) + name})
 		}
 		mb := geogaddi()
 		m, _ := newUntaggedModel(t, src)

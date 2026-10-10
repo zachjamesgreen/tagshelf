@@ -17,26 +17,26 @@ func historySource() *fakeSource {
 	src := &fakeSource{snap: sampleSnapshot()}
 	day := func(d int) time.Time { return started.Add(time.Duration(d-7) * 24 * time.Hour) }
 	src.snap.Runs = []store.Run{
-		{ID: 7, Started: day(7), Kind: store.KindOrganize, Source: `E:\Incoming`, Destination: `D:\Music`, State: store.StateRunning},
-		{ID: 6, Started: day(6), Kind: store.KindReorganize, Source: `D:\Music`, Destination: `D:\Music`, State: store.StateCrashed,
+		{ID: 7, Started: day(7), Kind: store.KindOrganize, Source: p(`E:\Incoming`), Destination: p(`D:\Music`), State: store.StateRunning},
+		{ID: 6, Started: day(6), Kind: store.KindReorganize, Source: p(`D:\Music`), Destination: p(`D:\Music`), State: store.StateCrashed,
 			Counters: store.Counters{Organized: 3}},
-		{ID: 5, Started: day(5), Kind: store.KindOrganize, Source: `E:\Incoming`, Destination: `D:\Music`, State: store.StateErrors,
+		{ID: 5, Started: day(5), Kind: store.KindOrganize, Source: p(`E:\Incoming`), Destination: p(`D:\Music`), State: store.StateErrors,
 			Counters: store.Counters{Organized: 40, Untagged: 2, OtherMoved: 5, Duplicates: 1, Errors: 2}},
-		{ID: 4, Started: day(4), Kind: store.KindOrganize, DryRun: true, Source: `E:\Incoming`, Destination: `D:\Music`, State: store.StateOK,
+		{ID: 4, Started: day(4), Kind: store.KindOrganize, DryRun: true, Source: p(`E:\Incoming`), Destination: p(`D:\Music`), State: store.StateOK,
 			Counters: store.Counters{Organized: 12}},
-		{ID: 3, Started: day(3), Kind: store.KindIndex, Destination: `D:\Music`, State: store.StateInterrupted,
+		{ID: 3, Started: day(3), Kind: store.KindIndex, Destination: p(`D:\Music`), State: store.StateInterrupted,
 			Counters: store.Counters{Indexed: 9000}},
-		{ID: 2, Started: day(2), Kind: store.KindTUIAction, Destination: `D:\Music`, State: store.StateOK},
-		{ID: 1, Started: day(1), Kind: store.KindUndo, Destination: `D:\Music`, State: store.StateUndone},
+		{ID: 2, Started: day(2), Kind: store.KindTUIAction, Destination: p(`D:\Music`), State: store.StateOK},
+		{ID: 1, Started: day(1), Kind: store.KindUndo, Destination: p(`D:\Music`), State: store.StateUndone},
 	}
 	src.details = map[int64]RunDetail{5: {
 		Moves: []store.Move{
-			{From: `E:\Incoming\Rip\01.flac`, To: `D:\Music\Singer\Album (2001)\01 - One.flac`, Reason: store.ReasonOrganized},
-			{From: `E:\Incoming\loose.mp3`, To: `D:\Music\_Untagged\loose.mp3`, Reason: store.ReasonUntagged},
+			{From: p(`E:\Incoming\Rip\01.flac`), To: p(`D:\Music\Singer\Album (2001)\01 - One.flac`), Reason: store.ReasonOrganized},
+			{From: p(`E:\Incoming\loose.mp3`), To: p(`D:\Music\_Untagged\loose.mp3`), Reason: store.ReasonUntagged},
 		},
 		Errors: []store.RunError{
-			{Path: `E:\Incoming\locked.mp3`, Message: `move -> D:\Music\Singer\x.mp3: file in use`},
-			{Path: `E:\Incoming\bad.flac`, Message: "open: access denied"},
+			{Path: p(`E:\Incoming\locked.mp3`), Message: p(`move -> D:\Music\Singer\x.mp3: file in use`)},
+			{Path: p(`E:\Incoming\bad.flac`), Message: "open: access denied"},
 		},
 	}}
 	return src
@@ -59,7 +59,7 @@ func TestRunsTabListsEveryRun(t *testing.T) {
 		}
 		last = i
 	}
-	for _, want := range []string{`E:\Incoming -> D:\Music`, "in place", "48"} {
+	for _, want := range []string{p(`E:\Incoming -> D:\Music`), "in place", "48"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the runs list lacks %q:\n%s", want, got)
 		}
@@ -124,7 +124,7 @@ func TestRunDetailScrolls(t *testing.T) {
 	src := historySource()
 	var moves []store.Move
 	for i := range 100 {
-		moves = append(moves, store.Move{From: fmt.Sprintf(`E:\in\%03d.mp3`, i), To: fmt.Sprintf(`D:\Music\_Untagged\%03d.mp3`, i), Reason: store.ReasonUntagged})
+		moves = append(moves, store.Move{From: fmt.Sprintf(p(`E:\in\%03d.mp3`), i), To: fmt.Sprintf(p(`D:\Music\_Untagged\%03d.mp3`), i), Reason: store.ReasonUntagged})
 	}
 	src.details[5] = RunDetail{Moves: moves}
 	m := newModel(t, src, 120, 32)

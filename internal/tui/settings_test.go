@@ -45,7 +45,7 @@ func (f *fakeSettings) Save(c config.Config, read SettingsFile) (string, error) 
 	return f.note, nil
 }
 
-var savedSettings = config.Config{Source: `D:\Incoming`, Destination: `D:\Music`, Compilations: "Various Artists", DryRun: true}
+var savedSettings = config.Config{Source: p(`D:\Incoming`), Destination: p(`D:\Music`), Compilations: "Various Artists", DryRun: true}
 
 // settingsModel is a model on the Settings tab of a library, with the
 // config file read.
@@ -91,12 +91,12 @@ func TestSettingRowsAreTheConfigKeys(t *testing.T) {
 }
 
 func TestGoldenSettings(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\Users\me\AppData\Roaming\tagshelf\config.yaml`, Config: savedSettings,
-		Session: map[string]string{"destination": `E:\Other`}}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\Users\me\AppData\Roaming\tagshelf\config.yaml`), Config: savedSettings,
+		Session: map[string]string{"destination": p(`E:\Other`)}, DataFolder: p(`%LOCALAPPDATA%\tagshelf`)}}
 	m := settingsModel(t, f)
 	to(t, m, "untagged")
 	press(t, m, "enter")
-	typeText(t, m, `D:\Loose`)
+	typeText(t, m, p(`D:\Loose`))
 	press(t, m, "enter")
 	to(t, m, "destination")
 	got := screen(m)
@@ -104,11 +104,24 @@ func TestGoldenSettings(t *testing.T) {
 	golden(t, filepath.Join("testdata", "settings.golden"), got)
 }
 
+// TestSettingsSaysWhereTheDatabaseIsKept checks the row of a database that
+// is not set: it names the folder it was told, and no folder when told none.
+func TestSettingsSaysWhereTheDatabaseIsKept(t *testing.T) {
+	told := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings, DataFolder: "~/.local/share/tagshelf"}}
+	if got := screen(settingsModel(t, told)); !strings.Contains(got, "Database file        (kept under ~/.local/share/tagshelf, by the library's ID)") {
+		t.Errorf("the database row does not name the folder it was told:\n%s", got)
+	}
+	untold := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}}
+	if got := screen(settingsModel(t, untold)); !strings.Contains(got, "Database file        (kept with tagshelf's own files, by the library's ID)") {
+		t.Errorf("the database row with no folder told:\n%s", got)
+	}
+}
+
 // TestTUIStartsOnSettingsWithNothingSetUp checks where the TUI opens: on
 // Settings when there is no library folder and so no run to start, on Home
 // otherwise.
 func TestTUIStartsOnSettingsWithNothingSetUp(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\cfg\config.yaml`, New: true, Config: config.Config{DryRun: true}}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\cfg\config.yaml`), New: true, Config: config.Config{DryRun: true}}}
 	for _, tt := range []struct {
 		name string
 		opts Options
@@ -131,7 +144,7 @@ func TestTUIStartsOnSettingsWithNothingSetUp(t *testing.T) {
 			continue
 		}
 		got := screen(m)
-		for _, want := range []string{`Settings  C:\cfg\config.yaml  not made yet: s makes it`, "Source folder        (not set)", "Dry run              on",
+		for _, want := range []string{p(`Settings  C:\cfg\config.yaml  not made yet: s makes it`), "Source folder        (not set)", "Dry run              on",
 			"The folder of music that o on Home organizes into the library.", "s save"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: the screen lacks %q:\n%s", tt.name, want, got)
@@ -142,20 +155,20 @@ func TestTUIStartsOnSettingsWithNothingSetUp(t *testing.T) {
 
 // TestSettingsEditing changes settings of each kind and drops the changes.
 func TestSettingsEditing(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\cfg\config.yaml`, Config: savedSettings}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\cfg\config.yaml`), Config: savedSettings}}
 	m := settingsModel(t, f)
 
 	// A folder: typed, with the keys of the tab going into the text.
 	to(t, m, "source")
 	press(t, m, "enter")
 	press(t, m, "ctrl+u")
-	typeText(t, m, `"E:\New sq1`)
+	typeText(t, m, p(`"E:\New sq1`))
 	press(t, m, "backspace")
 	press(t, m, "left")
 	press(t, m, "left")
 	press(t, m, "backspace")
 	press(t, m, "end")
-	typeText(t, m, `\"`)
+	typeText(t, m, p(`\"`))
 	if m.tab != TabSettings || m.settings.input == nil {
 		t.Fatalf("typing left the field: tab %v, typing %t", m.tab, m.settings.input != nil)
 	}
@@ -163,14 +176,14 @@ func TestSettingsEditing(t *testing.T) {
 		t.Errorf("the keys shown while typing a path:\n%s", got)
 	}
 	press(t, m, "enter")
-	if m.settings.values.Source != `E:\Newsq` || m.settings.input != nil {
+	if m.settings.values.Source != p(`E:\Newsq`) || m.settings.input != nil {
 		t.Errorf("source = %q, want the path typed, without its quotes and cleaned", m.settings.values.Source)
 	}
 	// Typing that is cancelled changes nothing.
 	press(t, m, "enter")
 	typeText(t, m, "xyz")
 	press(t, m, "esc")
-	if m.settings.values.Source != `E:\Newsq` || m.settings.input != nil {
+	if m.settings.values.Source != p(`E:\Newsq`) || m.settings.input != nil {
 		t.Errorf("after esc: source = %q, typing %t", m.settings.values.Source, m.settings.input != nil)
 	}
 
@@ -205,8 +218,8 @@ func TestSettingsEditing(t *testing.T) {
 	}
 
 	got := screen(m)
-	for _, want := range []string{"  unsaved changes", "  * Source folder        E:\\Newsq", "  * Dry run              off", "  * Fix cue sheets       off",
-		"›   Files at once        0  one for each CPU", "    Library folder       D:\\Music"} {
+	for _, want := range []string{"  unsaved changes", p("  * Source folder        E:\\Newsq"), "  * Dry run              off", "  * Fix cue sheets       off",
+		"›   Files at once        0  one for each CPU", p("    Library folder       D:\\Music")} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the screen lacks %q:\n%s", want, got)
 		}
@@ -238,17 +251,17 @@ func TestSettingsEditing(t *testing.T) {
 // TestSettingsPaste pastes a path into the field being typed, and checks a
 // paste goes nowhere when none is.
 func TestSettingsPaste(t *testing.T) {
-	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}})
-	m.Update(tea.PasteMsg{Content: `E:\Nowhere`})
+	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}})
+	m.Update(tea.PasteMsg{Content: p(`E:\Nowhere`)})
 	if m.settings.dirty() || m.settings.input != nil {
 		t.Error("a paste with no field open changed a setting")
 	}
 	to(t, m, "destination")
 	press(t, m, "enter")
 	press(t, m, "ctrl+u")
-	m.Update(tea.PasteMsg{Content: "\"E:\\My\n Music\"\n"})
+	m.Update(tea.PasteMsg{Content: p("\"E:\\My\n Music\"\n")})
 	press(t, m, "enter")
-	if got := m.settings.values.Destination; got != `E:\My Music` {
+	if got := m.settings.values.Destination; got != p(`E:\My Music`) {
 		t.Errorf("destination = %q, want the pasted path on one line, without quotes", got)
 	}
 }
@@ -256,12 +269,12 @@ func TestSettingsPaste(t *testing.T) {
 // TestSettingsSave goes through a save: refused with what is wrong, asked
 // about, and written, with the library opened again by the new settings.
 func TestSettingsSave(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\cfg\config.yaml`, Config: savedSettings}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\cfg\config.yaml`), Config: savedSettings}}
 	m := settingsModel(t, f)
 	reopens := 0
 	m.reopen = func() (Options, error) {
 		reopens++
-		return Options{Destination: `E:\Music`, LibraryID: "aaaa1111-2", Settings: f, DryRun: true, source: &fakeSource{snap: sampleSnapshot()}}, nil
+		return Options{Destination: p(`E:\Music`), LibraryID: "aaaa1111-2", Settings: f, DryRun: true, source: &fakeSource{snap: sampleSnapshot()}}, nil
 	}
 
 	press(t, m, "s")
@@ -272,7 +285,7 @@ func TestSettingsSave(t *testing.T) {
 	to(t, m, "destination")
 	press(t, m, "enter")
 	press(t, m, "ctrl+u")
-	typeText(t, m, `E:\Music`)
+	typeText(t, m, p(`E:\Music`))
 	press(t, m, "enter")
 	to(t, m, "dry_run")
 	press(t, m, "enter")
@@ -295,13 +308,13 @@ func TestSettingsSave(t *testing.T) {
 	}
 
 	// Questions: anything but y stops the save.
-	f.check = SettingsCheck{Confirm: []string{`Make the library folder E:\Music?`, "This opens a different library. Your music in D:\\Music is not moved."}}
+	f.check = SettingsCheck{Confirm: []string{p(`Make the library folder E:\Music?`), p("This opens a different library. Your music in D:\\Music is not moved.")}}
 	press(t, m, "s")
-	if got := screen(m); !strings.Contains(got, `Make the library folder E:\Music?  y yes, n no`) || len(f.saved) != 0 {
+	if got := screen(m); !strings.Contains(got, p(`Make the library folder E:\Music?  y yes, n no`)) || len(f.saved) != 0 {
 		t.Fatalf("the first question is not asked, or the file was saved (%d):\n%s", len(f.saved), got)
 	}
 	press(t, m, "y")
-	if got := screen(m); !strings.Contains(got, "This opens a different library. Your music in D:\\Music is not moved.  y yes, n no") || len(f.saved) != 0 {
+	if got := screen(m); !strings.Contains(got, p("This opens a different library. Your music in D:\\Music is not moved.  y yes, n no")) || len(f.saved) != 0 {
 		t.Fatalf("the second question is not asked:\n%s", got)
 	}
 	press(t, m, "n")
@@ -315,11 +328,11 @@ func TestSettingsSave(t *testing.T) {
 	press(t, m, "y")
 	press(t, m, "y")
 	want := savedSettings
-	want.Destination, want.DryRun = `E:\Music`, false
+	want.Destination, want.DryRun = p(`E:\Music`), false
 	if len(f.saved) != 1 || f.saved[0] != want {
 		t.Fatalf("saved %+v, want once, %+v", f.saved, want)
 	}
-	if reopens != 1 || m.header.Destination != `E:\Music` || m.header.LibraryID != "aaaa1111-2" {
+	if reopens != 1 || m.header.Destination != p(`E:\Music`) || m.header.LibraryID != "aaaa1111-2" {
 		t.Errorf("opened again %d times, header %+v; want the library of the new settings", reopens, m.header)
 	}
 	if m.header.DryRun {
@@ -328,7 +341,7 @@ func TestSettingsSave(t *testing.T) {
 	if m.tab != TabSettings || m.settings.dirty() || m.settings.problems != nil || m.reopening {
 		t.Errorf("after the save: tab %v, dirty %t, problems %v, reopening %t", m.tab, m.settings.dirty(), m.settings.problems, m.reopening)
 	}
-	if !m.toastOK || !strings.Contains(m.toast, `Saved to C:\cfg\config.yaml. Files already in the library stay where they are`) {
+	if !m.toastOK || !strings.Contains(m.toast, p(`Saved to C:\cfg\config.yaml. Files already in the library stay where they are`)) {
 		t.Errorf("toast = %q", m.toast)
 	}
 	if got := screen(m); !strings.Contains(got, "2 Untagged 12") || strings.Contains(got, "unsaved changes") {
@@ -339,7 +352,7 @@ func TestSettingsSave(t *testing.T) {
 // TestSettingsSaveKeepsAFlagsDryRun checks that saving dry_run does not
 // change the session's when a flag set it.
 func TestSettingsSaveKeepsAFlagsDryRun(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings, Session: map[string]string{"dry_run": "on"}}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings, Session: map[string]string{"dry_run": "on"}}}
 	m := settingsModel(t, f)
 	m.header.DryRun = true
 	to(t, m, "dry_run")
@@ -363,7 +376,7 @@ func TestSettingsSaveFails(t *testing.T) {
 		{ErrSettingsChanged, "Not saved: the config file changed on disk since it was read"},
 		{errors.New("access is denied"), "Not saved: access is denied"},
 	} {
-		f := &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}, err: tt.err}
+		f := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}, err: tt.err}
 		m := settingsModel(t, f)
 		reopened := false
 		m.reopen = func() (Options, error) { reopened = true; return Options{}, nil }
@@ -379,7 +392,7 @@ func TestSettingsSaveFails(t *testing.T) {
 // TestSettingsNotSavedDuringARun checks that s is refused while a run is
 // going, which the new settings would be opened under.
 func TestSettingsNotSavedDuringARun(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}}
 	r := newFakeRunner()
 	m := settingsModel(t, f)
 	m.runner = r
@@ -405,7 +418,7 @@ func TestSettingsNotSavedDuringARun(t *testing.T) {
 // the tab, or quit, asks first when there are changes.
 func TestSettingsAsksBeforeLeavingUnsaved(t *testing.T) {
 	for _, k := range []string{"1", "3", "tab", "shift+tab", "q"} {
-		m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}})
+		m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}})
 		to(t, m, "verbose")
 		press(t, m, "enter")
 		press(t, m, k)
@@ -432,7 +445,7 @@ func TestSettingsAsksBeforeLeavingUnsaved(t *testing.T) {
 		}
 	}
 	// With nothing changed there is nothing to ask.
-	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}})
+	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}})
 	press(t, m, "2")
 	if m.tab != TabUntagged {
 		t.Errorf("2 with nothing changed: tab %v", m.tab)
@@ -442,10 +455,10 @@ func TestSettingsAsksBeforeLeavingUnsaved(t *testing.T) {
 // TestSettingsFileThatCannotBeEdited shows a config file that could not be
 // read: what is wrong with it, and no setting to change.
 func TestSettingsFileThatCannotBeEdited(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\cfg\config.yaml`, Problem: `the config file C:\cfg\config.yaml has an unknown key "dry-run" on line 2`}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\cfg\config.yaml`), Problem: p(`the config file C:\cfg\config.yaml has an unknown key "dry-run" on line 2`)}}
 	m := settingsModel(t, f)
 	got := screen(m)
-	for _, want := range []string{`The config file C:\cfg\config.yaml has an unknown key "dry-run" on line 2.`, "Fix the file in an editor, then press R to read it again."} {
+	for _, want := range []string{p(`The config file C:\cfg\config.yaml has an unknown key "dry-run" on line 2.`), "Fix the file in an editor, then press R to read it again."} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the screen lacks %q:\n%s", want, got)
 		}
@@ -461,14 +474,14 @@ func TestSettingsFileThatCannotBeEdited(t *testing.T) {
 	}
 
 	// Put right in an editor, R reads it and opens the library again.
-	f.file = SettingsFile{Path: `C:\cfg\config.yaml`, Config: savedSettings}
+	f.file = SettingsFile{Path: p(`C:\cfg\config.yaml`), Config: savedSettings}
 	reopens := 0
 	m.reopen = func() (Options, error) {
 		reopens++
-		return Options{Destination: `D:\Music`, Settings: f, source: &fakeSource{snap: sampleSnapshot()}}, nil
+		return Options{Destination: p(`D:\Music`), Settings: f, source: &fakeSource{snap: sampleSnapshot()}}, nil
 	}
 	press(t, m, "R")
-	if got := screen(m); !strings.Contains(got, `Source folder        D:\Incoming`) || reopens != 1 || m.reopening {
+	if got := screen(m); !strings.Contains(got, p(`Source folder        D:\Incoming`)) || reopens != 1 || m.reopening {
 		t.Errorf("after R: opened again %d times\n%s", reopens, got)
 	}
 	// With changes, R would lose them: it says so instead.
@@ -483,7 +496,7 @@ func TestSettingsFileThatCannotBeEdited(t *testing.T) {
 // TestRefusedRunPointsAtItsSetting checks that a run refused for want of a
 // setting says where to change it, and that 6 goes to that setting.
 func TestRefusedRunPointsAtItsSetting(t *testing.T) {
-	f := &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}}
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}}
 	r := newFakeRunner()
 	r.err = &StartError{What: "no source folder is set", Todo: "Or start tagshelf tui with one.", Setting: "source"}
 	m := newRunModel(t, r)
@@ -536,7 +549,7 @@ func TestPathHintAndCompletion(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	in := func(name string) string { return dir + `\` + name }
+	in := func(name string) string { return dir + string(filepath.Separator) + name }
 
 	hints := []struct {
 		path   string
@@ -562,17 +575,17 @@ func TestPathHintAndCompletion(t *testing.T) {
 		folders bool
 		want    string
 	}{
-		{in("inc"), true, in(`Incoming\`)},
+		{in("inc"), true, in(p(`Incoming\`))},
 		{in("Mu"), true, in("Music")}, // as far as Music and Music Videos agree
-		{in("Music V"), true, in(`Music Videos\`)},
+		{in("Music V"), true, in(p(`Music Videos\`))},
 		{in("mus"), false, in("Music")}, // the folders and the file
 		{in("music."), false, in("music.db")},
 		{in("music."), true, in("music.")}, // a file is not offered for a folder
 		{in("zzz"), true, in("zzz")},
 		{in(""), true, in("")},
 		{"no separator", true, "no separator"},
-		{in(`Nope\x`), true, in(`Nope\x`)},
-		{`"` + in("inc"), true, in(`Incoming\`)}, // a quote left from a paste
+		{in(p(`Nope\x`)), true, in(p(`Nope\x`))},
+		{`"` + in("inc"), true, in(p(`Incoming\`))}, // a quote left from a paste
 	}
 	for _, c := range completions {
 		if got := completePath(c.typed, c.folders); got != c.want {
@@ -581,13 +594,13 @@ func TestPathHintAndCompletion(t *testing.T) {
 	}
 
 	// In the tab: tab completes, and the note under the field follows.
-	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: `C:\c.yaml`, Config: savedSettings}})
+	m := settingsModel(t, &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: savedSettings}})
 	to(t, m, "source")
 	press(t, m, "enter")
 	press(t, m, "ctrl+u")
 	typeText(t, m, in("inc"))
 	press(t, m, "tab")
-	if got := m.settings.input.String(); got != in(`Incoming\`) {
+	if got := m.settings.input.String(); got != in(p(`Incoming\`)) {
 		t.Errorf("after tab the field holds %q", got)
 	}
 	if got := screen(m); !strings.Contains(got, "This folder exists.") {
@@ -638,12 +651,12 @@ func TestLineInput(t *testing.T) {
 	}
 
 	// Wider than its field, it shows the part the cursor is in.
-	l = newLineInput(`D:\A very long folder name`)
+	l = newLineInput(p(`D:\A very long folder name`))
 	if got := ansiStrip(l.view(10)); got != "lder name " {
 		t.Errorf("view at the end = %q", got)
 	}
 	l.key(keyMsg("home"))
-	if got := ansiStrip(l.view(10)); got != `D:\A very ` {
+	if got := ansiStrip(l.view(10)); got != p(`D:\A very `) {
 		t.Errorf("view at the start = %q", got)
 	}
 }

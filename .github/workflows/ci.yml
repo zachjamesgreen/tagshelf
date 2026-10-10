@@ -14,9 +14,21 @@ concurrency:
 
 jobs:
   test:
-    name: Build, check and test
-    # tagshelf is a Windows program, and some of its tests only pass there.
-    runs-on: windows-latest
+    # Every system tagshelf is released for, or is about to be. The arm64 leg
+    # is not only a build: the tag reader runs through a compiler that is
+    # different code there.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux amd64
+            os: ubuntu-latest
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+    name: Build, check and test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
       run:
@@ -46,7 +58,10 @@ jobs:
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
 
+      # The notices list what the Windows build links, whatever system
+      # makes them; one leg is enough to check them.
       - name: Third-party notices are up to date
+        if: runner.os == 'Windows'
         run: |
           go run ./internal/notices
           git diff --exit-code -- THIRD_PARTY_NOTICES || {

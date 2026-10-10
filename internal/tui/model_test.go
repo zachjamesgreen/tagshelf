@@ -116,7 +116,7 @@ func (f *fakeSource) Load(parts Parts) (Snapshot, error) {
 
 var (
 	started = time.Date(2026, 9, 29, 14, 5, 0, 0, time.UTC)
-	header  = Header{Destination: `D:\Music`, LibraryID: "3f2a1b2c-0d4e-4f60-8a7b-9c0d1e2f3a4b"}
+	header  = Header{Destination: p(`D:\Music`), LibraryID: "3f2a1b2c-0d4e-4f60-8a7b-9c0d1e2f3a4b"}
 )
 
 // newModel returns a model over src that has had its first load, sized w by
@@ -225,9 +225,9 @@ func lockedSource() *fakeSource {
 		Run:      store.Run{ID: 8, Kind: store.KindOrganize, Started: started, State: store.StateRunning},
 		Progress: store.RunProgress{Phase: "audio", Done: 1234, Total: 2050, At: started.Add(time.Minute)},
 		Moves: []store.Move{
-			{From: `E:\Incoming\a.flac`, To: `D:\Music\Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`, Reason: store.ReasonOrganized},
-			{From: `E:\Incoming\b.mp3`, To: `D:\Music\_Untagged\Incoming\b.mp3`, Reason: store.ReasonUntagged},
-			{From: `E:\Incoming\cover.jpg`, To: `D:\Music\Boards of Canada\Geogaddi (2002)\cover.jpg`, Reason: store.ReasonCompanion},
+			{From: p(`E:\Incoming\a.flac`), To: p(`D:\Music\Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`), Reason: store.ReasonOrganized},
+			{From: p(`E:\Incoming\b.mp3`), To: p(`D:\Music\_Untagged\Incoming\b.mp3`), Reason: store.ReasonUntagged},
+			{From: p(`E:\Incoming\cover.jpg`), To: p(`D:\Music\Boards of Canada\Geogaddi (2002)\cover.jpg`), Reason: store.ReasonCompanion},
 		},
 	}
 	return &fakeSource{version: 5, locked: true, holder: store.LockHolder{PID: 8812, Started: started}, snap: snap}
@@ -489,7 +489,7 @@ func TestLockBanner(t *testing.T) {
 	for _, want := range []string{
 		"Organize run in progress (pid 8812, started 2026-09-29 14:05): read-only until it ends",
 		"audio", "1,234 / 2,050 files",
-		`Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`, `_Untagged\Incoming\b.mp3`,
+		p(`Boards of Canada\Geogaddi (2002)\01 - Ready Lets Go.flac`), p(`_Untagged\Incoming\b.mp3`),
 		"read-only while another run holds the library lock",
 	} {
 		if !strings.Contains(got, want) {

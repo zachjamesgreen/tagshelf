@@ -21,8 +21,8 @@ func noLibraryModel(t *testing.T, opts Options) *Model {
 }
 
 var noFolder = &NoLibrary{What: "no library folder is set", Todo: []string{
-	`Start again with one, as in: tagshelf tui -dest "D:\Music"`,
-	`Or set destination in the config file C:\Users\me\AppData\Roaming\tagshelf\config.yaml, which does not exist yet.`,
+	p(`Start again with one, as in: tagshelf tui -dest "D:\Music"`),
+	p(`Or set destination in the config file C:\Users\me\AppData\Roaming\tagshelf\config.yaml, which does not exist yet.`),
 }}
 
 // TestNoLibraryScreens checks what the TUI shows with no library: Home says
@@ -34,8 +34,8 @@ func TestNoLibraryScreens(t *testing.T) {
 	for _, want := range []string{
 		" tagshelf  no library yet",
 		" 1 Home   2 Untagged   3 Duplicates   4 Library   5 Runs",
-		"No library yet\n  No library folder is set.\n  Start again with one, as in: tagshelf tui -dest \"D:\\Music\"\n",
-		"  Or set destination in the config file C:\\Users\\me\\AppData\\Roaming\\tagshelf\\config.yaml, which\n  does not exist yet.",
+		p("No library yet\n  No library folder is set.\n  Start again with one, as in: tagshelf tui -dest \"D:\\Music\"\n"),
+		p("  Or set destination in the config file C:\\Users\\me\\AppData\\Roaming\\tagshelf\\config.yaml, which\n  does not exist yet."),
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Home lacks %q:\n%s", want, got)
@@ -95,24 +95,24 @@ func TestNoLibraryRefusesRuns(t *testing.T) {
 func TestRunThatMakesTheIndexOpensTheLibrary(t *testing.T) {
 	f := newFakeRunner()
 	src := &fakeSource{version: 3, snap: sampleSnapshot()}
-	none := &NoLibrary{What: `the library at D:\Music has no index yet`, Todo: []string{"Press i to index the music that is in it. Nothing is moved."}, CanRun: true}
+	none := &NoLibrary{What: p(`the library at D:\Music has no index yet`), Todo: []string{"Press i to index the music that is in it. Nothing is moved."}, CanRun: true}
 	reopens := 0
 	var reopened Options
-	opts := Options{Destination: `D:\Music`, NoLibrary: none, Runner: f, DryRun: true}
+	opts := Options{Destination: p(`D:\Music`), NoLibrary: none, Runner: f, DryRun: true}
 	opts.Reopen = func() (Options, error) {
 		reopens++
 		return reopened, nil
 	}
 	m := noLibraryModel(t, opts)
-	if got := screen(m); !strings.Contains(got, `The library at D:\Music has no index yet.`) || !strings.Contains(got, "Press i to index") ||
-		!strings.Contains(got, ` tagshelf  D:\Music`) || strings.Contains(got, "no library yet") {
+	if got := screen(m); !strings.Contains(got, p(`The library at D:\Music has no index yet.`)) || !strings.Contains(got, "Press i to index") ||
+		!strings.Contains(got, p(` tagshelf  D:\Music`)) || strings.Contains(got, "no library yet") {
 		t.Fatalf("the screen does not say the index is missing, under the library's folder:\n%s", got)
 	}
 	// The user turns dry run off, which opening again must not turn back on.
 	press(t, m, "d")
 
 	// A run that leaves the library without an index: the screen stands.
-	reopened = Options{Destination: `D:\Music`, NoLibrary: none, Runner: f, DryRun: true, Reopen: opts.Reopen}
+	reopened = Options{Destination: p(`D:\Music`), NoLibrary: none, Runner: f, DryRun: true, Reopen: opts.Reopen}
 	press(t, m, "i")
 	waitStart(t, f)
 	f.finish <- engine.RunFinished{State: engine.StateOK}
@@ -122,7 +122,7 @@ func TestRunThatMakesTheIndexOpensTheLibrary(t *testing.T) {
 	}
 
 	// A run that makes it.
-	reopened = Options{Destination: `D:\Music`, LibraryID: "df56ddd4-0000", Runner: f, DryRun: true, Reopen: opts.Reopen, source: src}
+	reopened = Options{Destination: p(`D:\Music`), LibraryID: "df56ddd4-0000", Runner: f, DryRun: true, Reopen: opts.Reopen, source: src}
 	press(t, m, "i")
 	waitStart(t, f)
 	f.finish <- engine.RunFinished{State: engine.StateOK}
@@ -179,9 +179,9 @@ func TestRefusalText(t *testing.T) {
 	}{
 		{&StartError{What: "no source folder is set", Todo: "Start tagshelf tui with one."},
 			"Cannot start the organize: no source folder is set.\n  Start tagshelf tui with one.\n"},
-		{&store.LockedError{Path: `D:\Music\.tagshelf-lock`, Holder: store.LockHolder{PID: 4242, Started: held}},
+		{&store.LockedError{Path: p(`D:\Music\.tagshelf-lock`), Holder: store.LockHolder{PID: 4242, Started: held}},
 			"Cannot start the organize: another tagshelf run is working on this library (process 4242, started 2026-03-01 14:05).\n  Wait for it to finish, then try again.\n"},
-		{&store.LockedError{Path: `D:\Music\.tagshelf-lock`},
+		{&store.LockedError{Path: p(`D:\Music\.tagshelf-lock`)},
 			"Cannot start the organize: another tagshelf run is working on this library.\n  Wait for it to finish, then try again.\n"},
 		{errors.New("the disk is full."), "Cannot start the organize: the disk is full.\n"},
 	}
