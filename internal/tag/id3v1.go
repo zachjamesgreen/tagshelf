@@ -5,10 +5,12 @@
 package tag
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // id3v1Genres is a list of genres as given in the ID3v1 specification.
@@ -43,7 +45,15 @@ var ErrNotID3v1 = errors.New("invalid ID3v1 header")
 // ReadID3v1Tags reads ID3v1 tags from the io.ReadSeeker.  Returns ErrNotID3v1
 // if there are no ID3v1 tags, otherwise non-nil error if there was a problem.
 func ReadID3v1Tags(r io.ReadSeeker) (Metadata, error) {
-	_, err := r.Seek(-128, io.SeekEnd)
+	// A file too short to hold the tag has none.
+	end, err := r.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	if end < 128 {
+		return nil, ErrNotID3v1
+	}
+	_, err = r.Seek(-128, io.SeekEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -54,22 +64,22 @@ func ReadID3v1Tags(r io.ReadSeeker) (Metadata, error) {
 		return nil, ErrNotID3v1
 	}
 
-	title, err := readString(r, 30)
+	title, err := readBytes(r, 30)
 	if err != nil {
 		return nil, err
 	}
 
-	artist, err := readString(r, 30)
+	artist, err := readBytes(r, 30)
 	if err != nil {
 		return nil, err
 	}
 
-	album, err := readString(r, 30)
+	album, err := readBytes(r, 30)
 	if err != nil {
 		return nil, err
 	}
 
-	year, err := readString(r, 4)
+	year, err := readBytes(r, 4)
 	if err != nil {
 		return nil, err
 	}
@@ -82,10 +92,10 @@ func ReadID3v1Tags(r io.ReadSeeker) (Metadata, error) {
 	var comment string
 	var track int
 	if commentBytes[28] == 0 {
-		comment = trimString(string(commentBytes[:28]))
+		comment = id3v1Text(commentBytes[:28])
 		track = int(commentBytes[29])
 	} else {
-		comment = trimString(string(commentBytes))
+		comment = id3v1Text(commentBytes)
 	}
 
 	var genre string
@@ -98,15 +108,30 @@ func ReadID3v1Tags(r io.ReadSeeker) (Metadata, error) {
 	}
 
 	m := make(map[string]interface{})
-	m["title"] = trimString(title)
-	m["artist"] = trimString(artist)
-	m["album"] = trimString(album)
-	m["year"] = trimString(year)
-	m["comment"] = trimString(comment)
+	m["title"] = id3v1Text(title)
+	m["artist"] = id3v1Text(artist)
+	m["album"] = id3v1Text(album)
+	m["year"] = id3v1Text(year)
+	m["comment"] = comment
 	m["track"] = track
 	m["genre"] = genre
 
 	return metadataID3v1(m), nil
+}
+
+// id3v1Text decodes a field of an ID3v1 tag. The text ends at the first NUL;
+// what follows it is not part of it. The tag does not say how it is encoded:
+// it is taken as UTF-8 when it is valid UTF-8, or else as Windows-1252, as
+// the WAV INFO reader does.
+func id3v1Text(b []byte) string {
+	if i := bytes.IndexByte(b, 0); i >= 0 {
+		b = b[:i]
+	}
+	s := string(b)
+	if !utf8.ValidString(s) {
+		s = decodeWindows1252(s)
+	}
+	return strings.TrimSpace(s)
 }
 
 func trimString(x string) string {

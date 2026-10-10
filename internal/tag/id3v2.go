@@ -5,7 +5,7 @@
 package tag
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"regexp"
@@ -63,17 +63,16 @@ type id3v2Header struct {
 	Size              uint
 }
 
-// readID3v2Header reads the ID3v2 header from the given io.Reader.
-// offset it number of bytes of header that was read
-func readID3v2Header(r io.Reader) (h *id3v2Header, offset uint, err error) {
-	offset = 10
-	b, err := readBytes(r, offset)
+// readID3v2Header reads the 10-byte ID3v2 header from the given io.Reader.
+// An extended header is part of the tag's body: see skipID3v2ExtendedHeader.
+func readID3v2Header(r io.Reader) (h *id3v2Header, err error) {
+	b, err := readBytes(r, 10)
 	if err != nil {
-		return nil, 0, fmt.Errorf("expected to read 10 bytes (ID3v2Header): %v", err)
+		return nil, fmt.Errorf("expected to read 10 bytes (ID3v2Header): %v", err)
 	}
 
 	if string(b[0:3]) != "ID3" {
-		return nil, 0, fmt.Errorf("expected to read \"ID3\"")
+		return nil, fmt.Errorf("expected to read \"ID3\"")
 	}
 
 	b = b[3:]
@@ -88,7 +87,7 @@ func readID3v2Header(r io.Reader) (h *id3v2Header, offset uint, err error) {
 	case 0, 1:
 		fallthrough
 	default:
-		return nil, 0, fmt.Errorf("ID3 version: %v, expected: 2, 3 or 4", uint(b[0]))
+		return nil, fmt.Errorf("ID3 version: %v, expected: 2, 3 or 4", uint(b[0]))
 	}
 
 	// NB: We ignore b[1] (the revision) as we don't currently rely on it.
@@ -99,39 +98,28 @@ func readID3v2Header(r io.Reader) (h *id3v2Header, offset uint, err error) {
 		Experimental:      getBit(b[2], 5),
 		Size:              uint(get7BitChunkedInt(b[3:7])),
 	}
+	return h, nil
+}
 
-	if h.ExtendedHeader {
-		switch vers {
-		case ID3v2_3:
-			b, err := readBytes(r, 4)
-			if err != nil {
-				return nil, 0, fmt.Errorf("expected to read 4 bytes (ID3v23 extended header len): %v", err)
-			}
-			// skip header, size is excluding len bytes
-			extendedHeaderSize := uint(getInt(b))
-			_, err = readBytes(r, extendedHeaderSize)
-			if err != nil {
-				return nil, 0, fmt.Errorf("expected to read %d bytes (ID3v23 skip extended header): %v", extendedHeaderSize, err)
-			}
-			offset += extendedHeaderSize
-		case ID3v2_4:
-			b, err := readBytes(r, 4)
-			if err != nil {
-				return nil, 0, fmt.Errorf("expected to read 4 bytes (ID3v24 extended header len): %v", err)
-			}
-			// skip header, size is synchsafe int including len bytes
-			extendedHeaderSize := uint(get7BitChunkedInt(b)) - 4
-			_, err = readBytes(r, extendedHeaderSize)
-			if err != nil {
-				return nil, 0, fmt.Errorf("expected to read %d bytes (ID3v24 skip extended header): %v", extendedHeaderSize, err)
-			}
-			offset += extendedHeaderSize
-		default:
-			// nop, only 2.3 and 2.4 should have extended header
-		}
+// skipID3v2ExtendedHeader returns b, the body of a tag, without the extended
+// header it starts with. Only 2.3 and 2.4 have one.
+func skipID3v2ExtendedHeader(b []byte, vers Format) ([]byte, error) {
+	if vers != ID3v2_3 && vers != ID3v2_4 {
+		return b, nil
 	}
-
-	return h, offset, nil
+	if len(b) < 4 {
+		return nil, fmt.Errorf("expected to read 4 bytes (%v extended header len): %v", vers, io.ErrUnexpectedEOF)
+	}
+	// In 2.3 the size leaves out its own 4 bytes; in 2.4 it is a synchsafe
+	// int that counts them.
+	size := uint(getInt(b[:4])) + 4
+	if vers == ID3v2_4 {
+		size = uint(get7BitChunkedInt(b[:4]))
+	}
+	if size < 4 || size > uint(len(b)) {
+		return nil, fmt.Errorf("expected to read %d bytes (%v skip extended header): %v", size, vers, io.ErrUnexpectedEOF)
+	}
+	return b[size:], nil
 }
 
 // id3v2FrameFlags is a type which represents the flags which can be set on an ID3v2 frame.
@@ -150,12 +138,7 @@ type id3v2FrameFlags struct {
 	DataLengthIndicator bool
 }
 
-func readID3v23FrameFlags(r io.Reader) (*id3v2FrameFlags, error) {
-	b, err := readBytes(r, 2)
-	if err != nil {
-		return nil, err
-	}
-
+func readID3v23FrameFlags(b []byte) *id3v2FrameFlags {
 	msg := b[0]
 	fmt := b[1]
 
@@ -166,15 +149,10 @@ func readID3v23FrameFlags(r io.Reader) (*id3v2FrameFlags, error) {
 		Compression:           getBit(fmt, 7),
 		Encryption:            getBit(fmt, 6),
 		GroupIdentity:         getBit(fmt, 5),
-	}, nil
+	}
 }
 
-func readID3v24FrameFlags(r io.Reader) (*id3v2FrameFlags, error) {
-	b, err := readBytes(r, 2)
-	if err != nil {
-		return nil, err
-	}
-
+func readID3v24FrameFlags(b []byte) *id3v2FrameFlags {
 	msg := b[0]
 	fmt := b[1]
 
@@ -187,260 +165,211 @@ func readID3v24FrameFlags(r io.Reader) (*id3v2FrameFlags, error) {
 		Encryption:            getBit(fmt, 2),
 		Unsynchronisation:     getBit(fmt, 1),
 		DataLengthIndicator:   getBit(fmt, 0),
-	}, nil
-
+	}
 }
 
-func readID3v2_2FrameHeader(r io.Reader) (name string, size uint, headerSize uint, err error) {
-	name, err = readString(r, 3)
-	if err != nil {
-		return
+// id3v24FrameSize returns the size of the 2.4 frame whose header starts b,
+// the rest of the tag. Sizes are synchsafe (7 bits to a byte), but old iTunes
+// versions wrote plain 32-bit ones. The two differ from 128 bytes up; then
+// the plain reading is taken when a byte has its top bit set, or when only it
+// is followed by another frame, padding or the end of the tag.
+func id3v24FrameSize(b []byte) uint {
+	synchsafe := uint(get7BitChunkedInt(b[4:8]))
+	plain := uint(getInt(b[4:8]))
+	if synchsafe == plain {
+		return plain
 	}
-	size, err = readUint(r, 3)
-	if err != nil {
-		return
+	if (b[4]|b[5]|b[6]|b[7])&0x80 != 0 {
+		return plain
 	}
-	headerSize = 6
-	return
+	if !id3v2FrameFollows(b[10:], synchsafe) && id3v2FrameFollows(b[10:], plain) {
+		return plain
+	}
+	return synchsafe
 }
 
-func readID3v2_3FrameHeader(r io.Reader) (name string, size uint, headerSize uint, err error) {
-	name, err = readString(r, 4)
-	if err != nil {
-		return
+// id3v2FrameFollows reports whether b ends n bytes in, or holds a frame name
+// there, or padding: zero bytes to its end.
+func id3v2FrameFollows(b []byte, n uint) bool {
+	if n >= uint(len(b)) {
+		return n == uint(len(b))
 	}
-	size, err = readUint(r, 4)
-	if err != nil {
-		return
+	b = b[n:]
+	if b[0] == 0 {
+		return len(bytes.TrimLeft(b, "\x00")) == 0
 	}
-	headerSize = 8
-	return
+	if len(b) < 4 {
+		return false
+	}
+	for _, c := range b[:4] {
+		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
-func readID3v2_4FrameHeader(r io.Reader) (name string, size uint, headerSize uint, err error) {
-	name, err = readString(r, 4)
-	if err != nil {
-		return
-	}
-	size, err = read7BitChunkedUint(r, 4)
-	if err != nil {
-		return
-	}
-	headerSize = 8
-	return
-}
-
-// readID3v2Frames reads ID3v2 frames from the given reader using the ID3v2Header.
-func readID3v2Frames(r io.Reader, offset uint, h *id3v2Header) (map[string]interface{}, error) {
+// readID3v2Frames reads the ID3v2 frames in b, the body of the tag h heads,
+// with whole-tag unsynchronisation and any extended header already removed.
+// Every size is checked against what is left of b. A frame that cannot be
+// decoded is left out and the frames after it are still read: its bytes are
+// known, so the reader stays in step.
+func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
 	result := make(map[string]interface{})
+	seen := make(map[string]int) // frames stored so far, by name
 
-	for offset < h.Size {
-		var err error
-		var name string
-		var size, headerSize uint
+	nameSize, headerSize := 4, 10
+	if h.Version == ID3v2_2 {
+		nameSize, headerSize = 3, 6
+	}
+
+	for len(b) >= headerSize {
+		// A frame name never starts with a zero byte: this is padding.
+		if b[0] == 0 {
+			break
+		}
+		name := string(b[:nameSize])
+
+		var size uint
 		var flags *id3v2FrameFlags
-
 		switch h.Version {
 		case ID3v2_2:
-			name, size, headerSize, err = readID3v2_2FrameHeader(r)
+			size = uint(getInt(b[3:6]))
 
 		case ID3v2_3:
-			name, size, headerSize, err = readID3v2_3FrameHeader(r)
-			if err != nil {
-				return nil, err
-			}
-			flags, err = readID3v23FrameFlags(r)
-			headerSize += 2
+			size = uint(getInt(b[4:8]))
+			flags = readID3v23FrameFlags(b[8:10])
 
 		case ID3v2_4:
-			name, size, headerSize, err = readID3v2_4FrameHeader(r)
-			if err != nil {
-				return nil, err
-			}
-			flags, err = readID3v24FrameFlags(r)
-			headerSize += 2
+			size = id3v24FrameSize(b)
+			flags = readID3v24FrameFlags(b[8:10])
 		}
+		b = b[headerSize:]
 
-		if err != nil {
-			return nil, err
+		// A frame that runs past the tag is corrupted padding (see
+		// http://id3.org/Compliance%20Issues) or has a damaged size.
+		if size > uint(len(b)) {
+			break
 		}
+		data := b[:size]
+		b = b[size:]
 
-		// FIXME: Do we still need this?
-		// if size=0, we certainly are in a padding zone. ignore the rest of
-		// the tags
+		// An empty frame holds nothing, but frames may follow it.
 		if size == 0 {
-			break
-		}
-
-		offset += headerSize + size
-
-		// Avoid corrupted padding (see http://id3.org/Compliance%20Issues).
-		if !validID3Frame(h.Version, name) && offset > h.Size {
-			break
+			continue
 		}
 
 		if flags != nil {
-			if flags.Compression {
-				switch h.Version {
-				case ID3v2_3:
-					// No data length indicator defined.
-					if _, err := read7BitChunkedUint(r, 4); err != nil { // read 4
-						return nil, err
-					}
-					size -= 4
-
-				case ID3v2_4:
-					// Must have a data length indicator (to give the size) if compression is enabled.
-					if !flags.DataLengthIndicator {
-						return nil, errors.New("compression without data length indicator")
-					}
-
-				default:
-					return nil, fmt.Errorf("unsupported compression flag used in %v", h.Version)
-				}
+			// Compressed and encrypted frames are not decoded.
+			if flags.Compression || flags.Encryption {
+				continue
 			}
 
+			// In 2.4 the size is that of the stored bytes: after the
+			// data length indicator, unsynchronisation is undone frame by
+			// frame, when the tag header or the frame asks for it.
 			if flags.DataLengthIndicator {
-				if h.Version == ID3v2_3 {
-					return nil, fmt.Errorf("data length indicator set but not defined for %v", ID3v2_3)
+				if len(data) < 4 {
+					continue
 				}
-
-				size, err = read7BitChunkedUint(r, 4)
-				if err != nil { // read 4
-					return nil, err
-				}
+				data = data[4:]
 			}
-
-			if flags.Encryption {
-				_, err = readBytes(r, 1) // read 1 byte of encryption method
-				if err != nil {
-					return nil, err
-				}
-				size--
+			if h.Version == ID3v2_4 && (h.Unsynchronisation || flags.Unsynchronisation) {
+				data = removeUnsynchronisation(data)
 			}
 		}
 
-		b, err := readBytes(r, size)
+		var v interface{}
+		var err error
+		switch {
+		case name == "TXXX" || name == "TXX":
+			v, err = readTextWithDescrFrame(data, false, true) // no lang, but enc
+
+		case name[0] == 'T':
+			v, err = readTFrame(data)
+
+		case name == "UFID" || name == "UFI":
+			v, err = readUFID(data)
+
+		case name == "WXXX" || name == "WXX":
+			v, err = readTextWithDescrFrame(data, false, false) // no lang, no enc
+
+		case name[0] == 'W':
+			v, err = readWFrame(data)
+
+		case name == "COMM" || name == "COM" || name == "USLT" || name == "ULT":
+			v, err = readTextWithDescrFrame(data, true, true) // both lang and enc
+
+		case name == "APIC":
+			v, err = readAPICFrame(data)
+
+		case name == "PIC":
+			v, err = readPICFrame(data)
+
+		default:
+			v = data
+		}
 		if err != nil {
-			return nil, err
+			continue
 		}
 
 		// There can be multiple tag with the same name. Append a number to the
 		// name if there is more than one.
 		rawName := name
-		if _, ok := result[rawName]; ok {
-			for i := 0; ok; i++ {
-				rawName = name + "_" + strconv.Itoa(i)
-				_, ok = result[rawName]
-			}
+		if n := seen[name]; n > 0 {
+			rawName = name + "_" + strconv.Itoa(n-1)
 		}
-
-		switch {
-		case name == "TXXX" || name == "TXX":
-			t, err := readTextWithDescrFrame(b, false, true) // no lang, but enc
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = t
-
-		case name[0] == 'T':
-			txt, err := readTFrame(b)
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = txt
-
-		case name == "UFID" || name == "UFI":
-			t, err := readUFID(b)
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = t
-
-		case name == "WXXX" || name == "WXX":
-			t, err := readTextWithDescrFrame(b, false, false) // no lang, no enc
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = t
-
-		case name[0] == 'W':
-			txt, err := readWFrame(b)
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = txt
-
-		case name == "COMM" || name == "COM" || name == "USLT" || name == "ULT":
-			t, err := readTextWithDescrFrame(b, true, true) // both lang and enc
-			if err != nil {
-				return nil, fmt.Errorf("could not read %q (%q): %v", name, rawName, err)
-			}
-			result[rawName] = t
-
-		case name == "APIC":
-			p, err := readAPICFrame(b)
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = p
-
-		case name == "PIC":
-			p, err := readPICFrame(b)
-			if err != nil {
-				return nil, err
-			}
-			result[rawName] = p
-
-		default:
-			result[rawName] = b
-		}
+		seen[name]++
+		result[rawName] = v
 	}
-	return result, nil
+	return result
 }
 
-type unsynchroniser struct {
-	io.Reader
-	ff bool
-}
-
-// filter io.Reader which skip the Unsynchronisation bytes
-func (r *unsynchroniser) Read(p []byte) (int, error) {
-	b := make([]byte, 1)
-	i := 0
-	for i < len(p) {
-		if n, err := r.Reader.Read(b); err != nil || n == 0 {
-			return i, err
-		}
-		if r.ff && b[0] == 0x00 {
-			r.ff = false
+// removeUnsynchronisation returns b without the zero byte that
+// unsynchronisation puts after every 0xFF.
+func removeUnsynchronisation(b []byte) []byte {
+	if !bytes.Contains(b, []byte{0xFF, 0x00}) {
+		return b
+	}
+	out := make([]byte, 0, len(b))
+	ff := false
+	for _, x := range b {
+		if ff && x == 0x00 {
+			ff = false
 			continue
 		}
-		p[i] = b[0]
-		i++
-		r.ff = (b[0] == 0xFF)
+		out = append(out, x)
+		ff = (x == 0xFF)
 	}
-	return i, nil
+	return out
 }
 
 // ReadID3v2Tags parses ID3v2.{2,3,4} tags from the io.ReadSeeker into a Metadata, returning
 // non-nil error on failure.
 func ReadID3v2Tags(r io.ReadSeeker) (Metadata, error) {
-	h, offset, err := readID3v2Header(r)
+	h, err := readID3v2Header(r)
 	if err != nil {
 		return nil, err
 	}
 
-	var ur io.Reader = r
-	if h.Unsynchronisation {
-		ur = &unsynchroniser{Reader: r}
-	}
-
-	f, err := readID3v2Frames(ur, offset, h)
+	// The tag is read whole, or as far as the file goes, and then taken
+	// apart in memory, so no size in it can make the reader go further.
+	b, err := readUpTo(r, h.Size)
 	if err != nil {
 		return nil, err
 	}
-	return metadataID3v2{header: h, frames: f}, nil
+
+	// 2.2 and 2.3 unsynchronise the tag as a whole; 2.4 does it per frame.
+	if h.Unsynchronisation && h.Version != ID3v2_4 {
+		b = removeUnsynchronisation(b)
+	}
+	if h.ExtendedHeader {
+		b, err = skipID3v2ExtendedHeader(b, h.Version)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return metadataID3v2{header: h, frames: readID3v2Frames(b, h)}, nil
 }
 
 var id3v2genreRe = regexp.MustCompile(`(.*[^(]|.* |^)\(([0-9]+)\) *(.*)$`)

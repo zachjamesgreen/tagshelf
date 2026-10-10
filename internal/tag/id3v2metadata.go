@@ -52,12 +52,12 @@ type metadataID3v2 struct {
 	frames map[string]interface{}
 }
 
+// getString returns the text frame named k, or the first value of one that
+// holds several.
 func (m metadataID3v2) getString(k string) string {
-	v, ok := m.frames[k]
-	if !ok {
-		return ""
-	}
-	return v.(string)
+	s, _ := m.frames[k].(string)
+	s, _, _ = strings.Cut(s, "\x00")
+	return s
 }
 
 func (m metadataID3v2) Format() Format              { return m.header.Version }
@@ -88,21 +88,16 @@ func (m metadataID3v2) Genre() string {
 	return id3v2genre(m.getString(frames.Name("genre", m.Format())))
 }
 
+// Year reads the frame of the tag's own version, or else the other versions':
+// a tagger that changes a tag's version can leave TDRC in a 2.3 tag or TYER
+// in a 2.4 one. ID3v2.4 timestamps are ISO 8601 prefixes: yyyy, yyyy-MM,
+// yyyy-MM-dd, yyyy-MM-ddTHH, yyyy-MM-ddTHH:mm or yyyy-MM-ddTHH:mm:ss.
 func (m metadataID3v2) Year() int {
-	stringYear := m.getString(frames.Name("year", m.Format()))
-
-	if year, err := strconv.Atoi(stringYear); err == nil {
-		return year
-	}
-
-	// ID3v2.4 timestamps are ISO 8601 prefixes: yyyy, yyyy-MM, yyyy-MM-dd,
-	// yyyy-MM-ddTHH, yyyy-MM-ddTHH:mm or yyyy-MM-ddTHH:mm:ss.
-	if len(stringYear) > 4 && stringYear[4] == '-' {
-		if year, err := strconv.Atoi(stringYear[:4]); err == nil {
+	for _, k := range []string{frames.Name("year", m.Format()), "TDRC", "TYER", "TYE"} {
+		if year := leadingYear(m.getString(k)); year != 0 {
 			return year
 		}
 	}
-
 	return 0
 }
 

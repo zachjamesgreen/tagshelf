@@ -183,8 +183,8 @@ func readAPEv2File(r io.ReadSeeker) (Metadata, error) {
 	return fileTypeMetadata{m, audioFileType(b)}, nil
 }
 
-// readID3v2File reads a file that starts with an ID3v2 tag. For APE and MPC
-// the APEv2 tag wins: TagLib skips a leading ID3v2 tag in those files and
+// readID3v2File reads a file that starts with an ID3v2 tag. A FLAC stream
+// behind the tag is read as FLAC. For APE and MPC the APEv2 tag wins: TagLib skips a leading ID3v2 tag in those files and
 // never updates it, so it is stale. For AAC, which TagLib writes ID3v2 to,
 // and MP3 the ID3v2 tag is read.
 func readID3v2File(r io.ReadSeeker) (Metadata, error) {
@@ -199,6 +199,14 @@ func readID3v2File(r io.ReadSeeker) (Metadata, error) {
 	head, err := readAt(r, audioStart, 4)
 	if err != nil {
 		return nil, err
+	}
+	// Some taggers put an ID3v2 tag in front of a FLAC stream. The stream's
+	// own tags are the ones FLAC taggers read and write.
+	if string(head) == "fLaC" {
+		if _, err := r.Seek(audioStart, io.SeekStart); err != nil {
+			return nil, err
+		}
+		return ReadFLACTags(r)
 	}
 	ft := audioFileType(head)
 	if ft == APE || ft == MPC {
@@ -371,16 +379,22 @@ func (m *metadataAPEv2) Year() int                   { return leadingYear(m.text
 func (m *metadataAPEv2) Track() (int, int)           { return parseXofN(strings.TrimSpace(m.text("track"))) }
 func (m *metadataAPEv2) Disc() (int, int)            { return parseXofN(strings.TrimSpace(m.text("disc"))) }
 
-// leadingYear reads a year written alone or as the start of an ISO 8601 date.
+// leadingYear reads a year written alone, or as the first four digits of a
+// date: an ISO 8601 one ("2001-05-12T10:30", or "20010512") or any other that
+// starts with the year. It returns 0 when there is none.
 func leadingYear(s string) int {
 	s = strings.TrimSpace(s)
-	if year, err := strconv.Atoi(s); err == nil {
-		return year
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
 	}
-	if len(s) > 4 && s[4] == '-' {
-		if year, err := strconv.Atoi(s[:4]); err == nil {
-			return year
-		}
+	switch {
+	case n == len(s) && n != 8:
+		year, _ := strconv.Atoi(s)
+		return year
+	case n == 4 || n == 8:
+		year, _ := strconv.Atoi(s[:4])
+		return year
 	}
 	return 0
 }

@@ -61,6 +61,24 @@ func readBytes(r io.Reader, n uint) ([]byte, error) {
 	return b, nil
 }
 
+// readUpTo reads n bytes, or as many as there are when r ends first.
+func readUpTo(r io.Reader, n uint) ([]byte, error) {
+	if n > readBytesMaxUpfront {
+		b := &bytes.Buffer{}
+		if _, err := io.CopyN(b, r, int64(n)); err != nil && err != io.EOF {
+			return nil, err
+		}
+		return b.Bytes(), nil
+	}
+
+	b := make([]byte, n)
+	k, err := io.ReadFull(r, b)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+	return b[:k], nil
+}
+
 func readString(r io.Reader, n uint) (string, error) {
 	b, err := readBytes(r, n)
 	if err != nil {

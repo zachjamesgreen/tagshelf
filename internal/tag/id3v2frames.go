@@ -310,7 +310,11 @@ func readTFrame(b []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(strings.Split(txt, string(singleZero)), ""), nil
+	// A NUL ends the text, and in 2.4 separates the values of a frame that
+	// holds several: those are kept, NUL-separated, for Raw. A value in
+	// UTF-16 may bring its own byte order mark.
+	txt = strings.ReplaceAll(txt, "\x00"+string(rune(0xFEFF)), "\x00")
+	return strings.Trim(txt, "\x00"), nil
 }
 
 const (
@@ -349,40 +353,29 @@ func decodeText(enc byte, b []byte) (string, error) {
 	}
 }
 
-var (
-	singleZero = []byte{0}
-	doubleZero = []byte{0, 0}
-)
+var singleZero = []byte{0}
 
+// dataSplit cuts b at the terminator of the description it starts with. In
+// UTF-16 that is a zero code unit, which starts at an even offset: two zero
+// bytes elsewhere are the halves of two characters, as in "aĀ".
 func dataSplit(b []byte, enc byte) [][]byte {
-	delim := singleZero
 	if enc == encodingUTF16 || enc == encodingUTF16WithBOM {
-		delim = doubleZero
+		for i := 0; i+1 < len(b); i += 2 {
+			if b[i] == 0 && b[i+1] == 0 {
+				return [][]byte{b[:i], b[i+2:]}
+			}
+		}
+		return [][]byte{b}
 	}
-
-	result := bytes.SplitN(b, delim, 2)
-	if len(result) != 2 {
-		return result
-	}
-
-	if len(result[1]) == 0 {
-		return result
-	}
-
-	if result[1][0] == 0 {
-		// there was a double (or triple) 0 and we cut too early
-		result[0] = append(result[0], result[1][0])
-		result[1] = result[1][1:]
-	}
-	return result
+	return bytes.SplitN(b, singleZero, 2)
 }
 
+// decodeISO8859 decodes text labelled ISO-8859-1 as Windows-1252, which is
+// what files tagged on Windows hold under that label. The two differ only in
+// 0x80-0x9F: control characters in ISO-8859-1, and curly quotes, dashes and
+// the like in Windows-1252.
 func decodeISO8859(b []byte) string {
-	r := make([]rune, len(b))
-	for i, x := range b {
-		r[i] = rune(x)
-	}
-	return string(r)
+	return decodeWindows1252(string(b))
 }
 
 func decodeUTF16WithBOM(b []byte) (string, error) {
@@ -407,9 +400,8 @@ func decodeUTF16WithBOM(b []byte) (string, error) {
 }
 
 func decodeUTF16(b []byte, bo binary.ByteOrder) (string, error) {
-	if len(b)%2 != 0 {
-		return "", errors.New("invalid encoding: expected even number of bytes for UTF-16 encoded text")
-	}
+	// An odd byte at the end, such as a one-byte terminator, is left out.
+	b = b[:len(b)&^1]
 	s := make([]uint16, 0, len(b)/2)
 	for i := 0; i < len(b); i += 2 {
 		s = append(s, bo.Uint16(b[i:i+2]))
@@ -584,8 +576,9 @@ func readPICFrame(b []byte) (*Picture, error) {
 		return nil, fmt.Errorf("error decoding PIC description text: %v", err)
 	}
 
+	// Files write the format in upper case ("JPG", "PNG").
 	var mimeType string
-	switch ext {
+	switch strings.ToLower(ext) {
 	case "jpeg", "jpg":
 		mimeType = "image/jpeg"
 	case "png":
