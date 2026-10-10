@@ -7,7 +7,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -87,6 +90,50 @@ func (c Config) WithDefaults() Config {
 	return c
 }
 
+// unknownKeyError is a key in a config file that tagshelf has no setting for.
+type unknownKeyError struct {
+	key  string
+	line int
+}
+
+func (e *unknownKeyError) Error() string {
+	return fmt.Sprintf("unknown key %q on line %d (the keys are %s)", e.key, e.line, strings.Join(knownKeys(), ", "))
+}
+
+// knownKeys lists the keys a config file may hold: Config's yaml names.
+func knownKeys() []string {
+	t := reflect.TypeFor[Config]()
+	keys := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+		keys = append(keys, name)
+	}
+	return keys
+}
+
+// parse reads the YAML of a config file into cfg. A key that is not one of
+// knownKeys is an *unknownKeyError; anything else that keeps the file from
+// being read as a Config is the YAML decoder's error, and may leave cfg
+// half filled in.
+func parse(data []byte, cfg *Config) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	// An empty file has no document; one that is not a mapping at the top is
+	// left for Decode to refuse.
+	if len(doc.Content) == 1 && doc.Content[0].Kind == yaml.MappingNode {
+		known := knownKeys()
+		pairs := doc.Content[0].Content
+		for i := 0; i+1 < len(pairs); i += 2 {
+			if key := pairs[i]; !slices.Contains(known, key.Value) {
+				return &unknownKeyError{key: key.Value, line: key.Line}
+			}
+		}
+	}
+	return doc.Decode(cfg)
+}
+
 // Overrides carries only the settings the user supplied on the command line.
 // DryRun and Verbose are pointers so that "not given" stays distinguishable from
 // an explicit false.
@@ -111,8 +158,11 @@ type Overrides struct {
 // A config file the user asked for by name is mandatory: failing to read or
 // parse it is an error, because its dry_run setting may be the only thing
 // standing between the user and a destructive run. A file merely discovered in
-// the working directory is advisory and is ignored (with a warning) if it turns
-// out to belong to some other program.
+// the working directory is advisory and is ignored (with a warning) if it
+// cannot be read or parsed, as when it belongs to some other program.
+//
+// A key tagshelf does not know is an error in either file, for the same
+// reason: a misspelt dry_run must not be dropped in silence.
 func Load(configPath string, ov Overrides) (Config, error) {
 	var cfg Config
 
@@ -131,7 +181,11 @@ func Load(configPath string, ov Overrides) (Config, error) {
 		case err != nil:
 			log.Printf("Warning: ignoring unreadable config file %q: %v\n", configPath, err)
 		default:
-			if err := yaml.Unmarshal(data, &cfg); err != nil {
+			err := parse(data, &cfg)
+			if unknown, ok := err.(*unknownKeyError); ok {
+				return Config{}, fmt.Errorf("config file %q: %w", configPath, unknown)
+			}
+			if err != nil {
 				if explicit {
 					return Config{}, fmt.Errorf("failed to parse config file %q: %w", configPath, err)
 				}
