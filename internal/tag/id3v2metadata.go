@@ -50,7 +50,10 @@ var frames = frameNames(map[string][2]string{
 type metadataID3v2 struct {
 	header *id3v2Header
 	frames map[string]interface{}
+	left   error // the first frame left out, see Skipped
 }
+
+func (m metadataID3v2) skipped() error { return m.left }
 
 // getString returns the text frame named k, or the first value of one that
 // holds several.

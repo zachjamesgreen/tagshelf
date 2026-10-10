@@ -53,6 +53,8 @@ type metadataDSF struct {
 	id3 Metadata
 }
 
+func (m metadataDSF) skipped() error { return Skipped(m.id3) }
+
 func (m metadataDSF) Format() Format {
 	return m.id3.Format()
 }

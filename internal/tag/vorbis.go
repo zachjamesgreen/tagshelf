@@ -21,7 +21,11 @@ func newMetadataVorbis() *metadataVorbis {
 type metadataVorbis struct {
 	c map[string]string // the vorbis comments by lower-cased key; repeated keys NUL-joined
 	p *Picture
+
+	left firstSkip // the first comment or picture left out, see Skipped
 }
+
+func (m *metadataVorbis) skipped() error { return m.left.err }
 
 // get returns the first value of the comment named k (lower case).
 func (m *metadataVorbis) get(k string) string {
@@ -75,6 +79,8 @@ func (m *metadataVorbis) readVorbisComment(r *bytes.Reader) error {
 		if k, v, ok := strings.Cut(s, "="); ok {
 			k = strings.ToLower(k)
 			values[k] = append(values[k], v)
+		} else {
+			m.left.skip("comment %d left out: it has no \"=\"", i+1)
 		}
 	}
 	for k, vs := range values {
@@ -85,8 +91,10 @@ func (m *metadataVorbis) readVorbisComment(r *bytes.Reader) error {
 	}
 
 	if b64data := m.get("metadata_block_picture"); b64data != "" {
-		if data, err := base64.StdEncoding.DecodeString(b64data); err == nil {
-			m.readPictureBlock(bytes.NewReader(data))
+		if data, err := base64.StdEncoding.DecodeString(b64data); err != nil {
+			m.left.skip("METADATA_BLOCK_PICTURE left out: %v", err)
+		} else if err := m.readPictureBlock(bytes.NewReader(data)); err != nil {
+			m.left.skip("METADATA_BLOCK_PICTURE left out: %v", err)
 		}
 	}
 
@@ -244,20 +252,25 @@ func (m *metadataVorbis) Year() int {
 
 func (m *metadataVorbis) Track() (int, int) {
 	// https://wiki.xiph.org/Field_names
-	return m.xOfN("tracknumber", "tracktotal")
+	return m.xOfN("tracknumber", "tracktotal", "totaltracks")
 }
 
 func (m *metadataVorbis) Disc() (int, int) {
 	// https://wiki.xiph.org/Field_names
-	return m.xOfN("discnumber", "disctotal")
+	return m.xOfN("discnumber", "disctotal", "totaldiscs")
 }
 
 // xOfN reads a number that may be written "N/M", as many taggers do, with a
-// separate total key taking precedence over M.
-func (m *metadataVorbis) xOfN(number, total string) (int, int) {
+// separate total key taking precedence over M: the first of totals that
+// holds a number. Picard writes both TRACKTOTAL and TOTALTRACKS, other
+// taggers only the second.
+func (m *metadataVorbis) xOfN(number string, totals ...string) (int, int) {
 	x, n := parseXofN(strings.TrimSpace(m.get(number)))
-	if t, err := strconv.Atoi(strings.TrimSpace(m.get(total))); err == nil {
-		n = t
+	for _, total := range totals {
+		if t, err := strconv.Atoi(strings.TrimSpace(m.get(total))); err == nil {
+			n = t
+			break
+		}
 	}
 	return x, n
 }

@@ -91,7 +91,11 @@ type metadataMP4 struct {
 	// The numbers of the trkn and disk atoms, which Raw also has.
 	track, trackCount int
 	disc, discCount   int
+
+	left firstSkip // the first item left out, see Skipped
 }
+
+func (m metadataMP4) skipped() error { return m.left.err }
 
 // ReadAtoms reads MP4 metadata atoms from the io.ReadSeeker into a Metadata, returning
 // non-nil error if there was a problem.
@@ -170,7 +174,11 @@ func (m *metadataMP4) readAtoms(r io.ReadSeeker) error {
 			if name == "----" {
 				m.readCustomAtom(b)
 			} else {
+				_, had := m.data[name]
 				m.readAtomData(name, b)
+				if _, stored := m.data[name]; !stored && !had {
+					m.left.skip("%q atom left out: it could not be decoded", name)
+				}
 			}
 		}
 

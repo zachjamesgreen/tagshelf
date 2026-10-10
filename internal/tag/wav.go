@@ -117,6 +117,9 @@ func ReadWAVTags(r io.ReadSeeker) (Metadata, error) {
 		}
 		return nil, ErrNoTagsFound
 	}
+	if m.id3 == nil {
+		m.left = id3Err
+	}
 	return m, nil
 }
 
@@ -167,6 +170,14 @@ func decodeWindows1252(s string) string {
 type metadataWAV struct {
 	id3  Metadata          // nil without an ID3 chunk
 	info map[string]string // nil without a LIST/INFO chunk
+	left error             // an ID3 chunk that could not be read, see Skipped
+}
+
+func (m metadataWAV) skipped() error {
+	if m.left != nil || m.id3 == nil {
+		return m.left
+	}
+	return Skipped(m.id3)
 }
 
 // text returns the ID3 value f reads, or else the first INFO value of ids.

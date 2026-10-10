@@ -214,7 +214,8 @@ func id3v2FrameFollows(b []byte, n uint) bool {
 // Every size is checked against what is left of b. A frame that cannot be
 // decoded is left out and the frames after it are still read: its bytes are
 // known, so the reader stays in step.
-func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
+func readID3v2Frames(b []byte, h *id3v2Header) (map[string]interface{}, error) {
+	var left firstSkip
 	result := make(map[string]interface{})
 	seen := make(map[string]int) // frames stored so far, by name
 
@@ -262,6 +263,7 @@ func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
 		if flags != nil {
 			// Compressed and encrypted frames are not decoded.
 			if flags.Compression || flags.Encryption {
+				left.skip("%s frame left out: it is compressed or encrypted", name)
 				continue
 			}
 
@@ -270,6 +272,7 @@ func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
 			// frame, when the tag header or the frame asks for it.
 			if flags.DataLengthIndicator {
 				if len(data) < 4 {
+					left.skip("%s frame left out: it is too short for its data length indicator", name)
 					continue
 				}
 				data = data[4:]
@@ -310,6 +313,7 @@ func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
 			v = data
 		}
 		if err != nil {
+			left.skip("%s frame left out: %v", name, err)
 			continue
 		}
 
@@ -322,7 +326,7 @@ func readID3v2Frames(b []byte, h *id3v2Header) map[string]interface{} {
 		seen[name]++
 		result[rawName] = v
 	}
-	return result
+	return result, left.err
 }
 
 // removeUnsynchronisation returns b without the zero byte that
@@ -369,7 +373,8 @@ func ReadID3v2Tags(r io.ReadSeeker) (Metadata, error) {
 			return nil, err
 		}
 	}
-	return metadataID3v2{header: h, frames: readID3v2Frames(b, h)}, nil
+	frames, left := readID3v2Frames(b, h)
+	return metadataID3v2{header: h, frames: frames, left: left}, nil
 }
 
 var id3v2genreRe = regexp.MustCompile(`(.*[^(]|.* |^)\(([0-9]+)\) *(.*)$`)

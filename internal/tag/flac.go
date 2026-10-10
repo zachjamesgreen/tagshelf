@@ -84,8 +84,8 @@ func (m *metadataFLAC) readFLACMetadataBlock(r io.ReadSeeker) (last bool, err er
 		}
 		if blockType(blockHeader[0]) == vorbisCommentBlock {
 			err = m.readVorbisComment(bytes.NewReader(b))
-		} else {
-			m.readPictureBlock(bytes.NewReader(b))
+		} else if perr := m.readPictureBlock(bytes.NewReader(b)); perr != nil {
+			m.left.skip("PICTURE block left out: %v", perr)
 		}
 
 	default:

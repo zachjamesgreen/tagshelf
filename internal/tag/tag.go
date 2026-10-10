@@ -76,6 +76,26 @@ func ReadFrom(r io.ReadSeeker) (Metadata, error) {
 	return m, nil
 }
 
+// Skipped returns the first element of the tag m was read from (a frame, an
+// atom, a comment or a picture) that the reader could not decode and left
+// out, or nil when it decoded every one. The rest of the tag is in m all the
+// same: such a file is not unreadable.
+func Skipped(m Metadata) error {
+	if s, ok := m.(interface{ skipped() error }); ok {
+		return s.skipped()
+	}
+	return nil
+}
+
+// firstSkip keeps the first element a reader left out.
+type firstSkip struct{ err error }
+
+func (s *firstSkip) skip(format string, args ...interface{}) {
+	if s.err == nil {
+		s.err = fmt.Errorf(format, args...)
+	}
+}
+
 // Format is an enumeration of metadata types supported by this package.
 type Format string
 

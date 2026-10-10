@@ -151,6 +151,8 @@ type fileTypeMetadata struct {
 
 func (m fileTypeMetadata) FileType() FileType { return m.fileType }
 
+func (m fileTypeMetadata) skipped() error { return Skipped(m.Metadata) }
+
 // readAPEv2File reads an APE, MPC or AAC file without a leading ID3v2 tag:
 // its APEv2 tag, or else its ID3v1 tag.
 func readAPEv2File(r io.ReadSeeker) (Metadata, error) {
