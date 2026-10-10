@@ -341,8 +341,9 @@ func TestRunRefusedWhileAnotherProcessHoldsTheLock(t *testing.T) {
 	if m.run != nil {
 		t.Fatal("a run started while the library is locked")
 	}
-	if !strings.Contains(m.toast, "pid 8812") || m.toastOK {
-		t.Errorf("toast = %q (ok %t), want an error naming the holder", m.toast, m.toastOK)
+	if got := screen(m); !strings.Contains(got, "Cannot start the organize: another tagshelf run is working on this library (process 8812, started ") ||
+		!strings.Contains(got, "Wait for it to finish.") {
+		t.Errorf("the screen does not refuse the run, naming the holder:\n%s", got)
 	}
 }
 
@@ -355,8 +356,8 @@ func TestRunnerLockedErrorShowsToast(t *testing.T) {
 	if m.run != nil {
 		t.Fatal("a run the runner refused is still shown as going")
 	}
-	if !strings.Contains(m.toast, "4242") || m.toastOK {
-		t.Errorf("toast = %q (ok %t), want the lock error", m.toast, m.toastOK)
+	if got := screen(m); !strings.Contains(got, "Cannot start the organize: another tagshelf run is working on this library (process 4242, started ") {
+		t.Errorf("the screen does not show the lock error:\n%s", got)
 	}
 	if strings.Contains(screen(m), "Organize finished") {
 		t.Error("a run that never started is shown as finished")

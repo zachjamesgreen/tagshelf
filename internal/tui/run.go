@@ -250,9 +250,15 @@ func (m *Model) startRun(kind RunKind) tea.Cmd {
 	case m.run != nil:
 		m.setToast(false, "A run is already going; ctrl+c interrupts it")
 		return nil
+	case m.noLibrary != nil && !m.noLibrary.CanRun:
+		// What to do about it is on the screen already, under it.
+		m.refuse(kind, &StartError{What: m.noLibrary.What})
+		return nil
 	case m.locked:
-		m.setToast(false, "Cannot start the %s: another tagshelf run holds the library lock (pid %d, started %s)",
-			kind, m.holder.PID, m.formatTime(m.holder.Started))
+		m.refuse(kind, &StartError{
+			What: fmt.Sprintf("another tagshelf run is working on this library (process %d, started %s)", m.holder.PID, m.formatTime(m.holder.Started)),
+			Todo: "Wait for it to finish. Its progress is shown above.",
+		})
 		return nil
 	case m.busy != nil:
 		// It holds the library lock, which the run would be refused.
@@ -289,13 +295,17 @@ func (m *Model) runEnded(r *liveRun) tea.Cmd {
 	r.mu.Unlock()
 	switch {
 	case r.err != nil:
-		m.setToast(false, "Cannot start the %s: %v", r.kind, r.err)
+		m.refuse(r.kind, r.err)
 	case r.finish.State == engine.StateInterrupted:
 		m.last = last
 		m.setToast(false, "%s interrupted", last.title())
 	default:
 		m.last = last
 		m.setToast(r.finish.State == engine.StateOK, "%s finished", last.title())
+	}
+	if m.noLibrary != nil {
+		// The run may have made the index there was none of.
+		return tea.Batch(m.poll(true, false), m.openAgain())
 	}
 	return m.poll(true, false)
 }

@@ -5,9 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/zachjamesgreen/tagshelf/internal/config"
@@ -145,17 +145,20 @@ func (h helpScreen) write(w io.Writer, set *flag.FlagSet, configPath string) {
 // configFileNote says which config file a command given configPath as its
 // -config would read.
 func configFileNote(configPath string) string {
-	path, explicit := config.Find(configPath)
-	switch {
-	case path == "":
-		return "None: no -config was given, and this folder has no " + config.DefaultConfigName + "."
-	case explicit:
-		return path + " (named with -config)"
+	f, _ := config.Read(configPath)
+	switch f.From {
+	case config.FromFlag:
+		return f.Path + " (named with -config)"
+	case config.FromWorkingDir:
+		return f.Path + " (found in this folder)"
+	case config.FromUser:
+		return f.Path + " (your own config file)"
 	}
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
+	note := "None: no -config was given, and this folder has no " + config.DefaultConfigName
+	if user, err := config.UserPath(); err == nil {
+		return note + ".\n  Your own config file would be " + user
 	}
-	return path + " (found in this folder)"
+	return note + "."
 }
 
 // wrap breaks text into lines of at most width characters, at spaces. A word
@@ -177,9 +180,15 @@ func wrap(text string, width int) []string {
 	return append(lines, line)
 }
 
+// refusal is why a command or a run cannot start, and what to do about it.
+// what is a phrase without a full stop, todo one or more whole sentences.
+type refusal struct{ what, todo string }
+
+// print reports the refusal and returns the exit code for it.
+func (r refusal) print() int { return cannotStart(r.what, r.todo) }
+
 // cannotStart says why the command does not start and what to do about it,
-// and returns the exit code for that. what is a phrase without a full stop,
-// todo one or more whole sentences.
+// and returns the exit code for that.
 func cannotStart(what, todo string) int {
 	fmt.Fprintf(log.Writer(), "tagshelf cannot start: %s.\n%s\n", strings.TrimSuffix(what, "."), todo)
 	return exitCannotStart
@@ -203,9 +212,14 @@ func configProblem(err error) int {
 	return cannotStart(err.Error(), "Fix the file, or name another one with -config.")
 }
 
-// libraryProblem is why the library at dest, which could not be opened,
-// keeps the command from starting.
+// libraryProblem reports why the library at dest could not be opened.
 func libraryProblem(err error, dest string) int {
+	return libraryRefusal(err, dest).print()
+}
+
+// libraryRefusal is why the library at dest, which could not be opened,
+// keeps a command or a run from starting.
+func libraryRefusal(err error, dest string) refusal {
 	var locked *store.LockedError
 	switch {
 	case errors.As(err, &locked):
@@ -214,13 +228,28 @@ func libraryProblem(err error, dest string) int {
 			what += fmt.Sprintf(" (process %d, started %s)", locked.Holder.PID,
 				locked.Holder.Started.Local().Format("2006-01-02 15:04:05"))
 		}
-		return cannotStart(what, "Wait for it to finish, then try again. If no run is going, the lock is "+locked.Path+".")
+		return refusal{what, "Wait for it to finish, then try again. If no run is going, the lock is " + locked.Path + "."}
 	case errors.Is(err, store.ErrNoDatabase):
-		return cannotStart("the library at "+dest+" has no index yet",
-			"Make one first: tagshelf -index -dest \""+dest+"\"")
+		return refusal{"the library at " + dest + " has no index yet", "Make one first: tagshelf -index -dest \"" + dest + "\""}
 	case errors.Is(err, store.ErrOtherLibrary):
-		return cannotStart(err.Error(), "Leave -db and database: out to use the library's own database.")
+		return refusal{err.Error(), "Leave -db and database: out to use the library's own database."}
 	}
-	return cannotStart(fmt.Sprintf("the library database cannot be opened: %v", err),
-		"Nothing was touched. Another database can be named with -db.")
+	return refusal{fmt.Sprintf("the library database cannot be opened: %v", err),
+		"Nothing was touched. Another database can be named with -db."}
+}
+
+// sourceProblem is why source cannot be the source of a run, nil when it is
+// a folder that is there.
+func sourceProblem(source string) *refusal {
+	const todo = "Check the path given with -source, or as source in the config file."
+	info, err := os.Stat(source)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return &refusal{"the source folder " + source + " does not exist", todo}
+	case err != nil:
+		return &refusal{fmt.Sprintf("the source folder cannot be read: %v", err), todo}
+	case !info.IsDir():
+		return &refusal{"the source " + source + " is a file, not a folder", todo}
+	}
+	return nil
 }

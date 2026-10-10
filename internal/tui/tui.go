@@ -5,21 +5,20 @@ package tui
 
 import (
 	"context"
-	"os"
 	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
-	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
 	"github.com/zachjamesgreen/tagshelf/internal/store"
 	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // Options configure the TUI.
 type Options struct {
-	// Store is the library's database, opened with store.OpenReader.
+	// Store is the library's database, opened with store.OpenReader. It is
+	// nil when there is no library to show, and NoLibrary then says why.
 	Store       *store.Store
 	Destination string // the library's root folder
 	LibraryID   string
@@ -31,17 +30,22 @@ type Options struct {
 	MusicBrainzContact string
 	// Runner does the runs started from Home; nil disables them.
 	Runner Runner
+	// NoLibrary says why Store is nil.
+	NoLibrary *NoLibrary
+	// Reopen opens the library again, and returns the options to go on
+	// with. The TUI calls it once a run it started without a library has
+	// ended, which may have made one. It is called off the UI goroutine; nil
+	// leaves the TUI with what it was started on.
+	Reopen func() (Options, error)
+
+	// source is read in place of Store when set: the tests' own.
+	source Source
 }
 
 // Run shows the TUI until the user quits or ctx is cancelled.
 func Run(ctx context.Context, opts Options) error {
-	src := librarySource{st: opts.Store, destination: opts.Destination, pid: os.Getpid()}
-	m := New(src, Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: opts.DryRun})
-	m.runner = opts.Runner
-	m.compilations = opts.Compilations
-	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
-		m.mb = client
-	}
+	m := New(noSource{}, Header{})
+	m.open(opts, true)
 	return m.show(ctx)
 }
 

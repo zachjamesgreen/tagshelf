@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
+	"os"
 
 	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
@@ -17,26 +19,28 @@ import (
 // The tests put a stand-in in its place: the real one needs a terminal.
 var showTUI = tui.Run
 
-// runTUI runs `tagshelf tui [flags]` and returns the process exit code.
+// runTUI runs `tagshelf tui [flags]` and returns the process exit code. The
+// TUI opens whenever it can: without a library folder, or on a library with
+// no index yet, it says what is missing where a run would be refused.
 func runTUI(ctx context.Context, args []string) int {
-	cfg, code, ok := tuiConfig(args)
-	if !ok {
+	set := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
+	flags := tuiFlags(set)
+	if code, done := flags.parse(args); done {
 		return code
 	}
-	dest, database := cfg.Destination, cfg.Database
-
-	// The TUI only reads the library, so it takes no lock and can open while a
-	// run is going.
-	st, err := store.OpenLibraryReader(dest, database)
-	if err != nil {
-		return libraryProblem(err, dest)
-	}
+	s := &tuiSession{flags: flags}
 	// The database closes once the TUI has returned, which it does only
 	// after stopping whatever run or action it had going.
-	defer st.Close()
+	defer s.close()
+	opts, err := s.open()
+	if err != nil {
+		return libraryProblem(err, opts.Destination)
+	}
+	if s.file.Skipped != "" {
+		log.Printf("Warning: ignoring the %s in the working directory: %s\n", config.DefaultConfigName, s.file.Skipped)
+	}
 
-	err = showTUI(ctx, tui.Options{Store: st, Destination: dest, LibraryID: st.LibraryID(), DryRun: cfg.DryRun, Compilations: cfg.Compilations,
-		MusicBrainzContact: cfg.MusicBrainzContact, Runner: tuiRunner{cfg: cfg}})
+	err = showTUI(ctx, opts)
 	if ctx.Err() != nil {
 		return exitInterrupted
 	}
@@ -47,31 +51,120 @@ func runTUI(ctx context.Context, args []string) int {
 	return exitOK
 }
 
-// tuiConfig works out the configuration `tagshelf tui` was started with, with
-// defaults filled in and paths made absolute. ok is false when the TUI should
-// not open, and code is then the exit code. It takes the CLI's folder flags,
-// so that the runs the TUI starts use the folders a CLI run with the same
-// flags would.
-func tuiConfig(args []string) (cfg config.Config, code int, ok bool) {
-	set := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
-	flags := addLibraryFlags(set, tuiHelp,
+// tuiFlags defines the flags of `tagshelf tui` on set: the CLI's folder
+// flags, so that the runs the TUI starts use the folders a CLI run with the
+// same flags would.
+func tuiFlags(set *flag.FlagSet) *libraryFlags {
+	return addLibraryFlags(set, tuiHelp,
 		"The `folder` of music that o organizes into the library.",
 		"The library: the `folder` of organized music to open.",
 		"Start with dry run on.")
-	if code, done := flags.parse(args); done {
-		return config.Config{}, code, false
+}
+
+// tuiSession is the library `tagshelf tui` shows. It opens it when the TUI
+// starts, and again when the TUI asks: after a run that may have made the
+// index it was started without.
+type tuiSession struct {
+	flags *libraryFlags
+	// file is the config file as last read.
+	file config.File
+	// st is the library's database, nil while there is no library.
+	st *store.Store
+}
+
+func (s *tuiSession) close() {
+	if s.st != nil {
+		s.st.Close()
+		s.st = nil
 	}
-	cfg, err := config.Load(*flags.config, flags.overrides())
-	if err != nil {
-		return config.Config{}, configProblem(err), false
+}
+
+// settings reads the config file and the flags again. With defaults filled
+// in and paths made absolute they are the configuration the TUI's runs go
+// by. When there is no library folder to go by, none says why, and cfg is
+// not to be used.
+func (s *tuiSession) settings() (cfg config.Config, none *tui.NoLibrary, err error) {
+	f, err := config.Read(*s.flags.config)
+	s.file = f
+	switch {
+	case err != nil && f.From == config.FromFlag && errors.Is(err, fs.ErrNotExist):
+		// A file named for the TUI need not be there yet: the settings are
+		// then the flags alone.
+	case err != nil:
+		return config.Config{}, &tui.NoLibrary{What: err.Error(), Todo: []string{"Fix the file, then start tagshelf tui again."}}, nil
 	}
+	cfg = f.Config.With(s.flags.overrides())
 	if cfg.Destination == "" {
-		return config.Config{}, flags.misuse("no library folder is set", noDestinationTodo), false
+		return cfg, &tui.NoLibrary{What: "no library folder is set", Todo: []string{
+			`Start again with one, as in: tagshelf tui -dest "D:\Music"`,
+			"Or set destination in " + s.configFileToEdit() + ".",
+		}}, nil
 	}
-	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
-		return config.Config{}, cannotStart(err.Error(), "Check the path."), false
+	cfg, err = absolutePaths(cfg.WithDefaults())
+	return cfg, nil, err
+}
+
+// configFileToEdit names the config file a setting would be put in: the one
+// read, the one named, or else the user's own.
+func (s *tuiSession) configFileToEdit() string {
+	path := s.file.Path
+	if path == "" {
+		var err error
+		if path, err = config.UserPath(); err != nil {
+			return "a config file named with -config"
+		}
 	}
-	return cfg, exitOK, true
+	if _, err := os.Stat(path); err != nil {
+		return "the config file " + path + ", which does not exist yet"
+	}
+	return "the config file " + path
+}
+
+// open opens the library the settings name, closing the one it had open.
+// A library that is not there to open is no error: the options then say what
+// is missing, and the TUI opens on that. With an error, the options still
+// name the library's folder.
+func (s *tuiSession) open() (tui.Options, error) {
+	s.close()
+	cfg, none, err := s.settings()
+	opts := tui.Options{Destination: cfg.Destination, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
+		MusicBrainzContact: cfg.MusicBrainzContact, NoLibrary: none, Reopen: s.open}
+	if err != nil || none != nil {
+		opts.Destination = ""
+		return opts, err
+	}
+	opts.Runner = tuiRunner{cfg: cfg}
+
+	// The TUI only reads the library, so it takes no lock and can open while a
+	// run is going.
+	st, err := store.OpenLibraryReader(cfg.Destination, cfg.Database)
+	switch {
+	case errors.Is(err, store.ErrNoDatabase):
+		opts.NoLibrary = noIndexYet(cfg)
+		return opts, nil
+	case err != nil:
+		return opts, err
+	}
+	s.st = st
+	opts.Store, opts.LibraryID = st, st.LibraryID()
+	return opts, nil
+}
+
+// noIndexYet says that the library the settings name has no index, or is
+// not there at all, and which run would make it.
+func noIndexYet(cfg config.Config) *tui.NoLibrary {
+	none := &tui.NoLibrary{CanRun: true}
+	if _, err := os.Stat(cfg.Destination); errors.Is(err, fs.ErrNotExist) {
+		none.What = "the library folder " + cfg.Destination + " does not exist yet"
+		none.Todo = []string{"Press i to make it, as an empty library."}
+	} else {
+		none.What = "the library at " + cfg.Destination + " has no index yet"
+		none.Todo = []string{"Press i to index the music that is in it. Nothing is moved."}
+	}
+	if cfg.Source != "" && !cfg.Reorganizing() {
+		none.Todo = append(none.Todo, "Or press o to organize "+cfg.Source+" into it.")
+	}
+	return none
 }
 
 // tuiRunner does the runs started from the TUI with the configuration it was
@@ -87,7 +180,11 @@ func (r tuiRunner) Run(ctx context.Context, kind tui.RunKind, dryRun bool, sink 
 	switch kind {
 	case tui.RunOrganize:
 		if cfg.Source == "" {
-			return engine.RunFinished{}, errors.New("no source directory is configured: set source in the config file or pass -source to tagshelf tui")
+			return engine.RunFinished{}, &tui.StartError{What: "no source folder is set",
+				Todo: `Start tagshelf tui with one, as in -source "D:\Incoming", or set source in the config file.`}
+		}
+		if p := sourceProblem(cfg.Source); p != nil {
+			return engine.RunFinished{}, &tui.StartError{What: p.what, Todo: p.todo}
 		}
 	case tui.RunReorganize:
 		cfg.Source = cfg.Destination
