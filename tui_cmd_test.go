@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,29 +20,71 @@ import (
 	"tagshelf/internal/tui"
 )
 
+// refusalTimeout bounds a call that is expected to refuse at once. When the
+// refusal does not happen the call goes on into the real TUI, which only its
+// context ends: with a deadline the test then fails on the exit code, where
+// it would otherwise sit on the console until go test gave up.
+const refusalTimeout = 5 * time.Second
+
 func TestRunTUIRefusesToStart(t *testing.T) {
+	// indexed makes tmp/lib a library with its database at tmp/tagshelf.db.
+	indexed := func(t *testing.T, tmp, config string) (lib, db string) {
+		t.Helper()
+		lib, db = filepath.Join(tmp, "lib"), filepath.Join(tmp, "tagshelf.db")
+		if got := run(context.Background(), []string{"-config", config, "-dest", lib, "-db", db, "-index"}); got != exitOK {
+			t.Fatalf("-index exit code = %d", got)
+		}
+		return lib, db
+	}
 	tests := []struct {
 		name string
-		args func(tmp, config string) []string
+		args func(t *testing.T, tmp, config string) []string
 		log  string // part of the error logged, if any
 	}{
-		{"no destination", func(tmp, config string) []string {
+		{"no destination", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config}
 		}, "destination directory must be specified"},
-		{"unknown flag", func(tmp, config string) []string {
+		{"unknown flag", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-no-such-flag", tmp}
-		}, ""}, // the flag package reports it
-		{"stray argument", func(tmp, config string) []string {
-			return []string{"tui", "-config", config, "-dest", tmp, "extra"}
-		}, "unexpected arguments"},
-		{"library without an index", func(tmp, config string) []string {
+		}, "flag provided but not defined: -no-such-flag"},
+		{"stray argument", func(t *testing.T, tmp, config string) []string {
+			return []string{"tui", "-config", config, "-dest", tmp, "extra", "-dry-run"}
+		}, `unexpected argument "extra"`},
+		{"library without an index", func(t *testing.T, tmp, config string) []string {
 			return []string{"tui", "-config", config, "-dest", filepath.Join(tmp, "lib")}
 		}, "run tagshelf -index -dest"},
+		{"database from a newer tagshelf", func(t *testing.T, tmp, config string) []string {
+			lib, db := indexed(t, tmp, config)
+			setUserVersion(t, db, 1000)
+			return []string{"tui", "-config", config, "-dest", lib, "-db", db}
+		}, "cannot open the library database"},
+		{"database to upgrade while a run holds the library", func(t *testing.T, tmp, config string) []string {
+			lib, db := indexed(t, tmp, config)
+			setUserVersion(t, db, 1)
+			held, err := store.AcquireLibraryLock(lib)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { held.Release() })
+			return []string{"tui", "-config", config, "-dest", lib, "-db", db}
+		}, "try again when it has finished"},
+		{"database of another library", func(t *testing.T, tmp, config string) []string {
+			_, db := indexed(t, tmp, config)
+			other := filepath.Join(tmp, "other")
+			if got := run(context.Background(), []string{"-config", config, "-dest", other, "-index"}); got != exitOK {
+				t.Fatalf("-index of the other library = %d", got)
+			}
+			return []string{"tui", "-config", config, "-dest", other, "-db", db}
+		}, "the database belongs to another library"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmp, config, logs := cliEnv(t)
-			if got := run(context.Background(), tt.args(tmp, config)); got != exitCannotStart {
+			args := tt.args(t, tmp, config)
+			logs.Reset()
+			ctx, cancel := context.WithTimeout(context.Background(), refusalTimeout)
+			defer cancel()
+			if got := run(ctx, args); got != exitCannotStart {
 				t.Errorf("exit code = %d, want %d", got, exitCannotStart)
 			}
 			if !strings.Contains(logs.String(), tt.log) {
@@ -51,6 +94,8 @@ func TestRunTUIRefusesToStart(t *testing.T) {
 	}
 }
 
+// TestRunTUIOpensAnIndexedLibraryWithoutTheLock opens the TUI while a run
+// holds the library lock: the TUI only reads, so it must not need it.
 func TestRunTUIOpensAnIndexedLibraryWithoutTheLock(t *testing.T) {
 	tmp, config, logs := cliEnv(t)
 	lib := filepath.Join(tmp, "lib")
@@ -58,6 +103,13 @@ func TestRunTUIOpensAnIndexedLibraryWithoutTheLock(t *testing.T) {
 	if got := run(context.Background(), []string{"-config", config, "-dest", lib, "-db", db, "-index"}); got != exitOK {
 		t.Fatalf("-index exit code = %d\n%s", got, logs)
 	}
+	// The lock is per open file, so holding it in this process stands in for
+	// a run in another.
+	running, err := store.OpenLibrary(lib, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer running.Close()
 
 	// A cancelled context ends the TUI as soon as it starts; getting that far
 	// means the library opened.
@@ -66,10 +118,85 @@ func TestRunTUIOpensAnIndexedLibraryWithoutTheLock(t *testing.T) {
 	if got := run(ctx, []string{"tui", "-config", config, "-dest", lib, "-db", db}); got != exitInterrupted {
 		t.Errorf("exit code = %d, want %d\n%s", got, exitInterrupted, logs)
 	}
+	// And the run still holds its lock afterwards.
+	if _, held, err := store.ReadLibraryLock(lib); err != nil || !held {
+		t.Errorf("after the TUI opened, the run's lock is held = %t, %v; want held", held, err)
+	}
 }
 
-// tuiRunnerFor returns the runner tagshelf tui would use for a library at
-// lib, with a source folder holding one untagged song.
+// TestTUIConfigTakesTheFolderFlags checks tagshelf tui goes by the same
+// folder flags as the CLI, so that the runs it starts use the folders a CLI
+// run with those flags would.
+func TestTUIConfigTakesTheFolderFlags(t *testing.T) {
+	tmp, configFile, logs := cliEnv(t)
+	path := func(name string) string { return filepath.Join(tmp, name) }
+	off := false
+
+	args := []string{"-config", configFile, "-source", path("src"), "-dest", path("lib"), "-untagged", path("untagged"), "-other", path("other"),
+		"-duplicates", path("dups"), "-compilations", "Mixed", "-workers", "3", "-no-cue-rewrite", "-dry-run", "-db", path("my.db")}
+	cfg, code, ok := tuiConfig(args)
+	if !ok {
+		t.Fatalf("tuiConfig(%q) refused with exit code %d\n%s", args, code, logs)
+	}
+	want := config.Config{Source: path("src"), Destination: path("lib"), Untagged: path("untagged"), Other: path("other"),
+		Duplicates: path("dups"), Compilations: "Mixed", Workers: 3, DryRun: true, CueRewrite: &off, Database: path("my.db")}
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("tuiConfig = %+v\nwant        %+v", cfg, want)
+	}
+	// The runs the TUI starts are given these.
+	opts := engineOptions(tuiRunner{cfg: cfg}.cfg)
+	if opts.Untagged != path("untagged") || opts.Other != path("other") || opts.Duplicates != path("dups") ||
+		opts.Compilations != "Mixed" || opts.Workers != 3 || !opts.NoCueRewrite {
+		t.Errorf("engine options = %+v, want the folders, compilations name, workers and cue setting typed", opts)
+	}
+
+	// Flags left out leave the config file's settings alone, and the folders
+	// default as they do for the CLI.
+	writeFile(t, configFile, fmt.Sprintf("untagged: %q\ndry_run: true\ncue_rewrite: false\nworkers: 5\n", path("from-file")))
+	cfg, code, ok = tuiConfig([]string{"-config", configFile, "-dest", path("lib")})
+	if !ok {
+		t.Fatalf("tuiConfig refused with exit code %d\n%s", code, logs)
+	}
+	if cfg.Untagged != path("from-file") || !cfg.DryRun || cfg.RewriteCues() || cfg.Workers != 5 ||
+		cfg.Other != filepath.Join(path("lib"), "_Other") || cfg.Duplicates != filepath.Join(path("lib"), "_Duplicates") {
+		t.Errorf("tuiConfig with only -dest = %+v, want the file's settings and the default folders", cfg)
+	}
+	// And a flag typed as off turns the file's setting off.
+	cfg, _, ok = tuiConfig([]string{"-config", configFile, "-dest", path("lib"), "-dry-run=false", "-no-cue-rewrite=false"})
+	if !ok || cfg.DryRun || !cfg.RewriteCues() {
+		t.Errorf("tuiConfig with -dry-run=false -no-cue-rewrite=false = %+v, %t; want dry run off and cue rewriting on", cfg, ok)
+	}
+}
+
+// TestTUIRunUsesTheUntaggedFolderTyped starts an index run the way the TUI
+// does, for a library whose untagged folder was named with -untagged: its
+// files are indexed where they are, not looked for in <dest>/_Untagged.
+func TestTUIRunUsesTheUntaggedFolderTyped(t *testing.T) {
+	tmp, configFile, logs := cliEnv(t)
+	lib, untagged := filepath.Join(tmp, "lib"), filepath.Join(tmp, "elsewhere", "untagged")
+	writeFile(t, filepath.Join(untagged, "loose.mp3"), "no tags")
+	cfg, code, ok := tuiConfig([]string{"-config", configFile, "-dest", lib, "-untagged", untagged})
+	if !ok {
+		t.Fatalf("tuiConfig refused with exit code %d\n%s", code, logs)
+	}
+	r := tuiRunner{cfg: cfg}
+	if finish, err := r.Run(context.Background(), tui.RunIndex, false, func(engine.Event) {}); err != nil || finish.State != engine.StateOK {
+		t.Fatalf("index = %+v, %v", finish, err)
+	}
+	st, err := store.OpenLibraryReader(lib, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	files, err := st.UntaggedFiles()
+	if err != nil || len(files) != 1 || files[0].Path != filepath.Join(untagged, "loose.mp3") {
+		t.Errorf("untagged files = %+v, %v; want the one in the folder -untagged names", files, err)
+	}
+}
+
+// tuiRunnerFor returns the runner tagshelf tui would use for the library at
+// tmp/lib, with its database in tmp and the given source, and the library's
+// path. It makes no folder and no file: each caller puts there what it needs.
 func tuiRunnerFor(t *testing.T, tmp, source string) (tuiRunner, string) {
 	t.Helper()
 	lib := filepath.Join(tmp, "lib")
@@ -153,10 +280,48 @@ func TestTUIRunnerRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer held.Close()
-	_, err = r.Run(context.Background(), tui.RunReorganize, false, func(engine.Event) {})
-	var locked *store.LockedError
-	if !errors.As(err, &locked) {
-		t.Errorf("run while locked: %v, want a *store.LockedError", err)
+	// Everything that changes the library takes the lock, and is refused.
+	noSink := func(engine.Event) {}
+	noSave := func(*store.Store, int64, store.File) error { return errors.New("the save was reached") }
+	noCheck := func(path, after string) error { return nil }
+	noRestore := func(*store.Store, int64, string, string, string) error { return nil }
+	for name, do := range map[string]func() error{
+		"reorganize": func() error {
+			_, err := r.Run(context.Background(), tui.RunReorganize, false, noSink)
+			return err
+		},
+		"dry organize": func() error {
+			_, err := r.Run(context.Background(), tui.RunOrganize, true, noSink)
+			return err
+		},
+		"index": func() error {
+			_, err := r.Run(context.Background(), tui.RunIndex, false, noSink)
+			return err
+		},
+		"resolve": func() error {
+			_, err := r.Resolve(context.Background(), []engine.Resolution{{Kind: store.GroupExact, Members: []int64{1, 2}, Keeper: 1}})
+			return err
+		},
+		"keep both": func() error { return r.KeepBoth(store.GroupExact, []int64{1, 2}) },
+		"save tags": func() error {
+			_, err := r.SaveTags(context.Background(), []int64{1}, noSave, noSink)
+			return err
+		},
+		"undo": func() error {
+			_, err := r.Undo(context.Background(), 1, noCheck, noRestore, noSink)
+			return err
+		},
+	} {
+		var locked *store.LockedError
+		if err := do(); !errors.As(err, &locked) {
+			t.Errorf("%s while locked: %v, want a *store.LockedError", name, err)
+		}
+	}
+	if reviews, err := held.Reviews(); err != nil || len(reviews) != 0 {
+		t.Errorf("reviews = %+v, %v; want none recorded while locked", reviews, err)
+	}
+	if runs, err := held.Runs(); err != nil || len(runs) != 0 {
+		t.Errorf("runs = %+v, %v; want none recorded while locked", runs, err)
 	}
 }
 
@@ -228,12 +393,12 @@ func TestTUIRunnerSaveTags(t *testing.T) {
 	r, lib := tuiRunnerFor(t, tmp, "")
 	ripped := filepath.Join(lib, "_Untagged", "ripped.flac")
 	bare := filepath.Join(lib, "_Untagged", "bare.flac")
-	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
+	data, err := os.ReadFile(filepath.Join(fixturesDir, fixtures.RipperFLAC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, ripped, string(data))
-	if data, err = os.ReadFile(fixtures.Path(fixtures.ManualNoAlbumFLAC)); err != nil {
+	if data, err = os.ReadFile(filepath.Join(fixturesDir, fixtures.ManualNoAlbumFLAC)); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, bare, string(data))
