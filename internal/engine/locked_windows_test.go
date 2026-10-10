@@ -13,7 +13,8 @@ import (
 )
 
 // lockPath opens a file or folder with no sharing, so that nothing else can
-// read or list it until the test ends or the returned function is called.
+// read or list it until the test ends or the returned function is called. It
+// skips the test on a machine where a file held that way can still be opened.
 func lockPath(t *testing.T, path string) func() {
 	t.Helper()
 	name, err := syscall.UTF16PtrFromString(path)
@@ -32,6 +33,15 @@ func lockPath(t *testing.T, path string) func() {
 		}
 	}
 	t.Cleanup(unlock)
+	// Some machines let a file held this way be opened all the same (GitHub's
+	// Windows runners do). A test of what tagshelf does with a file it cannot
+	// read has nothing to test there.
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		if f, err := os.Open(path); err == nil {
+			f.Close()
+			t.Skipf("this machine lets %s be opened while it is held open without sharing", filepath.Base(path))
+		}
+	}
 	return unlock
 }
 
