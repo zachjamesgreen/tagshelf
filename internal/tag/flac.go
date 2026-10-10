@@ -5,6 +5,7 @@
 package tag
 
 import (
+	"bytes"
 	"errors"
 	"io"
 )
@@ -71,12 +72,21 @@ func (m *metadataFLAC) readFLACMetadataBlock(r io.ReadSeeker) (last bool, err er
 		return
 	}
 
+	// A comment or picture block is read whole and then taken apart, so no
+	// length inside it can make the reader go past the block. A picture
+	// that cannot be read is left out.
 	switch blockType(blockHeader[0]) {
-	case vorbisCommentBlock:
-		err = m.readVorbisComment(r)
-
-	case pictureBlock:
-		err = m.readPictureBlock(r)
+	case vorbisCommentBlock, pictureBlock:
+		var b []byte
+		b, err = readBytes(r, uint(blockLen))
+		if err != nil {
+			return
+		}
+		if blockType(blockHeader[0]) == vorbisCommentBlock {
+			err = m.readVorbisComment(bytes.NewReader(b))
+		} else {
+			m.readPictureBlock(bytes.NewReader(b))
+		}
 
 	default:
 		_, err = r.Seek(int64(blockLen), io.SeekCurrent)

@@ -7,12 +7,9 @@ package tag
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func newMetadataVorbis() *metadataVorbis {
@@ -32,76 +29,87 @@ func (m *metadataVorbis) get(k string) string {
 	return v
 }
 
-// add records a comment. A key written more than once keeps every value,
-// joined with NUL in the order they came, as the ASF reader does and as mbz
-// expects of a list of IDs.
-func (m *metadataVorbis) add(k, v string) {
-	if old, ok := m.c[k]; ok {
-		m.c[k] = old + "\x00" + v
-		return
+// readVorbisString reads a string of n bytes from r, which holds the rest of
+// the block or packet it is in. A length that runs past the end is refused
+// before anything is allocated for it.
+func readVorbisString(r *bytes.Reader, n uint) (string, error) {
+	if n > uint(r.Len()) {
+		return "", fmt.Errorf("length %d runs past the %d bytes left of the block", n, r.Len())
 	}
-	m.c[k] = v
+	return readString(r, n)
 }
 
-func (m *metadataVorbis) readVorbisComment(r io.Reader) error {
+// readVorbisComment reads the Vorbis comment in r, which holds the block or
+// packet and nothing after it. A key written more than once keeps every
+// value, joined with NUL in the order they came, as the ASF reader does and
+// as mbz expects of a list of IDs. A comment with no "=", and a picture that
+// cannot be decoded, are left out.
+func (m *metadataVorbis) readVorbisComment(r *bytes.Reader) error {
 	vendorLen, err := readUint32LittleEndian(r)
 	if err != nil {
 		return err
 	}
 
-	vendor, err := readString(r, uint(vendorLen))
+	vendor, err := readVorbisString(r, uint(vendorLen))
 	if err != nil {
 		return err
 	}
-	m.c["vendor"] = vendor
 
 	commentsLen, err := readUint32LittleEndian(r)
 	if err != nil {
 		return err
 	}
 
-	for i := uint32(0); i < commentsLen; i++ {
-		l, err := readUint32LittleEndian(r)
-		if err != nil {
-			return err
+	// The values of each key are joined once, at the end: joining as they
+	// come copies all the earlier ones for every repeat.
+	values := map[string][]string{"vendor": {vendor}}
+	for i := uint32(0); i < commentsLen && err == nil; i++ {
+		var l uint32
+		var s string
+		if l, err = readUint32LittleEndian(r); err != nil {
+			break
 		}
-		s, err := readString(r, uint(l))
-		if err != nil {
-			return err
+		if s, err = readVorbisString(r, uint(l)); err != nil {
+			break
 		}
-		k, v, err := parseComment(s)
-		if err != nil {
-			return err
+		if k, v, ok := strings.Cut(s, "="); ok {
+			k = strings.ToLower(k)
+			values[k] = append(values[k], v)
 		}
-		m.add(strings.ToLower(k), v)
+	}
+	for k, vs := range values {
+		m.c[k] = strings.Join(vs, "\x00")
+	}
+	if err != nil {
+		return err
 	}
 
-	if _, ok := m.c["metadata_block_picture"]; ok {
-		b64data := m.get("metadata_block_picture")
-		data, err := base64.StdEncoding.DecodeString(b64data)
-		if err != nil {
-			return err
+	if b64data := m.get("metadata_block_picture"); b64data != "" {
+		if data, err := base64.StdEncoding.DecodeString(b64data); err == nil {
+			m.readPictureBlock(bytes.NewReader(data))
 		}
-		m.readPictureBlock(bytes.NewReader(data))
 	}
 
 	return nil
 }
 
-func (m *metadataVorbis) readPictureBlock(r io.Reader) error {
+// readPictureBlock reads the picture in r, which holds the block and nothing
+// after it. Each length is checked against what is left of the block.
+func (m *metadataVorbis) readPictureBlock(r *bytes.Reader) error {
 	b, err := readInt(r, 4)
 	if err != nil {
 		return err
 	}
-	pictureType, ok := pictureTypes[byte(b)]
-	if !ok {
-		return fmt.Errorf("invalid picture type: %v", b)
+	// A type outside the list (above 20) has no name.
+	var pictureType string
+	if b >= 0 && b <= 0xFF {
+		pictureType = pictureTypes[byte(b)]
 	}
 	mimeLen, err := readUint(r, 4)
 	if err != nil {
 		return err
 	}
-	mime, err := readString(r, mimeLen)
+	mime, err := readVorbisString(r, mimeLen)
 	if err != nil {
 		return err
 	}
@@ -120,7 +128,7 @@ func (m *metadataVorbis) readPictureBlock(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	desc, err := readString(r, descLen)
+	desc, err := readVorbisString(r, descLen)
 	if err != nil {
 		return err
 	}
@@ -143,12 +151,14 @@ func (m *metadataVorbis) readPictureBlock(r io.Reader) error {
 		return err
 	}
 
-	dataLen, err := readInt(r, 4)
+	dataLen, err := readUint(r, 4)
 	if err != nil {
 		return err
 	}
-	data := make([]byte, dataLen)
-	_, err = io.ReadFull(r, data)
+	if dataLen > uint(r.Len()) {
+		return fmt.Errorf("picture data length %d runs past the %d bytes left of the block", dataLen, r.Len())
+	}
+	data, err := readBytes(r, dataLen)
 	if err != nil {
 		return err
 	}
@@ -161,17 +171,6 @@ func (m *metadataVorbis) readPictureBlock(r io.Reader) error {
 		Data:        data,
 	}
 	return nil
-}
-
-func parseComment(c string) (k, v string, err error) {
-	kv := strings.SplitN(c, "=", 2)
-	if len(kv) != 2 {
-		err = errors.New("vorbis comment must contain '='")
-		return
-	}
-	k = kv[0]
-	v = kv[1]
-	return
 }
 
 func (m *metadataVorbis) Format() Format {
@@ -204,8 +203,12 @@ func (m *metadataVorbis) Album() string {
 
 func (m *metadataVorbis) AlbumArtist() string {
 	// This field isn't actually included in the standard, though
-	// it is commonly assigned to albumartist.
-	return m.get("albumartist")
+	// it is commonly assigned to albumartist. Some taggers write it
+	// with a space.
+	if s := m.get("albumartist"); s != "" {
+		return s
+	}
+	return m.get("album artist")
 }
 
 func (m *metadataVorbis) Composer() string {
@@ -228,30 +231,15 @@ func (m *metadataVorbis) Genre() string {
 }
 
 func (m *metadataVorbis) Year() int {
-	var dateFormat string
-
 	// The date need to follow the international standard https://en.wikipedia.org/wiki/ISO_8601
 	// and obviously the VorbisComment standard https://wiki.xiph.org/VorbisComment#Date_and_time
-	switch len(m.get("date")) {
-	case 0:
-		// Fallback on year tag as some files use that.
-		if len(m.get("year")) != 0 {
-			year, err := strconv.Atoi(m.get("year"))
-			if err == nil {
-				return year
-			}
-		}
-		return 0
-	case 4:
-		dateFormat = "2006"
-	case 7:
-		dateFormat = "2006-01"
-	case 10:
-		dateFormat = "2006-01-02"
+	// Taggers write other forms too: a date that does not start with a
+	// year gives 0, not the year 1 of an unparsed time.
+	if year := leadingYear(m.get("date")); year != 0 {
+		return year
 	}
-
-	t, _ := time.Parse(dateFormat, m.get("date"))
-	return t.Year()
+	// Fallback on year tag as some files use that.
+	return leadingYear(m.get("year"))
 }
 
 func (m *metadataVorbis) Track() (int, int) {

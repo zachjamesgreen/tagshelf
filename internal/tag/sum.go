@@ -36,6 +36,9 @@ func Sum(r io.ReadSeeker) (string, error) {
 	case string(b[0:3]) == "ID3":
 		return SumID3v2(r)
 
+	case string(b[0:4]) == "DSD ":
+		return SumDSF(r)
+
 	case isASF(b):
 		return SumASF(r)
 
@@ -43,14 +46,7 @@ func Sum(r io.ReadSeeker) (string, error) {
 		return SumWAV(r)
 	}
 
-	h, err := SumID3v1(r)
-	if err != nil {
-		if err == ErrNotID3v1 {
-			return SumAll(r)
-		}
-		return "", err
-	}
-	return h, nil
+	return SumID3v1(r)
 }
 
 // SumAll returns a checksum of the content from the reader (until EOF).
@@ -58,27 +54,40 @@ func SumAll(r io.ReadSeeker) (string, error) {
 	h := sha1.New()
 	_, err := io.Copy(h, r)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	return hashSum(h), nil
 }
 
 // SumAtoms constructs a checksum of MP4 audio file data provided by the io.ReadSeeker which is
-// metadata invariant.
+// metadata invariant: the payload of every mdat atom, in file order. A fragmented MP4 has one
+// mdat for each fragment, and the first alone is only the first seconds of the audio.
 func SumAtoms(r io.ReadSeeker) (string, error) {
+	h := sha1.New()
+	found := false // an mdat has been hashed
+
+	// stop ends the walk at an atom that cannot be read: with the audio
+	// hashed that is the end of the atoms, without it an error.
+	stop := func(err error) (string, error) {
+		if found {
+			return hashSum(h), nil
+		}
+		return "", err
+	}
+
 	for {
 		var size uint32
 		err := binary.Read(r, binary.BigEndian, &size)
 		if err != nil {
 			if err == io.EOF {
-				return "", fmt.Errorf("reached EOF before audio data")
+				err = fmt.Errorf("reached EOF before audio data")
 			}
-			return "", err
+			return stop(err)
 		}
 
 		name, err := readString(r, 4)
 		if err != nil {
-			return "", err
+			return stop(err)
 		}
 
 		// Length of the atom body: size 1 means a 64-bit size follows the
@@ -88,12 +97,12 @@ func SumAtoms(r io.ReadSeeker) (string, error) {
 		if size == 1 {
 			var large uint64
 			if err := binary.Read(r, binary.BigEndian, &large); err != nil {
-				return "", err
+				return stop(err)
 			}
 			n = int64(large) - 16
 		}
 		if n < 0 && !toEOF {
-			return "", fmt.Errorf("invalid '%v' atom size", name)
+			return stop(fmt.Errorf("invalid '%v' atom size", name))
 		}
 
 		switch name {
@@ -101,15 +110,14 @@ func SumAtoms(r io.ReadSeeker) (string, error) {
 			// next_item_id (int32)
 			_, err := r.Seek(4, io.SeekCurrent)
 			if err != nil {
-				return "", err
+				return stop(err)
 			}
 			fallthrough
 
 		case "moov", "udta", "ilst":
 			continue
 
-		case "mdat": // stop when we get to the data
-			h := sha1.New()
+		case "mdat":
 			if toEOF {
 				_, err = io.Copy(h, r)
 			} else {
@@ -118,15 +126,16 @@ func SumAtoms(r io.ReadSeeker) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("error reading audio data: %v", err)
 			}
-			return hashSum(h), nil
+			found = true
+			continue
 		}
 
 		if toEOF {
-			return "", fmt.Errorf("reached EOF before audio data")
+			return stop(fmt.Errorf("reached EOF before audio data"))
 		}
 		_, err = r.Seek(n, io.SeekCurrent)
 		if err != nil {
-			return "", fmt.Errorf("error reading '%v' tag: %v", name, err)
+			return stop(fmt.Errorf("error reading '%v' tag: %v", name, err))
 		}
 	}
 }
@@ -214,7 +223,50 @@ func SumID3v2(r io.ReadSeeker) (string, error) {
 	if string(b[0:3]) != "ID3" {
 		return "", fmt.Errorf("expected to read \"ID3\"")
 	}
-	return sumAudio(r, start+id3v2TagSize(b))
+	audioStart := start + id3v2TagSize(b)
+
+	// A FLAC stream behind the tag is hashed as FLAC, without its metadata
+	// blocks, so its hash is that of the same stream with no ID3v2 tag.
+	if head, err := readAt(r, audioStart, 4); err == nil && string(head) == "fLaC" {
+		if _, err := r.Seek(audioStart, io.SeekStart); err != nil {
+			return "", fmt.Errorf("error seeking to FLAC stream: %v", err)
+		}
+		return SumFLAC(r)
+	}
+	return sumAudio(r, audioStart)
+}
+
+// SumDSF constructs a checksum of the DSF audio file data provided by the io.ReadSeeker which is
+// metadata invariant: the payload of the data chunk. The ID3v2 tag at the end of the file is left
+// out, and so is the DSD chunk, which holds the file's size and where the tag is.
+func SumDSF(r io.ReadSeeker) (string, error) {
+	off, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return "", fmt.Errorf("error reading current position: %v", err)
+	}
+
+	// Each chunk starts with its ID and its size, which counts those 12 bytes.
+	for {
+		if _, err := r.Seek(off, io.SeekStart); err != nil {
+			return "", fmt.Errorf("error seeking to DSF chunk: %v", err)
+		}
+		b, err := readBytes(r, 12)
+		if err != nil {
+			return "", fmt.Errorf("error reading DSF chunk header: %v", err)
+		}
+		size := binary.LittleEndian.Uint64(b[4:12])
+		if size < 12 || size > 1<<62 {
+			return "", fmt.Errorf("invalid DSF %q chunk size %d", b[0:4], size)
+		}
+		if string(b[0:4]) == "data" {
+			h := sha1.New()
+			if _, err := io.CopyN(h, r, int64(size-12)); err != nil {
+				return "", fmt.Errorf("error reading audio data: %v", err)
+			}
+			return hashSum(h), nil
+		}
+		off += int64(size)
+	}
 }
 
 // SumWAV constructs a checksum of the payload of the data chunk of the WAV file provided by the

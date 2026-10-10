@@ -70,6 +70,7 @@ func ReadWAVTags(r io.ReadSeeker) (Metadata, error) {
 	}
 
 	m := metadataWAV{}
+	var id3Err error
 	err = walkRIFF(r, start, end, func(c riffChunk) (bool, error) {
 		if c.data+c.size > end {
 			return false, nil // truncated: nothing more to read
@@ -83,10 +84,16 @@ func ReadWAVTags(r io.ReadSeeker) (Metadata, error) {
 			if err != nil {
 				return false, fmt.Errorf("error reading %q chunk: %v", c.id, err)
 			}
-			m.id3, err = ReadID3v2Tags(bytes.NewReader(b))
+			// A tag that cannot be read does not hide the LIST/INFO
+			// chunk: its error is only returned without one.
+			id3, err := ReadID3v2Tags(bytes.NewReader(b))
 			if err != nil {
-				return false, fmt.Errorf("error reading %q chunk: %v", c.id, err)
+				if id3Err == nil {
+					id3Err = fmt.Errorf("error reading %q chunk: %v", c.id, err)
+				}
+				return true, nil
 			}
+			m.id3 = id3
 		case "LIST":
 			if c.size < 4 {
 				return true, nil
@@ -105,6 +112,9 @@ func ReadWAVTags(r io.ReadSeeker) (Metadata, error) {
 		return nil, err
 	}
 	if m.id3 == nil && m.info == nil {
+		if id3Err != nil {
+			return nil, id3Err
+		}
 		return nil, ErrNoTagsFound
 	}
 	return m, nil

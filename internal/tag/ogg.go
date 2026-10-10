@@ -142,6 +142,10 @@ func ReadOGGTags(r io.Reader) (Metadata, error) {
 	od := &oggDemuxer{}
 	for {
 		bs, err := od.Read(r)
+		if err == io.EOF {
+			// The stream ended, at the end of a page, with no comment packet.
+			return nil, ErrNoTagsFound
+		}
 		if err != nil {
 			return nil, err
 		}

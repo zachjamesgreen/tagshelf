@@ -61,17 +61,22 @@ func Identify(r io.ReadSeeker) (format Format, fileType FileType, err error) {
 		return ASF, WMA, nil
 	}
 
-	n, err := r.Seek(-128, io.SeekEnd)
+	start, err := r.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return
 	}
 
-	tag, err := readString(r, 3)
-	if err != nil {
-		return
+	// A file too short for an ID3v1 tag has none.
+	var tag string
+	if _, err := r.Seek(-128, io.SeekEnd); err == nil {
+		tag, err = readString(r, 3)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
-	_, err = r.Seek(-n, io.SeekCurrent)
+	// Leave the reader where it was.
+	_, err = r.Seek(start, io.SeekStart)
 	if err != nil {
 		return
 	}

@@ -31,6 +31,11 @@ func ReadDSFTags(r io.ReadSeeker) (Metadata, error) {
 		return nil, err
 	}
 
+	// A pointer of 0 means the file has no ID3v2 chunk.
+	if id3Pointer == 0 {
+		return nil, ErrNoTagsFound
+	}
+
 	_, err = r.Seek(int64(id3Pointer), io.SeekStart)
 	if err != nil {
 		return nil, err
