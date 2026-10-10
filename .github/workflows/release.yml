@@ -1,8 +1,9 @@
 name: Release
 
-# Started by hand from the Actions tab. It tests main, builds tagshelf.exe
-# with the version typed, and makes a draft release with the download
-# attached. Nothing is public until the draft is published.
+# Started by hand from the Actions tab. It tests main, builds a download of
+# tagshelf for each system with the version typed, runs the Linux one on the
+# major distributions, and makes a draft release with the downloads attached.
+# Nothing is public until the draft is published.
 on:
   workflow_dispatch:
     inputs:
@@ -12,22 +13,21 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  VERSION: ${{ inputs.version }}
+
 jobs:
-  release:
-    name: Build and draft the release
-    runs-on: windows-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: bash
+  check:
+    name: Check the version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
-      VERSION: ${{ inputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check the version
@@ -49,6 +49,27 @@ jobs:
             exit 1
           fi
 
+  build:
+    # Each download is built, tested and run on the kind of machine it is
+    # for, so that none is published that was never started.
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: windows-amd64
+            os: windows-latest
+          - target: linux-amd64
+            os: ubuntu-latest
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
@@ -61,38 +82,98 @@ jobs:
           go vet ./...
           go test ./... -count=1 -timeout 10m
 
-      - name: Build tagshelf.exe
+      - name: Build
         env:
-          GOOS: windows
-          GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
+          exe=tagshelf
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=tagshelf.exe; fi
+          if [ "$(go env GOOS)-$(go env GOARCH)" != "${{ matrix.target }}" ]; then
+            echo "::error::This runner builds $(go env GOOS)-$(go env GOARCH), not ${{ matrix.target }}"
+            exit 1
+          fi
           go build -trimpath \
             -ldflags "-s -w -X github.com/zachjamesgreen/tagshelf/internal/version.release=$VERSION" \
-            -o dist/tagshelf.exe .
-          got=$(./dist/tagshelf.exe -version)
+            -o "dist/$exe" .
+          got=$("./dist/$exe" -version)
           echo "$got"
           if [ "$got" != "tagshelf $VERSION" ]; then
-            echo "::error::The exe says '$got', not 'tagshelf $VERSION'"
+            echo "::error::The program says '$got', not 'tagshelf $VERSION'"
             exit 1
           fi
 
       - name: Package
-        id: package
         run: |
-          name="tagshelf-$VERSION-windows-amd64"
+          name="tagshelf-$VERSION-${{ matrix.target }}"
           go run ./internal/notices
-          cp README.md LICENSE THIRD_PARTY_NOTICES config.example.yaml dist/
-          (cd dist && 7z a -tzip "../$name.zip" tagshelf.exe README.md LICENSE THIRD_PARTY_NOTICES config.example.yaml)
-          sha256sum "$name.zip" > "$name.zip.sha256"
-          cat "$name.zip.sha256"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          git diff --exit-code -- THIRD_PARTY_NOTICES
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp README.md LICENSE THIRD_PARTY_NOTICES config.example.yaml dist/
+            (cd dist && 7z a -tzip "../$name.zip" tagshelf.exe README.md LICENSE THIRD_PARTY_NOTICES config.example.yaml)
+            archive="$name.zip"
+          else
+            # A tar file unpacks where it is, so it holds one folder. The
+            # example config is the one whose paths Linux can read.
+            mkdir "$name"
+            cp dist/tagshelf README.md LICENSE THIRD_PARTY_NOTICES "$name/"
+            cp config.example.linux.yaml "$name/config.example.yaml"
+            chmod 755 "$name/tagshelf"
+            tar -czf "$name.tar.gz" --owner=0 --group=0 "$name"
+            archive="$name.tar.gz"
+          fi
+          sha256sum "$archive" > "$archive.sha256"
+          cat "$archive.sha256"
+          mkdir out
+          mv "$archive" "$archive.sha256" out/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: download-${{ matrix.target }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  distros:
+    name: Run on Linux distributions
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: download-linux-amd64
+          path: out
+
+      - name: Run the download on each distribution
+        run: |
+          name="tagshelf-$VERSION-linux-amd64"
+          (cd out && sha256sum -c "$name.tar.gz.sha256")
+          tar -xzf "out/$name.tar.gz"
+          .github/scripts/distros.sh "$name/tagshelf" "$VERSION"
+
+  release:
+    name: Draft the release
+    needs: [build, distros]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: download-*
+          merge-multiple: true
+          path: out
 
       - name: Draft the release
         run: |
-          gh release create "$VERSION" \
-            "${{ steps.package.outputs.name }}.zip" \
-            "${{ steps.package.outputs.name }}.zip.sha256" \
+          ls -l out
+          (cd out && sha256sum -c ./*.sha256)
+          gh release create "$VERSION" out/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "tagshelf $VERSION" \

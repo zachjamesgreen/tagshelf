@@ -32,11 +32,11 @@ Pull requests are squashed into one commit on `main`, so the title should say wh
 - **Package boundaries.** `internal/engine` does not import `internal/tagwrite`; what it needs from there is passed in. `internal/tui` reads through its `Source` and writes through its `Runner`.
 - **The project's words.** [CONTEXT.md](CONTEXT.md) defines them (library, run, qualifies, manual marker). Use those in code, messages and docs.
 - **`internal/tag`** is a changed copy of another library. Record every change to it in [internal/tag/UPSTREAM.md](internal/tag/UPSTREAM.md), and do not change the audio hash of files that hash correctly today: the index stores those hashes.
-- **Dependencies.** After adding or removing one, run `go run ./internal/notices` and commit `THIRD_PARTY_NOTICES`.
+- **Dependencies.** After adding or removing one, run `go run ./internal/notices` and commit `THIRD_PARTY_NOTICES`. The file covers every system tagshelf is released for, and comes out the same wherever it is made.
 
 ## Releases
 
-Releases are made by the maintainer from the Actions tab: the Release workflow takes a version such as `v0.2.0`, tests `main`, builds `tagshelf.exe` and drafts the release.
+Releases are made by the maintainer from the Actions tab. The Release workflow takes a version such as `v0.3.0` and then, for Windows, Linux amd64 and Linux arm64 each, tests `main` and builds the download on a machine of that kind. It runs the Linux download on Debian, Fedora, Arch, openSUSE and Alpine, and drafts the release with all three attached.
 
 ## License
 
