@@ -86,7 +86,7 @@ func (o *organizer) reindex(f store.File) error {
 	if err != nil {
 		return err
 	}
-	row, err := readIndexFile(indexJob{
+	row, _, err := readIndexFile(indexJob{
 		walkedFile: walkedFile{path: f.Path, size: info.Size(), modTime: info.ModTime(), infoOK: true},
 		rootID:     f.RootID, rel: f.RelPath,
 	})

@@ -4,6 +4,7 @@ package engine
 
 import (
 	"errors"
+	"path/filepath"
 	"syscall"
 )
 
@@ -16,3 +17,7 @@ const errNotSameDevice = syscall.Errno(17)
 func isCrossVolume(err error) bool {
 	return errors.Is(err, errNotSameDevice)
 }
+
+// volumeRoot reports whether dir is the top of a volume, such as M:\ or a
+// share.
+func volumeRoot(dir string) bool { return filepath.Dir(dir) == dir }

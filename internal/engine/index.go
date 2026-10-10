@@ -217,10 +217,15 @@ func (o *organizer) indexFiles(ctx context.Context, jobs []indexJob) {
 	}()
 
 	runJobs(ctx, o.cfg.Workers, jobs, func(j indexJob) {
-		f, err := readIndexFile(j)
+		f, details, err := readIndexFile(j)
 		if err != nil {
 			o.fail(j.path, "", OpIndex, err)
 		} else {
+			if details != nil {
+				// Said aloud, and not only noted in the row: when every
+				// file fails here, it is the reader that is broken.
+				o.emit(Warning{Kind: WarnDetailsUnread, Path: j.path, Err: details})
+			}
 			// What the index held before the run decides whether the run
 			// adds the file to a duplicate group, not that it was read:
 			// a rescan reads every file, and none of them is new.
@@ -249,16 +254,21 @@ func (o *organizer) indexedBefore() bool {
 	return before
 }
 
+// readProperties reads the audio details of a file: its length, bit rate and
+// the like. Tests replace it to have the reader fail.
+var readProperties = taglib.ReadProperties
+
 // readIndexFile reads a file's tags, audio hash and properties into an index
 // row. Only a file that cannot be opened fails; what cannot be read of one
 // that can is noted in the row's ReadError, so a damaged file is not re-read
 // on every run. So is the first element of its tags the reader had to leave
-// out, though the rest of them were read.
-func readIndexFile(j indexJob) (store.File, error) {
-	f := store.File{RootID: j.rootID, RelPath: j.rel, Size: j.size, ModTime: j.modTime, IndexedAt: time.Now()}
+// out, though the rest of them were read. details is why its audio details
+// (length, bit rate and the like) could not be read, nil when they were.
+func readIndexFile(j indexJob) (f store.File, details, err error) {
+	f = store.File{RootID: j.rootID, RelPath: j.rel, Size: j.size, ModTime: j.modTime, IndexedAt: time.Now()}
 	file, err := os.Open(j.path)
 	if err != nil {
-		return f, err
+		return f, nil, err
 	}
 	defer file.Close()
 
@@ -282,8 +292,9 @@ func readIndexFile(j indexJob) (store.File, error) {
 		problems = append(problems, "hash: "+err.Error())
 	}
 
-	if props, err := taglib.ReadProperties(j.path); err != nil {
+	if props, err := readProperties(j.path); err != nil {
 		problems = append(problems, "properties: "+err.Error())
+		details = err
 	} else {
 		f.Lossless = isLossless(props)
 		f.Bitrate = int(props.BitRate)
@@ -296,7 +307,7 @@ func readIndexFile(j indexJob) (store.File, error) {
 		f.HasArt = f.HasArt || len(props.Images) > 0
 	}
 	f.ReadError = strings.Join(problems, "; ")
-	return f, nil
+	return f, details, nil
 }
 
 // fillTags copies what the index keeps of md into f.

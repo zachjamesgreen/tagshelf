@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -49,6 +50,9 @@ type SettingsFile struct {
 	// DataFolder is the folder a library's database is kept under when the
 	// database setting is empty, as it is shown.
 	DataFolder string
+	// Problems are the settings of the file that cannot be used as they are
+	// written, by key, with why. They are shown before anything is changed.
+	Problems map[string]string
 }
 
 // SettingsCheck is what Settings.Check found.
@@ -108,7 +112,9 @@ type settingsTab struct {
 	hint    string
 	hintSeq int
 
-	problems map[string]string // by key, from the last save refused
+	// problems are the settings that cannot be used or saved, by key: the
+	// file's own as it was read, then those of the last save refused.
+	problems map[string]string
 	// confirm are the questions still to answer before the save asked for
 	// goes ahead, and checked the settings they were asked about.
 	confirm []string
@@ -169,7 +175,7 @@ func (m *Model) settingsLoaded(msg settingsLoadedMsg) {
 	s := &m.settings
 	s.loaded, s.loading = true, false
 	s.file, s.values = msg.file, msg.file.Config
-	s.input, s.hint, s.problems, s.confirm, s.leave = nil, "", nil, nil, ""
+	s.input, s.hint, s.problems, s.confirm, s.leave = nil, "", maps.Clone(msg.file.Problems), nil, ""
 }
 
 // settingsTo puts the cursor on the setting with the given key.
@@ -189,7 +195,7 @@ func (m *Model) settingsKey(k string) (cmd tea.Cmd, ok bool) {
 		leave := s.leave
 		s.leave = ""
 		if k == "y" || k == "Y" {
-			s.values, s.problems = s.file.Config, nil
+			s.values, s.problems = s.file.Config, maps.Clone(s.file.Problems)
 			return m.key(leave), true
 		}
 		return nil, true
@@ -247,7 +253,7 @@ func (m *Model) settingsKey(k string) (cmd tea.Cmd, ok bool) {
 		return m.settingsChange(), true
 	case "esc":
 		if s.dirty() {
-			s.values, s.problems = s.file.Config, nil
+			s.values, s.problems = s.file.Config, maps.Clone(s.file.Problems)
 			m.setToast(true, "Changes dropped")
 		}
 	case "s":
@@ -350,6 +356,13 @@ func pathHint(path string, folder bool) string {
 	if path == "" {
 		return ""
 	}
+	if config.ForeignPath(path) {
+		return "This is a Windows path, which this system cannot use."
+	}
+	path, err := config.ExpandHome(path)
+	if errors.Is(err, config.ErrOtherHome) {
+		return "Only ~ alone, your own home folder, is known."
+	}
 	info, err := os.Stat(path)
 	switch {
 	case err != nil && !errors.Is(err, os.ErrNotExist):
@@ -379,7 +392,12 @@ func completePath(typed string, foldersOnly bool) string {
 	}
 	separator := string(filepath.Separator)
 	dir, prefix := typed[:cut+1], typed[cut+1:]
-	entries, err := os.ReadDir(dir)
+	// What is typed stays as typed: only the look-up puts ~ in full.
+	lookIn, err := config.ExpandHome(dir)
+	if err != nil {
+		return typed
+	}
+	entries, err := os.ReadDir(lookIn)
 	if err != nil {
 		return typed
 	}

@@ -135,6 +135,12 @@ Each can be put somewhere else with a flag or a config key.
 
 Cover art, booklets, logs and cue sheets follow the audio of their folder into its album folder. When a cue sheet's audio is renamed, the `FILE` lines in the sheet are rewritten to match, and the original is kept beside it as `album.cue.orig`.
 
+### What a run leaves where it is
+
+- **Links.** A symbolic link or a junction inside a walked folder is neither followed nor moved, whether it leads to a folder or to a file. The run says so with a warning. A source or library folder that is itself a symbolic link is different: the run works in the folder it leads to, and says which that is.
+- **What is not a file.** A named pipe, a socket or a device is left alone, with a warning.
+- **The system's own folders at the top of a drive.** `System Volume Information` and `$RECYCLE.BIN` are passed over without a word.
+
 ### Duplicates
 
 tagshelf compares the audio itself, not the tags, so the same recording with different tags is still found.
@@ -192,6 +198,8 @@ Anything on the command line that is not a flag stops tagshelf before it does an
 
 Ctrl-C stops a run after the files it is in the middle of. A second Ctrl-C exits at once.
 
+A run ends with warnings for what went less than right without failing a file: a link it left alone, a cue sheet it could not rewrite, or a file whose length and bit rate could not be read into the index.
+
 | Exit code | Meaning |
 |---|---|
 | 0 | The run finished and every file went well. |
@@ -210,6 +218,8 @@ tagshelf reads the first of these that exists:
 Flags override it. To make one, use the [Settings tab](#settings) of the terminal UI, or copy [`config.example.yaml`](config.example.yaml). The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
 
 A `config.yaml` in the folder that is not YAML at all, such as one belonging to another program, is passed over with a warning.
+
+A folder may be written from `~`, your home folder, as in `~\Music`. That works in a config file, in the Settings tab and in a flag. Only `~` alone is known: `~name`, another user's home folder, is refused.
 
 A config file alone does not start a run: see [Command line](#command-line).
 
@@ -320,7 +330,7 @@ Once a file's tags qualify, saving them also moves it into the library. Every sa
 The Settings tab edits the config file tagshelf read: the one named with `-config`, the `config.yaml` in the folder, or else your own, `%APPDATA%\tagshelf\config.yaml`. The top line names it. If it does not exist yet, the first save makes it, from the same commented template as `config.example.yaml`, with dry run on so that the first run of a new set-up is a preview.
 
 - **Change several settings, then press `s`.** Changed rows are marked with `*`. Nothing is written before `s`, and leaving the tab with changes asks first.
-- **Paths can be typed or pasted.** `tab` completes a folder name, and a note under the field says whether the folder exists.
+- **Paths can be typed or pasted.** `tab` completes a folder name, and a note under the field says whether the folder exists. A path may start with `~`, your home folder, and is saved as you typed it.
 - **A save is checked first.** A source folder that does not exist, a library folder inside the source, two folders that are the same, or a contact that is not an email address or URL is refused, with the reason beside the setting. Nothing is written until all of them pass.
 - **Some saves ask first.** A library folder that does not exist is made if you say yes. Changing the library folder of a library that is open says plainly that it opens a different library and moves no music.
 - **A save takes effect at once.** The library is opened again with the new settings. Saving is refused while a run or an action is going.

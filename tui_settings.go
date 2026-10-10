@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,12 +13,6 @@ import (
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
 	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
-
-// configTemplate is what a config file the Settings tab makes starts from:
-// the example file, so that a new file explains itself the same way.
-//
-//go:embed config.example.yaml
-var configTemplate []byte
 
 // optionalKeys are the settings a new config file leaves commented out while
 // they are empty.
@@ -64,6 +57,7 @@ func (s *tuiSession) Load() tui.SettingsFile {
 		out.Problem = err.Error()
 	default:
 		out.Config, out.Text = f.Config, f.Text
+		out.Problems = config.PathProblems(f.Config)
 	}
 	return out
 }
@@ -102,13 +96,16 @@ func (s *tuiSession) Check(c config.Config, read tui.SettingsFile) tui.SettingsC
 	values := c.Values()
 	for _, key := range pathKeys {
 		// A path that is not whole would mean another folder wherever
-		// tagshelf is started from.
-		if path := values[key].(string); path != "" && !filepath.IsAbs(path) && check.Problems[key] == "" {
-			check.Problems[key] = `must be a whole path, such as D:\Music`
+		// tagshelf is started from. One from ~ is whole.
+		path := values[key].(string)
+		if path != "" && !config.StartsAtHome(path) && !filepath.IsAbs(path) && check.Problems[key] == "" {
+			check.Problems[key] = here(`must be a whole path, such as D:\Music`)
 		}
 	}
+	// The folders as a run would use them: ~ in full, and through a link.
+	source, dest := usablePath(c.Source), usablePath(c.Destination)
 	if c.Source != "" && check.Problems["source"] == "" {
-		switch info, err := os.Stat(c.Source); {
+		switch info, err := os.Stat(source); {
 		case errors.Is(err, fs.ErrNotExist):
 			check.Problems["source"] = "does not exist"
 		case err != nil:
@@ -118,9 +115,9 @@ func (s *tuiSession) Check(c config.Config, read tui.SettingsFile) tui.SettingsC
 		}
 	}
 	if c.Destination != "" && check.Problems["destination"] == "" {
-		switch info, err := os.Stat(c.Destination); {
+		switch info, err := os.Stat(dest); {
 		case errors.Is(err, fs.ErrNotExist):
-			check.Confirm = append(check.Confirm, "Make the library folder "+c.Destination+"?")
+			check.Confirm = append(check.Confirm, "Make the library folder "+dest+"?")
 		case err != nil:
 			check.Problems["destination"] = "cannot be read: " + err.Error()
 		case !info.IsDir():
@@ -140,11 +137,11 @@ func (s *tuiSession) Check(c config.Config, read tui.SettingsFile) tui.SettingsC
 	_, destFlag := read.Session["destination"]
 	_, dbFlag := read.Session["database"]
 	switch {
-	case !destFlag && c.Destination != "" && rules.PathKey(c.Destination) != rules.PathKey(s.cfg.Destination):
+	case !destFlag && c.Destination != "" && rules.PathKey(dest) != rules.PathKey(s.cfg.Destination):
 		check.Confirm = append(check.Confirm, "This opens a different library. Your music in "+s.cfg.Destination+" is not moved.")
 	case !destFlag && c.Destination == "":
 		check.Confirm = append(check.Confirm, "This leaves tagshelf without a library folder. Your music in "+s.cfg.Destination+" is not touched.")
-	case !dbFlag && c.Database != read.Config.Database:
+	case !dbFlag && usablePath(c.Database) != usablePath(read.Config.Database):
 		check.Confirm = append(check.Confirm, "This uses a different database for the library. Its run history stays in the old one.")
 	}
 	return check
@@ -186,7 +183,7 @@ func (s *tuiSession) Save(c config.Config, read tui.SettingsFile) (note string, 
 		return "", err
 	}
 	if c.Destination != "" {
-		if err := os.MkdirAll(c.Destination, 0o755); err != nil {
+		if err := os.MkdirAll(usablePath(c.Destination), 0o755); err != nil {
 			return "", fmt.Errorf("making the library folder: %w", err)
 		}
 	}

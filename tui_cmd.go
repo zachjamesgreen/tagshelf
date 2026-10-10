@@ -34,7 +34,11 @@ func runTUI(ctx context.Context, args []string) int {
 	// after stopping whatever run or action it had going.
 	defer s.close()
 	opts, err := s.open()
-	if err != nil {
+	var path *pathProblem
+	switch {
+	case errors.As(err, &path):
+		return path.refusal().print()
+	case err != nil:
 		return libraryProblem(err, opts.Destination)
 	}
 	if s.file.Skipped != "" {
@@ -95,7 +99,8 @@ func (s *tuiSession) closeStore() {
 // settings reads the config file and the flags again. With defaults filled
 // in and paths made absolute they are the configuration the TUI's runs go
 // by. When there is no library folder to go by, none says why, and cfg is
-// not to be used.
+// not to be used. A folder typed as a flag that this system cannot use is an
+// error, a *pathProblem: the Settings tab changes the file, not the flags.
 func (s *tuiSession) settings() (cfg config.Config, none *tui.NoLibrary, err error) {
 	f, err := config.Read(*s.flags.config)
 	s.file = f
@@ -110,11 +115,19 @@ func (s *tuiSession) settings() (cfg config.Config, none *tui.NoLibrary, err err
 	if cfg.Destination == "" {
 		return cfg, &tui.NoLibrary{What: "no library folder is set", Setting: "destination", Todo: []string{
 			"Press 6 to set it in Settings, which keeps it in " + s.configFileToEdit() + ".",
-			`Or start again with one, as in: tagshelf tui -dest "D:\Music"`,
+			here(`Or start again with one, as in: tagshelf tui -dest "D:\Music"`),
 		}}, nil
 	}
-	cfg, err = absolutePaths(cfg.WithDefaults())
-	return cfg, nil, err
+	cfg, _, problem := usablePaths(cfg, pathOrigin{flags: s.flags.typedPaths(), file: f.Path})
+	switch {
+	case problem != nil && problem.flag != "":
+		return cfg, nil, problem
+	case problem != nil:
+		return cfg, &tui.NoLibrary{What: problem.what(), Setting: problem.key, Todo: []string{
+			"Press 6 to change it in Settings. " + problem.todo,
+		}}, nil
+	}
+	return cfg, nil, nil
 }
 
 // configFileToEdit names the config file a setting would be put in: the one
@@ -196,7 +209,7 @@ func (r tuiRunner) Run(ctx context.Context, kind tui.RunKind, dryRun bool, sink 
 	case tui.RunOrganize:
 		if cfg.Source == "" {
 			return engine.RunFinished{}, &tui.StartError{What: "no source folder is set", Setting: "source",
-				Todo: `Or start tagshelf tui with one, as in -source "D:\Incoming".`}
+				Todo: here(`Or start tagshelf tui with one, as in -source "D:\Incoming".`)}
 		}
 		if p := sourceProblem(cfg.Source); p != nil {
 			return engine.RunFinished{}, &tui.StartError{What: p.what, Todo: p.todo, Setting: "source"}

@@ -1042,26 +1042,49 @@ func containsPath(paths []string, path string) bool {
 	return false
 }
 
-// atVolumeRoot reports whether dir is the top of a volume, such as M:\ or a
-// share. Tests replace it.
-var atVolumeRoot = func(dir string) bool { return filepath.Dir(dir) == dir }
+// atVolumeRoot reports whether dir is the top of a volume: M:\ or a share on
+// Windows, and elsewhere the folder a file system is mounted at. Tests
+// replace it.
+var atVolumeRoot = volumeRoot
 
-// isSystemFolder reports whether the folder at path is one Windows keeps at
-// the top of every volume: System Volume Information, which cannot be read,
-// and the recycle bin, whose deleted songs are whole files with their tags.
+// isSystemFolder reports whether the folder at path is one the system keeps
+// at the top of a volume, and no part of anybody's music. On Windows those
+// are System Volume Information, which cannot be read, and the recycle bin,
+// whose deleted songs are whole files with their tags. A disk Windows has
+// used holds them wherever it is mounted, so they are known everywhere.
+// Elsewhere there are also lost+found, which only root can read, and the
+// trash folders .Trash and .Trash-<user ID>.
 func isSystemFolder(path string) bool {
 	name := filepath.Base(path)
-	if !strings.EqualFold(name, "System Volume Information") && !strings.EqualFold(name, "$RECYCLE.BIN") {
+	switch {
+	case strings.EqualFold(name, "System Volume Information"), strings.EqualFold(name, "$RECYCLE.BIN"):
+	case runtime.GOOS != "windows" && (name == "lost+found" || name == ".Trash" || isUserTrash(name)):
+	default:
 		return false
 	}
 	return atVolumeRoot(filepath.Dir(path))
 }
 
+// isUserTrash reports whether name is that of the trash folder a desktop
+// keeps for one user at the top of a volume: .Trash- and the user's number.
+func isUserTrash(name string) bool {
+	id, ok := strings.CutPrefix(name, ".Trash-")
+	if !ok || id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // walk lists the files under root, calling fn for each, and reports whether
 // it listed all of them. Folders in skip below root are left out: the output
 // folders and the other walked folders, which are walked on their own. So
-// are the system folders at the top of a volume, and links and junctions to
-// folders, which are neither followed nor moved.
+// are the system folders at the top of a volume. Links and junctions are
+// neither followed nor moved, and neither is anything that is not a file.
 func (o *organizer) walk(ctx context.Context, root string, skip []string, fn func(f walkedFile)) bool {
 	complete := true
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -1097,15 +1120,28 @@ func (o *organizer) walk(ctx context.Context, root string, skip []string, fn fun
 			}
 			return nil
 		}
-		if d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
-			// A link or junction to a folder is not a folder to the walk.
-			// Moving it as a file would break a relative link, and walking
-			// through it would organize files that live somewhere else. One
-			// whose target cannot be told is left alone as well.
+		switch t := d.Type(); {
+		case t&fs.ModeSymlink != 0:
+			// A link is left where it is, whatever it leads to. Walking
+			// through one to a folder would organize files that live
+			// somewhere else. Moving one to a file would move the link and
+			// not the music, and break a relative link.
+			o.emit(Warning{Kind: WarnLinkSkipped, Path: path})
+			return nil
+		case t&fs.ModeIrregular != 0:
+			// On Windows a junction, or a file of some other special kind:
+			// one kept in the cloud is such a file, and is music like any
+			// other. A junction to a folder is left alone as a link is, and
+			// so is whatever cannot be told apart.
 			if info, err := os.Stat(path); err != nil || info.IsDir() {
 				o.emit(Warning{Kind: WarnLinkSkipped, Path: path})
 				return nil
 			}
+		case t&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice) != 0:
+			// Not a file at all. Reading a named pipe would wait for ever
+			// on whoever writes to it.
+			o.emit(Warning{Kind: WarnSpecialSkipped, Path: path})
+			return nil
 		}
 		f := walkedFile{path: path}
 		if info, err := d.Info(); err == nil {

@@ -62,7 +62,7 @@ func TestTUIOpensWithoutALibrary(t *testing.T) {
 	}{
 		{"nothing set up at all", func(t *testing.T, tmp string) []string { return []string{"tui"} },
 			"no library folder is set",
-			[]string{`Press 6 to set it in Settings, which keeps it in the config file APPDATA\tagshelf\config.yaml, which does not exist yet.`, `tagshelf tui -dest "D:\Music"`}, false},
+			[]string{`Press 6 to set it in Settings, which keeps it in the config file APPDATA\tagshelf\config.yaml, which does not exist yet.`, here(`tagshelf tui -dest "D:\Music"`)}, false},
 		{"a config file that is named and not there yet", func(t *testing.T, tmp string) []string {
 			return []string{"tui", "-config", filepath.Join(tmp, "new.yaml")}
 		}, "no library folder is set", []string{`Press 6 to set it in Settings, which keeps it in the config file TMP\new.yaml, which does not exist yet.`, "tagshelf tui -dest"}, false},

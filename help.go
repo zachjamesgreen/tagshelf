@@ -121,7 +121,7 @@ func (h helpScreen) write(w io.Writer, set *flag.FlagSet, configPath string) {
 		add(lines)
 	}
 
-	fmt.Fprint(w, h.intro)
+	fmt.Fprint(w, here(h.intro))
 	for i, lines := range groups {
 		if i == len(groups)-1 {
 			for _, e := range h.extra {

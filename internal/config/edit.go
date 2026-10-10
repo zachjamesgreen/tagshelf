@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -269,9 +270,21 @@ func commentedLine(lines []string, key string) int {
 // WriteFile puts data in the config file at path, making its folder if need
 // be. The file is written beside itself and moved into place, so that a
 // crash leaves the old file or the new one, never half of either.
+//
+// A file that is there keeps its permissions. One that is a symbolic link,
+// as a config file kept in a repository of dotfiles is, stays a link: the
+// file it points to is the one written. A folder made for the file is the
+// user's alone, as the XDG specification asks of a settings folder.
 func WriteFile(path string, data []byte) error {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("the config file %s is a link that leads nowhere: %w", path, err)
+		}
+		path = target
+	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
@@ -282,6 +295,11 @@ func WriteFile(path string, data []byte) error {
 	_, err = tmp.Write(data)
 	if err == nil {
 		err = tmp.Sync()
+	}
+	if info, serr := os.Stat(path); err == nil && serr == nil {
+		// The temporary file is the user's alone; the file it replaces may
+		// have been readable by others on purpose.
+		err = tmp.Chmod(info.Mode().Perm())
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
@@ -310,6 +328,23 @@ func Check(c Config) map[string]string {
 		problems["compilations"] = msg
 	}
 
+	// A path this system cannot read as it is written, and the folders with
+	// ~ put in full, as a run would use them.
+	for key, problem := range PathProblems(c) {
+		problems[key] = problem
+	}
+	values := c.Values()
+	for _, key := range PathKeys() {
+		if path, _ := values[key].(string); problems[key] == "" {
+			expanded, _ := ExpandHome(path)
+			c, _ = c.Set(key, expanded)
+		}
+	}
+	if problems["source"] != "" || problems["destination"] != "" {
+		// Where the other folders are cannot be told without these two.
+		return problems
+	}
+
 	// The folders as a run would use them, defaults filled in.
 	if c.Destination == "" {
 		return problems
@@ -325,6 +360,9 @@ func Check(c Config) map[string]string {
 	}
 	sides := []struct{ key, path string }{{"untagged", d.Untagged}, {"other", d.Other}, {"duplicates", d.Duplicates}}
 	for i, s := range sides {
+		if problems[s.key] != "" {
+			continue
+		}
 		switch {
 		case same(s.path, c.Destination):
 			problems[s.key] = "is the library folder itself; its files would be taken for the library's"
@@ -332,9 +370,37 @@ func Check(c Config) map[string]string {
 			problems[s.key] = "is the source folder itself"
 		}
 		for _, t := range sides[:i] {
-			if same(s.path, t.path) {
+			if problems[t.key] == "" && same(s.path, t.path) {
 				problems[s.key] = "is the same folder as " + t.key
 			}
+		}
+	}
+	return problems
+}
+
+// PathProblems finds the folders and files of c that this system cannot
+// read as they are written, and returns the reason by key: a Windows path
+// anywhere but on Windows, and one that starts at another user's home. It is
+// nil when there is none.
+func PathProblems(c Config) map[string]string {
+	var problems map[string]string
+	values := c.Values()
+	for _, key := range PathKeys() {
+		path, _ := values[key].(string)
+		problem := ""
+		switch _, err := ExpandHome(path); {
+		case ForeignPath(path):
+			problem = "is a Windows path, which this system cannot use"
+		case errors.Is(err, ErrOtherHome):
+			problem = "starts with another user's home folder; only ~ alone, your own, is known"
+		case err != nil:
+			problem = err.Error()
+		}
+		if problem != "" {
+			if problems == nil {
+				problems = map[string]string{}
+			}
+			problems[key] = problem
 		}
 	}
 	return problems

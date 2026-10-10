@@ -1,7 +1,7 @@
 # tagshelf configuration
 # Copy to config.yaml in the folder you start tagshelf from, or to
 # %APPDATA%\tagshelf\config.yaml to use it from any folder, and adjust.
-# Command-line flags override these values.
+# Command-line flags override these values. A path may start with ~, your home folder.
 # Set source and destination to the same path to reorganize an existing library.
 # A key tagshelf does not know stops the run, so a misspelt dry_run is never ignored.
 source: "D:\\Incoming"                 # folder to organize

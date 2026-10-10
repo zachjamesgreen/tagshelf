@@ -478,7 +478,7 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 	got := screen(m)
 	for _, want := range []string{
 		p("removed    A\\.song.mp3.tagshelf-1.tmp: a temporary copy a crash left"),
-		p(`warning    E:\Incoming\Linked: left where it is: a link or junction to a folder`),
+		p(`warning    E:\Incoming\Linked: left where it is: a link or junction`),
 		p("warning    A\\.other.mp3.tagshelf-2.tmp: the temporary copy a crash left could not be removed: access denied"),
 		p(`error      E:\Incoming: the folder cannot be read`),
 		"Errors 1  Warnings 2",
@@ -562,16 +562,21 @@ func TestActionToastsTellOfWarnings(t *testing.T) {
 // The texts of the warnings a run can give.
 func TestWarningTexts(t *testing.T) {
 	err := errors.New("denied")
-	for kind, want := range map[engine.WarningKind]string{
-		engine.WarnPermissions:  "its permissions could not be kept: denied",
-		engine.WarnModTime:      "its modification time could not be kept: denied",
-		engine.WarnCueNotBeside: `cue sheet not rewritten: "a.flac" is not next to it after the move`,
-		engine.WarnCueEncoding:  `cue sheet not rewritten: it is not UTF-8 and "a.flac" is not plain ASCII`,
-		engine.WarnLinkSkipped:  "left where it is: a link or junction to a folder, or to something that cannot be read",
-		engine.WarnStaleCopy:    "the temporary copy a crash left could not be removed: denied",
+	for _, tt := range []struct {
+		kind engine.WarningKind
+		want string
+	}{
+		{engine.WarnPermissions, "its permissions could not be kept: denied"},
+		{engine.WarnModTime, "its modification time could not be kept: denied"},
+		{engine.WarnCueNotBeside, `cue sheet not rewritten: "a.flac" is not next to it after the move`},
+		{engine.WarnCueEncoding, `cue sheet not rewritten: it is not UTF-8 and "a.flac" is not plain ASCII`},
+		{engine.WarnLinkSkipped, "left where it is: a link or junction, which is neither followed nor moved"},
+		{engine.WarnStaleCopy, "the temporary copy a crash left could not be removed: denied"},
+		{engine.WarnSpecialSkipped, "left where it is: not a file but a pipe, socket or device"},
+		{engine.WarnDetailsUnread, "its audio details could not be read: denied"},
 	} {
-		if got := warningText(engine.Warning{Kind: kind, Name: "a.flac", Err: err}); got != want {
-			t.Errorf("warningText(%d) = %q, want %q", kind, got, want)
+		if got := warningText(engine.Warning{Kind: tt.kind, Name: "a.flac", Err: err}); got != tt.want {
+			t.Errorf("warningText(%d) = %q, want %q", tt.kind, got, tt.want)
 		}
 	}
 }

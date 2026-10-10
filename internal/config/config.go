@@ -188,8 +188,9 @@ func Parse(data []byte) (Config, error) {
 // folder in its place.
 var userDir = os.UserConfigDir
 
-// UserPath is the user's own config file: %APPDATA%\tagshelf\config.yaml. It
-// is read when no file is named and the working directory has none, so that
+// UserPath is the user's own config file: %APPDATA%\tagshelf\config.yaml on
+// Windows, and elsewhere tagshelf/config.yaml under $XDG_CONFIG_HOME or
+// ~/.config. It is read when no file is named and the working directory has none, so that
 // tagshelf can be started from any folder, and it is the file the terminal UI
 // writes when there is no other.
 func UserPath() (string, error) {
@@ -275,12 +276,19 @@ func (f *File) read() error {
 // the CLI overrides. It logs which file it used when the user did not name
 // one, and why it passed over a config.yaml in the working directory.
 func Load(configPath string, ov Overrides) (Config, error) {
+	cfg, _, err := LoadFile(configPath, ov)
+	return cfg, err
+}
+
+// LoadFile is Load that also returns the file it read, for a message that
+// has to name it.
+func LoadFile(configPath string, ov Overrides) (Config, File, error) {
 	f, err := Read(configPath)
 	if f.Skipped != "" {
 		log.Printf("Warning: ignoring the %s in the working directory: %s\n", DefaultConfigName, f.Skipped)
 	}
 	if err != nil {
-		return Config{}, err
+		return Config{}, f, err
 	}
 	switch f.From {
 	case FromWorkingDir:
@@ -288,7 +296,7 @@ func Load(configPath string, ov Overrides) (Config, error) {
 	case FromUser:
 		log.Printf("Using your config file: %s\n", f.Path)
 	}
-	return f.Config.With(ov), nil
+	return f.Config.With(ov), f, nil
 }
 
 // With is the config with the settings typed on the command line in place of

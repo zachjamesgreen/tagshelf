@@ -21,15 +21,17 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags)
+	ownTempFolder()
 	os.Exit(run(interruptContext(), os.Args[1:]))
 }
 
 // interruptContext returns a context cancelled by the first Ctrl-C, so the run
-// can stop gracefully. A second Ctrl-C exits at once.
+// can stop gracefully. A second Ctrl-C exits at once. Off Windows, being told
+// to end and losing the terminal stop a run the same way (see stopSignals).
 func interruptContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt)
+	signal.Notify(sigs, stopSignals...)
 	go func() {
 		<-sigs
 		log.Println("Interrupted: finishing the files already moving. Press Ctrl-C again to exit at once.")
@@ -73,14 +75,14 @@ func addLibraryFlags(set *flag.FlagSet, help helpScreen, sourceUsage, destUsage,
 		config:       set.String("config", "", "Take the settings from this config `file`. Flags override what it says."),
 		source:       set.String("source", "", sourceUsage),
 		dest:         set.String("dest", "", destUsage),
-		untagged:     set.String("untagged", "", "The `folder` for audio files without usable tags (default: <dest>\\_Untagged)."),
-		other:        set.String("other", "", "The `folder` for files that are not audio and do not belong to a tagged album (default: <dest>\\_Other)."),
-		duplicates:   set.String("duplicates", "", "The `folder` for the copies set aside as duplicates (default: <dest>\\_Duplicates)."),
+		untagged:     set.String("untagged", "", here("The `folder` for audio files without usable tags (default: <dest>\\_Untagged).")),
+		other:        set.String("other", "", here("The `folder` for files that are not audio and do not belong to a tagged album (default: <dest>\\_Other).")),
+		duplicates:   set.String("duplicates", "", here("The `folder` for the copies set aside as duplicates (default: <dest>\\_Duplicates).")),
 		compilations: set.String("compilations", "", "The artist folder `name` for Various Artists albums (default: \""+rules.DefaultCompilations+"\")."),
 		workers:      set.Int("workers", 0, "Work on `n` files at once (default: the number of CPUs)."),
 		dryRun:       set.Bool("dry-run", false, dryRunUsage),
 		noCueRewrite: set.Bool("no-cue-rewrite", false, "Do not fix the FILE lines of the cue sheets that move."),
-		db:           set.String("db", "", "The library's database `file` (default: %LOCALAPPDATA%\\tagshelf\\libraries\\<library-id>\\tagshelf.db)."),
+		db:           set.String("db", "", "The library's database `file` (default: "+filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db")+")."),
 	}
 }
 
@@ -188,7 +190,7 @@ func run(ctx context.Context, args []string) int {
 		}
 	})
 
-	cfg, err := config.Load(*flags.config, ov)
+	cfg, file, err := config.LoadFile(*flags.config, ov)
 	if err != nil {
 		return configProblem(err)
 	}
@@ -198,14 +200,18 @@ func run(ctx context.Context, args []string) int {
 		// source to organize; it keeps what it reads.
 		cfg.DryRun = false
 	} else if cfg.Source == "" {
-		return flags.misuse("no source folder is set", noSourceTodo)
+		return flags.misuse("no source folder is set", here(noSourceTodo))
 	}
 	if cfg.Destination == "" {
-		return flags.misuse("no library folder is set", noDestinationTodo)
+		return flags.misuse("no library folder is set", here(noDestinationTodo))
 	}
 
-	if cfg, err = absolutePaths(cfg.WithDefaults()); err != nil {
-		return cannotStart(err.Error(), "Check the path.")
+	cfg, links, problem := usablePaths(cfg, pathOrigin{flags: flags.typedPaths(), file: file.Path})
+	if problem != nil {
+		return problem.refusal().print()
+	}
+	for _, link := range links {
+		log.Println(link)
 	}
 	if !*indexFlag {
 		if p := sourceProblem(cfg.Source); p != nil {
@@ -259,7 +265,8 @@ func run(ctx context.Context, args []string) int {
 	return exitCode(finish.State)
 }
 
-// What to do about a source or a library folder that is not set.
+// What to do about a source or a library folder that is not set, written
+// with the example folders of Windows (see here).
 const (
 	noSourceTodo      = `Pass one, as in -source "D:\Incoming", or set source in the config file.`
 	noDestinationTodo = `Pass one, as in -dest "D:\Music", or set destination in the config file.`
@@ -276,28 +283,6 @@ func organizeFlags(set *flag.FlagSet) *libraryFlags {
 	flags.index = set.Bool("index", false, "Only bring the library's index up to date, and move nothing. Needs only -dest.")
 	flags.rescan = set.Bool("rescan", false, "Read every file into the index again, even one whose size and date have not changed.")
 	return flags
-}
-
-// absolutePaths makes the folders and database a run uses absolute, so that
-// they mean the same wherever the run is started from.
-func absolutePaths(cfg config.Config) (config.Config, error) {
-	for _, p := range []struct {
-		name string
-		path *string
-	}{
-		{"source", &cfg.Source}, {"destination", &cfg.Destination}, {"untagged", &cfg.Untagged},
-		{"other", &cfg.Other}, {"duplicates", &cfg.Duplicates}, {"database", &cfg.Database},
-	} {
-		if *p.path == "" {
-			continue
-		}
-		abs, err := filepath.Abs(*p.path)
-		if err != nil {
-			return cfg, fmt.Errorf("invalid %s path: %w", p.name, err)
-		}
-		*p.path = abs
-	}
-	return cfg, nil
 }
 
 // engineOptions are the engine's options for a run with cfg, without its
