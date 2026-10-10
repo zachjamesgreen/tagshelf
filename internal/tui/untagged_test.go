@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,16 +233,19 @@ func TestUntaggedFollowsReloads(t *testing.T) {
 	src := untaggedSource()
 	m, _ := newUntaggedModel(t, src)
 	cursorTo(t, m, 101)
-	press(t, m, "g")
-	press(t, m, "up") // back on to 01 track.flac
+	press(t, m, "g") // the cursor stays on 01 track.flac, the fourth file shown
 	src.snap.Untagged = filesAfter(src.snap.Untagged, 102)
 	src.version++
 	tickNow(t, m)
 	if len(m.untagged.selected) != 0 {
 		t.Errorf("selection after the reload = %v, want it empty", m.untagged.selected)
 	}
-	if f, ok := m.untagged.current(); !ok || f.ID == 101 || f.ID == 102 {
-		t.Errorf("cursor after the reload on %+v", f)
+	// Its file gone, the cursor is on the last of those left.
+	if f, ok := m.untagged.current(); !ok || f.ID != 104 || m.untagged.cursor != 2 {
+		t.Errorf("cursor after the reload at %d on %+v, want it on live.mp3 (104), the last file", m.untagged.cursor, f)
+	}
+	if line := cursorLine(screen(m)); !strings.Contains(line, "live.mp3") {
+		t.Errorf("the line under the cursor is %q, want live.mp3:\n%s", line, screen(m))
 	}
 	if got := screen(m); strings.Contains(got, "track.flac") || !strings.Contains(got, "Untagged (3 files)") {
 		t.Errorf("screen after the reload:\n%s", got)
@@ -301,23 +305,8 @@ func TestGoldenUntagged(t *testing.T) {
 // save under its run.
 func TestAcceptSaveWritesOnlyTheMarker(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ripped.flac")
-	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(filepath.Join(dir, "tagshelf.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	run, err := st.StartRun(store.KindTUIAction, false, "", dir, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := copyFixture(t, dir, fixtures.RipperFLAC, "ripped.flac")
+	st, run := realRun(t, dir)
 
 	day := time.Date(2026, 10, 8, 15, 0, 0, 0, time.UTC)
 	if err := acceptSave(day)(st, run, store.File{Path: path}); err != nil {
@@ -369,16 +358,32 @@ func TestUntaggedKeepsWhatStayedSelectedAndColumnsAligned(t *testing.T) {
 	}
 }
 
-// Closing the TUI stops an action at the file it is on.
-func TestStopActionCancelsTheAction(t *testing.T) {
+// Closing the TUI stops an action at the file it is on, and waits for it to
+// get there: the library's database closes next.
+func TestStopActionCancelsTheActionAndWaits(t *testing.T) {
 	m, _ := newUntaggedModel(t, untaggedSource())
 	ctx, done := m.begin()
+	var ended atomic.Bool
 	go func() {
 		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond) // the file it is on
+		ended.Store(true)
 		close(done)
 	}()
-	m.stopAction()
+	stopped := make(chan struct{})
+	go func() {
+		m.stopAction()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopAction is still waiting: it did not cancel the action")
+	}
 	if ctx.Err() == nil {
 		t.Error("the action's context was not cancelled")
+	}
+	if !ended.Load() {
+		t.Error("stopAction returned before the action had ended")
 	}
 }

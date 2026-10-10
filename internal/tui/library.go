@@ -165,16 +165,11 @@ func (m *Model) libraryKey(k string) (tea.Cmd, bool) {
 			}
 		case "ctrl+u":
 			lib.query = ""
-		case "space":
-			lib.query += " "
 		case "ctrl+c":
 			return nil, false
-		default:
-			// A key that types a character; the rest mean nothing here.
-			if len([]rune(k)) == 1 {
-				lib.query += k
-			}
 		}
+		// What a key types has gone into the query already; the other keys
+		// mean nothing here.
 		return nil, true
 	}
 
@@ -252,15 +247,15 @@ func (m *Model) libraryBody(h int) string {
 	prompt := "  Search: "
 	switch {
 	case lib.typing:
-		b.WriteString(accentStyle.Render(prompt) + lib.query + "█" + "\n")
+		b.WriteString(accentStyle.Render(prompt) + clean(lib.query) + "█" + "\n")
 	case lib.query == "":
 		b.WriteString(dimStyle.Render(prompt+"press / and type an artist, album or title") + "\n")
 	default:
-		b.WriteString(dimStyle.Render(prompt) + lib.query + "\n")
+		b.WriteString(dimStyle.Render(prompt) + clean(lib.query) + "\n")
 	}
 	switch {
 	case lib.problem != "":
-		b.WriteString("\n  " + badStyle.Render("Cannot search the library: "+lib.problem) + "\n")
+		b.WriteString("\n  " + badStyle.Render("Cannot search the library: "+clean(lib.problem)) + "\n")
 		return b.String()
 	case lib.searched == "":
 		if lib.waiting {
@@ -303,7 +298,7 @@ func (m *Model) libraryBody(h int) string {
 				track = fmt.Sprintf("%d-%02d", f.Disc, f.Track)
 			}
 		}
-		line := row(artist, f.Album, year, track, f.Title, length(f.Length), f.Format)
+		line := row(artist, f.Album, year, track, f.Title, length(f.Length), clean(f.Format))
 		if i == lib.cursor && !lib.typing {
 			b.WriteString("› " + activeTab.Render(line) + "\n")
 		} else {

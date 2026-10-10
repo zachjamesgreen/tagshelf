@@ -58,30 +58,41 @@ type untaggedDoneMsg struct {
 	files  int
 	moved  []string // where the files that qualified went
 	finish engine.RunFinished
-	err    error
+	// warnings is what the run warned of, "" when nothing.
+	warnings string
+	err      error
 }
 
 // reload takes the snapshot's files, keeping the cursor on its file and the
 // selection to files still there.
 func (u *untaggedTab) reload(files []store.UntaggedFile) {
-	u.files = slices.Clone(files)
-	name := u.groupName
-	slices.SortStableFunc(u.files, func(a, b store.UntaggedFile) int {
-		return cmp.Or(
-			cmp.Compare(strings.ToLower(name(a)), strings.ToLower(name(b))),
-			cmp.Compare(name(a), name(b)),
-			cmp.Compare(store.PathKey(a.Path), store.PathKey(b.Path)))
+	// What each file is sorted by is worked out once, not at every
+	// comparison: the folder may hold a whole collection.
+	type sorted struct {
+		file              store.UntaggedFile
+		name, lower, path string
+	}
+	order := make([]sorted, len(files))
+	for i, f := range files {
+		name := u.groupName(f)
+		order[i] = sorted{f, name, strings.ToLower(name), store.PathKey(f.Path)}
+	}
+	slices.SortStableFunc(order, func(a, b sorted) int {
+		return cmp.Or(cmp.Compare(a.lower, b.lower), cmp.Compare(a.name, b.name), cmp.Compare(a.path, b.path))
 	})
+	u.files = make([]store.UntaggedFile, len(order))
 	u.groups = u.groups[:0]
 	here := make(map[int64]bool, len(u.files))
 	cursor := -1
-	for i, f := range u.files {
+	for i, o := range order {
+		f := o.file
+		u.files[i] = f
 		here[f.ID] = true
 		if f.ID == u.curID {
 			cursor = i
 		}
-		if n := len(u.groups); n == 0 || u.groups[n-1].name != name(f) {
-			u.groups = append(u.groups, untaggedGroup{name: name(f), first: i})
+		if n := len(u.groups); n == 0 || u.groups[n-1].name != o.name {
+			u.groups = append(u.groups, untaggedGroup{name: o.name, first: i})
 		}
 		u.groups[len(u.groups)-1].n++
 	}
@@ -258,22 +269,24 @@ func acceptSave(now time.Time) engine.TagSave {
 // acceptTags accepts the tags of the files with the given IDs off the UI
 // goroutine.
 func (m *Model) acceptTags(ids []int64) tea.Cmd {
-	return m.saveMany(ids, acceptSave(time.Now()), func(moved []string, finish engine.RunFinished, err error) tea.Msg {
-		return untaggedDoneMsg{files: len(ids), moved: moved, finish: finish, err: err}
+	return m.saveMany(ids, acceptSave(time.Now()), func(moved []string, warnings string, finish engine.RunFinished, err error) tea.Msg {
+		return untaggedDoneMsg{files: len(ids), moved: moved, finish: finish, warnings: warnings, err: err}
 	})
 }
 
 // saveMany saves tags to the indexed files with the given IDs as one run,
-// off the UI goroutine; done turns where the files that qualified went and
-// how the run ended into the message to send.
-func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []string, finish engine.RunFinished, err error) tea.Msg) tea.Cmd {
+// off the UI goroutine; done turns where the files that qualified went, what
+// the run warned of and how it ended into the message to send.
+func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []string, warnings string, finish engine.RunFinished, err error) tea.Msg) tea.Cmd {
 	runner := m.runner
 	ctx, ended := m.begin()
 	return func() tea.Msg {
 		defer close(ended)
 		var mu sync.Mutex
 		var moved []string
+		var warned warnings
 		sink := func(e engine.Event) {
+			warned.sink(e)
 			if p, ok := e.(engine.FilePlaced); ok && p.Outcome == engine.Organized {
 				mu.Lock()
 				moved = append(moved, p.Destination)
@@ -281,7 +294,7 @@ func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []str
 			}
 		}
 		finish, err := runner.SaveTags(ctx, ids, save, sink)
-		return done(moved, finish, err)
+		return done(moved, warned.text(), finish, err)
 	}
 }
 
@@ -295,13 +308,13 @@ func (m *Model) untaggedDone(msg untaggedDoneMsg) tea.Cmd {
 	}
 	// The files that moved leave the selection with the reload; those that
 	// stayed or failed are still there to see and act on.
-	m.movedToast(msg.moved, msg.finish)
+	m.movedToast(msg.moved, msg.warnings, msg.finish)
 	return m.poll(true, false)
 }
 
 // movedToast says how a run that saved tags to files went: where those that
-// moved went, how many stayed, and how many failed.
-func (m *Model) movedToast(moved []string, finish engine.RunFinished) {
+// moved went, how many stayed, how many failed, and what it warned of.
+func (m *Model) movedToast(moved []string, warnings string, finish engine.RunFinished) {
 	var parts []string
 	switch n := len(moved); {
 	case n == 1:
@@ -337,6 +350,9 @@ func (m *Model) movedToast(moved []string, finish engine.RunFinished) {
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "Nothing changed")
+	}
+	if warnings != "" {
+		parts = append(parts, warnings)
 	}
 	m.setToast(errs == 0 && finish.State == engine.StateOK, "%s", strings.Join(parts, "; "))
 	if len(moved) > 0 || finish.Counters.InPlace > 0 || finish.Counters.LeftInPlace > 0 {
@@ -389,10 +405,10 @@ func tailPath(path string, w int) string {
 	return "…" + ansi.TruncateLeft(path, ansi.StringWidth(path)-w+1, "")
 }
 
-// cell fits s to exactly w terminal cells, which wide characters fill two at
-// a time.
+// cell fits s, shown clean, to exactly w terminal cells, which wide
+// characters fill two at a time.
 func cell(s string, w int) string {
-	s = ansi.Truncate(s, w, "…")
+	s = ansi.Truncate(clean(s), w, "…")
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
@@ -424,15 +440,40 @@ func (m *Model) untaggedBody(h int) string {
 	}
 	b.WriteString(dimStyle.Render("    "+row("File", "Artist", "Album", "Title", "Len", "State")) + "\n")
 
-	// Every line there is to show, and the one the cursor is on.
-	var lines []string
-	cursorLine := 0
+	// Only the lines in view are made: the folder may hold a whole
+	// collection. Each group is a heading, when the list is grouped, and a
+	// line for each of its files.
+	heading := 0
+	if u.by != ungrouped {
+		heading = 1
+	}
+	cursorLine, at := 0, 0
 	for _, g := range u.groups {
-		if u.by != ungrouped {
-			count := "  " + plural(int64(g.n), "file", "files")
-			lines = append(lines, boldStyle.Render(tailPath(m.shortPath(g.name), m.width-len(count)))+dimStyle.Render(count))
+		if u.cursor < g.first+g.n {
+			cursorLine = at + heading + u.cursor - g.first
+			break
 		}
-		for i := g.first; i < g.first+g.n; i++ {
+		at += heading + g.n
+	}
+	room := max(h-2, 1)
+	first := window(cursorLine, room)
+	at = 0
+	for _, g := range u.groups {
+		start := at
+		at += heading + g.n
+		if at <= first {
+			continue
+		}
+		if start >= first+room {
+			break
+		}
+		if heading == 1 && start >= first {
+			count := "  " + plural(int64(g.n), "file", "files")
+			b.WriteString(boldStyle.Render(tailPath(m.shortPath(g.name), m.width-len(count))) + dimStyle.Render(count) + "\n")
+		}
+		from := g.first + max(first-start-heading, 0)
+		to := min(g.first+g.n, g.first+first+room-start-heading)
+		for i := from; i < to; i++ {
 			f := u.files[i]
 			mark := "  "
 			if u.selected[f.ID] {
@@ -444,21 +485,12 @@ func (m *Model) untaggedBody(h int) string {
 			}
 			line := mark + row(filepath.Base(f.Path), artist, f.Album, f.Title, length(f.Length), untaggedState(f.File))
 			if i == u.cursor {
-				cursorLine = len(lines)
 				line = "› " + activeTab.Render(line)
 			} else {
 				line = "  " + line
 			}
-			lines = append(lines, line)
+			b.WriteString(line + "\n")
 		}
-	}
-	room := max(h-2, 1)
-	first := 0
-	if cursorLine >= room {
-		first = cursorLine - room + 1
-	}
-	for _, l := range lines[first:min(first+room, len(lines))] {
-		b.WriteString(l + "\n")
 	}
 	return b.String()
 }

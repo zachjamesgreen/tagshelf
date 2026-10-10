@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"tagshelf/internal/store"
 )
@@ -138,11 +137,11 @@ func (m *Model) runsKey(k string) (tea.Cmd, bool) {
 		case "g", "home":
 			d.offset = 0
 		case "G", "end":
-			d.offset = len(detailLines(m, d))
+			d.offset = m.detailCount(d)
 		default:
 			return nil, false
 		}
-		d.offset = max(min(d.offset, len(detailLines(m, d))-page), 0)
+		d.offset = max(min(d.offset, m.detailCount(d)-page), 0)
 		return nil, true
 	}
 
@@ -194,20 +193,18 @@ func (m *Model) runsBody(h int) string {
 		return b.String()
 	}
 	routeW := max(m.width-runsFixedWidth, 10)
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  %-16s  %-10s  %-3s  %-*s  %7s  %6s  %s", "Started", "Kind", "Dry", routeW, "Route", "Moved", "Errors", "State")) + "\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  %-16s  %-10s  %-3s  %-*s  %*s  %6s  %s", "Started", "Kind", "Dry", routeW, "Route", movedWidth, "Moved", "Errors", "State")) + "\n")
 	rows := max(h-2, 1)
-	first := 0
-	if m.runs.cursor >= rows {
-		first = m.runs.cursor - rows + 1
-	}
+	first := window(m.runs.cursor, rows)
 	for i := first; i < len(runs) && i < first+rows; i++ {
 		r := runs[i]
-		dry := ""
+		dry, count := "", formatCount(moved(r.Counters))
 		if r.DryRun {
-			dry = "dry"
+			// It moved nothing.
+			dry, count = "dry", "Would move "+count
 		}
-		line := fmt.Sprintf("%-16s  %-10s  %-3s  %-*s  %7s  %6s  ", m.formatTime(r.Started), r.Kind, dry,
-			routeW, ansi.Truncate(route(r), routeW, "…"), formatCount(moved(r.Counters)), formatCount(r.Counters.Errors))
+		line := fmt.Sprintf("%-16s  %-10s  %-3s  %s  %*s  %6s  ", m.formatTime(r.Started), r.Kind, dry,
+			cell(clean(route(r)), routeW), movedWidth, count, formatCount(r.Counters.Errors))
 		if i == m.runs.cursor {
 			b.WriteString("› " + activeTab.Render(line+string(r.State)) + "\n")
 			continue
@@ -218,8 +215,12 @@ func (m *Model) runsBody(h int) string {
 	return b.String()
 }
 
+// movedWidth is the width of the runs list's Moved column, which for a dry
+// run says the files would have moved.
+const movedWidth = 17
+
 // runsFixedWidth is the width of the runs list without its route column.
-const runsFixedWidth = 2 + 16 + 2 + 10 + 2 + 3 + 2 + 2 + 7 + 2 + 6 + 2 + 11
+const runsFixedWidth = 2 + 16 + 2 + 10 + 2 + 3 + 2 + 2 + movedWidth + 2 + 6 + 2 + 11
 
 // route is where a run moved files from and to.
 func route(r store.Run) string {
@@ -265,41 +266,92 @@ func (m *Model) runDetailBody(d *runDetailView, h int) string {
 		state += fmt.Sprintf(" by run %d", r.UndoneBy)
 	}
 	b.WriteString(boldStyle.Render(title) + "  " + when + "  " + stateStyle(r.State).Render(state) + "\n")
-	b.WriteString("  " + route(r) + "\n")
+	b.WriteString("  " + clean(route(r)) + "\n")
 	c := r.Counters
 	b.WriteString("  " + countersText(r.Kind == store.KindIndex, c.Organized, c.Untagged, c.OtherMoved, c.Duplicates, c.InPlace+c.LeftInPlace, c.Errors, c.Indexed) + "\n\n")
 	if !d.loaded {
 		b.WriteString(dimStyle.Render("Reading the run…"))
 		return b.String()
 	}
-	lines := detailLines(m, d)
+	n := m.detailCount(d)
 	rows := max(h-detailHead, 1)
-	offset := max(min(d.offset, len(lines)-rows), 0)
-	end := min(offset+rows, len(lines))
-	b.WriteString(strings.Join(lines[offset:end], "\n"))
+	offset := max(min(d.offset, n-rows), 0)
+	for i := offset; i < min(offset+rows, n); i++ {
+		if i > offset {
+			b.WriteString("\n")
+		}
+		b.WriteString(m.detailLine(d, i))
+	}
 	return b.String()
 }
 
-// detailLines are the lines of a run's detail that scroll: its errors, then
-// its moves.
-func detailLines(m *Model, d *runDetailView) []string {
+// detailWarnings are the warnings of the run open in detail, which only the
+// TUI that did the run has: the first of them, and how many there were.
+func (m *Model) detailWarnings(d *runDetailView) ([]string, int64) {
+	if l := m.last; l != nil && l.finish.RunID != 0 && l.finish.RunID == d.run.ID {
+		return l.warnings, l.warned
+	}
+	return nil, 0
+}
+
+// section is how many lines a list of a run's detail takes: its heading, and
+// its items or the line saying there are none.
+func section(items int) int {
+	return 1 + max(items, 1)
+}
+
+// detailCount is how many lines of a run's detail scroll: its errors, its
+// warnings if this TUI saw any, then its moves, with a line between.
+func (m *Model) detailCount(d *runDetailView) int {
 	if !d.loaded {
-		return nil
+		return 0
 	}
-	var lines []string
-	lines = append(lines, boldStyle.Render(fmt.Sprintf("Errors (%s)", formatCount(int64(len(d.detail.Errors))))))
-	if len(d.detail.Errors) == 0 {
-		lines = append(lines, "  "+dimStyle.Render("none"))
+	n := section(len(d.detail.Errors)) + 1 + section(len(d.detail.Moves))
+	if warnings, warned := m.detailWarnings(d); warned > 0 {
+		n += section(len(warnings)) + 1
 	}
-	for _, e := range d.detail.Errors {
-		lines = append(lines, badStyle.Render("  "+e.Path+": "+e.Message))
+	return n
+}
+
+// detailLine is line i of the lines of a run's detail that scroll. Only the
+// lines shown are made: a run may have moved a whole library.
+func (m *Model) detailLine(d *runDetailView, i int) string {
+	// list is line i of a section of n items, and whether i is in it.
+	list := func(title string, n int, item func(int) string) (string, bool) {
+		defer func() { i -= section(n) + 1 }()
+		switch {
+		case i == 0:
+			return boldStyle.Render(fmt.Sprintf("%s (%s)", title, formatCount(int64(n)))), true
+		case n == 0 && i == 1:
+			return "  " + dimStyle.Render("none"), true
+		case i <= n:
+			return item(i - 1), true
+		case i == section(n):
+			return "", true
+		}
+		return "", false
 	}
-	lines = append(lines, "", boldStyle.Render(fmt.Sprintf("Moves (%s)", formatCount(int64(len(d.detail.Moves))))))
-	if len(d.detail.Moves) == 0 {
-		lines = append(lines, "  "+dimStyle.Render("none"))
+	errs := d.detail.Errors
+	if line, ok := list("Errors", len(errs), func(j int) string {
+		return badStyle.Render("  " + clean(errs[j].Path+": "+errs[j].Message))
+	}); ok {
+		return line
 	}
-	for _, mv := range d.detail.Moves {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %-11s ", mv.Reason))+m.shortPath(mv.To)+dimStyle.Render("  from "+mv.From))
+	if warnings, warned := m.detailWarnings(d); warned > 0 {
+		title := "Warnings"
+		if int64(len(warnings)) < warned {
+			title = fmt.Sprintf("Warnings, the first of %s", formatCount(warned))
+		}
+		if line, ok := list(title, len(warnings), func(j int) string {
+			return accentStyle.Render("  " + clean(warnings[j]))
+		}); ok {
+			return line
+		}
 	}
-	return lines
+	moves := d.detail.Moves
+	line, _ := list("Moves", len(moves), func(j int) string {
+		mv := moves[j]
+		return dimStyle.Render(fmt.Sprintf("  %-11s ", clean(string(mv.Reason)))) + m.shortPath(mv.To) + dimStyle.Render("  from "+clean(mv.From))
+	})
+	return line
 }

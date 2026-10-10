@@ -10,9 +10,9 @@
 
   Left as they are (2):
     Singer\Album (2001)\01 - One.flac  it has changed since it was indexed
-    _Untagged\loose.mp3  something else is at its old path now (E:\Incoming\loose.mp3)
+  * _Untagged\loose.mp3  something else is at its old path now (E:\Incoming\loose.mp3)
 
-
+  What is marked * can be undone later, once what is in the way is gone; the run stays to be undone again.
 
 
 

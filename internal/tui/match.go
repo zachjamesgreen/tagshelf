@@ -81,9 +81,10 @@ type matchLoadedMsg struct {
 
 // matchDoneMsg says the save a release match confirmed has ended.
 type matchDoneMsg struct {
-	moved  []string // where the files that qualified went
-	finish engine.RunFinished
-	err    error
+	moved    []string // where the files that qualified went
+	warnings string   // what the run warned of, "" when nothing
+	finish   engine.RunFinished
+	err      error
 }
 
 // openMatch opens a release match on files.
@@ -327,8 +328,8 @@ func (m *Model) confirmMatch() tea.Cmd {
 		_, err := tagwrite.Writer{History: st, RunID: runID}.Save(f.Path, values[f.ID], mark)
 		return err
 	}
-	return m.saveMany(ids, save, func(moved []string, finish engine.RunFinished, err error) tea.Msg {
-		return matchDoneMsg{moved: moved, finish: finish, err: err}
+	return m.saveMany(ids, save, func(moved []string, warnings string, finish engine.RunFinished, err error) tea.Msg {
+		return matchDoneMsg{moved: moved, warnings: warnings, finish: finish, err: err}
 	})
 }
 
@@ -347,7 +348,7 @@ func (m *Model) matchDone(msg matchDoneMsg) tea.Cmd {
 	if x != nil {
 		m.closeMatch()
 	}
-	m.movedToast(msg.moved, msg.finish)
+	m.movedToast(msg.moved, msg.warnings, msg.finish)
 	return m.poll(true, false)
 }
 
@@ -524,17 +525,14 @@ func (m *Model) matchBody(h int) string {
 	var b strings.Builder
 	switch x.step {
 	case matchDisabled:
-		b.WriteString("\n  " + boldStyle.Render("MusicBrainz lookups are off") + "\n\n")
-		b.WriteString("  MusicBrainz asks every program that uses it to say who is asking.\n")
-		b.WriteString("  To turn lookups on, add your email address or a URL to the config file:\n\n")
-		b.WriteString("      " + accentStyle.Render("musicbrainz_contact: you@example.com") + "\n\n")
-		b.WriteString("  and start tagshelf tui again. Until then e edits a file's tags by hand.\n")
+		b.WriteString("\n")
+		lookupsOff(&b, "e edits a file's tags by hand")
 	case matchQuery, matchSearching:
 		b.WriteString("\n  " + boldStyle.Render("Search MusicBrainz for a release") +
 			dimStyle.Render(fmt.Sprintf("  to tag %s as", plural(int64(len(x.files)), "file", "files"))) + "\n\n")
 		b.WriteString(strings.TrimRight(x.form.View(), "\n") + "\n")
 		if x.problem != "" {
-			b.WriteString("\n  " + badStyle.Render(x.problem) + "\n")
+			b.WriteString("\n  " + badStyle.Render(clean(x.problem)) + "\n")
 		}
 		if x.step == matchSearching {
 			b.WriteString("\n  " + dimStyle.Render("Searching MusicBrainz…") + "\n")
@@ -568,10 +566,7 @@ func (m *Model) releasesBody(b *strings.Builder, h int) {
 	if x.problem != "" || x.step == matchLoading {
 		rows = max(rows-2, 1)
 	}
-	first := 0
-	if x.cursor >= rows {
-		first = x.cursor - rows + 1
-	}
+	first := window(x.cursor, rows)
 	for i := first; i < len(x.releases) && i < first+rows; i++ {
 		c := x.releases[i]
 		r := c.Release
@@ -595,7 +590,7 @@ func (m *Model) releasesBody(b *strings.Builder, h int) {
 		}
 	}
 	if x.problem != "" {
-		b.WriteString("\n  " + badStyle.Render(x.problem) + "\n")
+		b.WriteString("\n  " + badStyle.Render(clean(x.problem)) + "\n")
 	}
 	if x.step == matchLoading {
 		b.WriteString("\n  " + dimStyle.Render("Reading the release from MusicBrainz…") + "\n")
@@ -618,7 +613,7 @@ func (x *match) releaseLine() string {
 	if len(parts) > 0 {
 		s += " (" + strings.Join(parts, ", ") + ")"
 	}
-	return s
+	return clean(s)
 }
 
 // position names a track's place on its release, with the disc when the
@@ -733,9 +728,9 @@ func (m *Model) mapBody(b *strings.Builder, h int) {
 	}
 	switch {
 	case x.problem != "":
-		b.WriteString("\n  " + badStyle.Render(x.problem) + "\n")
+		b.WriteString("\n  " + badStyle.Render(clean(x.problem)) + "\n")
 	case x.grabbed >= 0:
-		b.WriteString("\n  " + accentStyle.Render("Moving "+filepath.Base(x.files[x.grabbed].Path)+": go to its track and press enter") + "\n")
+		b.WriteString("\n  " + accentStyle.Render("Moving "+clean(filepath.Base(x.files[x.grabbed].Path))+": go to its track and press enter") + "\n")
 	}
 }
 
@@ -782,17 +777,12 @@ func (m *Model) matchDiffBody(b *strings.Builder, h int) {
 	b.WriteString("\n")
 
 	valueW := max((m.width-6-13-4)/2, 12)
-	show := func(vs []string) string {
-		if len(vs) == 0 {
-			return "(none)"
-		}
-		return strings.Join(vs, ", ")
-	}
+	show := showValues
 	var lines []string
 	for _, a := range mp.Assignments {
 		f := x.files[a.File]
 		t := x.release.Track(a.Track)
-		head := boldStyle.Render(filepath.Base(f.Path)) + dimStyle.Render(" -> ") + position(x.release, a.Track) + " " + t.Title
+		head := boldStyle.Render(clean(filepath.Base(f.Path))) + dimStyle.Render(" -> ") + position(x.release, a.Track) + " " + clean(t.Title)
 		if note := lengthNote(a); a.Flagged() {
 			head += "  " + accentStyle.Render(note)
 		}

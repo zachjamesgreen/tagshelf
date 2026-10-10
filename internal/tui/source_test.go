@@ -143,7 +143,7 @@ func TestLibrarySourceRunsAndDetail(t *testing.T) {
 	}
 
 	src := librarySource{st: st, pid: -1}
-	snap, err := src.Load()
+	snap, err := src.Load(Parts{Runs: true})
 	if err != nil {
 		t.Fatal(err)
 	}

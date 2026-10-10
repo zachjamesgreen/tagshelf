@@ -54,6 +54,10 @@ type Runner interface {
 // recentEvents is how many of a run's latest events Home shows.
 const recentEvents = 5
 
+// keptWarnings is how many of a run's warnings are kept to list afterwards:
+// they are recorded nowhere else.
+const keptWarnings = 200
+
 // runRefresh is how often Home redraws a run going on.
 const runRefresh = 250 * time.Millisecond
 
@@ -75,6 +79,8 @@ type liveRun struct {
 	started  bool // a phase has started
 	progress engine.Progress
 	recent   []recentEvent
+	warned   int64    // how many warnings there were
+	warnings []string // the first keptWarnings of them
 }
 
 // recentEvent is one line of a run's latest events.
@@ -98,7 +104,80 @@ func (r *liveRun) sink(e engine.Event) {
 		}
 	case engine.FileError:
 		r.note(recentEvent{label: "error", path: e.Path, detail: e.Err.Error()})
+	case engine.Warning:
+		text := warningText(e)
+		if text == "" {
+			// Something put right, not something wrong.
+			r.note(recentEvent{label: "removed", path: e.Path, detail: "a temporary copy a crash left"})
+			break
+		}
+		r.warned++
+		if len(r.warnings) < keptWarnings {
+			r.warnings = append(r.warnings, e.Path+": "+text)
+		}
+		r.note(recentEvent{label: "warning", path: e.Path, detail: text})
 	}
+}
+
+// warningText says what a warning is about, without the path it is about;
+// "" for one that only reports something put right.
+func warningText(e engine.Warning) string {
+	switch e.Kind {
+	case engine.WarnPermissions:
+		return fmt.Sprintf("its permissions could not be kept: %v", e.Err)
+	case engine.WarnModTime:
+		return fmt.Sprintf("its modification time could not be kept: %v", e.Err)
+	case engine.WarnCueNotBeside:
+		return fmt.Sprintf("cue sheet not rewritten: %q is not next to it after the move", e.Name)
+	case engine.WarnCueEncoding:
+		return fmt.Sprintf("cue sheet not rewritten: it is not UTF-8 and %q is not plain ASCII", e.Name)
+	case engine.WarnLinkSkipped:
+		return "left where it is: a link or junction to a folder, or to something that cannot be read"
+	case engine.WarnStaleCopy:
+		if e.Err == nil {
+			return ""
+		}
+		return fmt.Sprintf("the temporary copy a crash left could not be removed: %v", e.Err)
+	}
+	return "warning"
+}
+
+// warnings notes the warnings of an action, whose toast says how many there
+// were and what the first was: they are recorded nowhere.
+type warnings struct {
+	mu    sync.Mutex
+	n     int64
+	first string
+}
+
+// sink notes e if it is a warning.
+func (w *warnings) sink(e engine.Event) {
+	warn, ok := e.(engine.Warning)
+	if !ok {
+		return
+	}
+	text := warningText(warn)
+	if text == "" {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.n++; w.n == 1 {
+		w.first = warn.Path + ": " + text
+	}
+}
+
+// text is what a toast says of the warnings noted, "" when there were none.
+func (w *warnings) text() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch w.n {
+	case 0:
+		return ""
+	case 1:
+		return "1 warning: " + w.first
+	}
+	return fmt.Sprintf("%s warnings, the first: %s", formatCount(w.n), w.first)
 }
 
 func (r *liveRun) note(e recentEvent) {
@@ -109,10 +188,10 @@ func (r *liveRun) note(e recentEvent) {
 }
 
 // state reads what the sink has noted so far.
-func (r *liveRun) state() (started bool, p engine.Progress, recent []recentEvent) {
+func (r *liveRun) state() (started bool, p engine.Progress, recent []recentEvent, warned int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.started, r.progress, append([]recentEvent(nil), r.recent...)
+	return r.started, r.progress, append([]recentEvent(nil), r.recent...), r.warned
 }
 
 // outcomeLabel names a file's outcome for the recent events, "" for the ones
@@ -140,6 +219,18 @@ type lastRun struct {
 	kind   RunKind
 	dryRun bool
 	finish engine.RunFinished
+	// warned is how many warnings the run gave, and warnings the first
+	// keptWarnings of them.
+	warned   int64
+	warnings []string
+}
+
+// title names the run: its kind, and that it was a dry run.
+func (l *lastRun) title() string {
+	if l.dryRun {
+		return capitalize(l.kind.String()) + " (dry run)"
+	}
+	return capitalize(l.kind.String())
 }
 
 // runDoneMsg says a run this TUI started has returned.
@@ -162,6 +253,10 @@ func (m *Model) startRun(kind RunKind) tea.Cmd {
 	case m.locked:
 		m.setToast(false, "Cannot start the %s: another tagshelf run holds the library lock (pid %d, started %s)",
 			kind, m.holder.PID, m.formatTime(m.holder.Started))
+		return nil
+	case m.busy != nil:
+		// It holds the library lock, which the run would be refused.
+		m.setToast(false, "%s", stillBusy)
 		return nil
 	case m.runner == nil:
 		m.setToast(false, "Runs cannot be started from here")
@@ -188,18 +283,19 @@ func (m *Model) runEnded(r *liveRun) tea.Cmd {
 		return nil
 	}
 	m.run = nil
+	last := &lastRun{kind: r.kind, dryRun: r.dryRun, finish: r.finish}
+	r.mu.Lock()
+	last.warned, last.warnings = r.warned, r.warnings
+	r.mu.Unlock()
 	switch {
 	case r.err != nil:
 		m.setToast(false, "Cannot start the %s: %v", r.kind, r.err)
 	case r.finish.State == engine.StateInterrupted:
-		m.last = &lastRun{kind: r.kind, dryRun: r.dryRun, finish: r.finish}
-		m.setToast(false, "%s interrupted", capitalize(r.kind.String()))
+		m.last = last
+		m.setToast(false, "%s interrupted", last.title())
 	default:
-		m.last = &lastRun{kind: r.kind, dryRun: r.dryRun, finish: r.finish}
-		m.setToast(r.finish.State == engine.StateOK, "%s finished", capitalize(r.kind.String()))
-	}
-	if m.quitting {
-		return tea.Quit
+		m.last = last
+		m.setToast(r.finish.State == engine.StateOK, "%s finished", last.title())
 	}
 	return m.poll(true, false)
 }
@@ -238,13 +334,13 @@ func (m *Model) runView(r *liveRun) string {
 		b.WriteString("  " + badStyle.Render("Interrupting: finishing the files already moving"))
 	}
 	b.WriteString("\n")
-	started, p, recent := r.state()
+	started, p, recent, warned := r.state()
 	if !started {
 		b.WriteString("  " + dimStyle.Render("starting…") + "\n")
 		return b.String()
 	}
 	b.WriteString("  " + progressLine(store.RunProgress{Phase: p.Phase.String(), Done: p.Files, Total: p.FilesTotal}, m.width-2) + "\n")
-	b.WriteString("  " + countersLine(r.kind, p.Counters) + "\n")
+	b.WriteString("  " + countersLine(r.kind, p.Counters) + warnedText(warned) + "\n")
 	rate := fmt.Sprintf("%.1f files/s", p.Rate)
 	if p.Phase == engine.PhaseIndex && p.ByteRate > 0 {
 		rate += fmt.Sprintf("  %.1f MB/s", p.ByteRate/1e6)
@@ -256,10 +352,13 @@ func (m *Model) runView(r *liveRun) string {
 	for _, e := range recent {
 		line := dimStyle.Render(fmt.Sprintf("  %-10s ", e.label)) + m.shortPath(e.path)
 		if e.detail != "" {
-			line += ": " + e.detail
+			line += ": " + clean(e.detail)
 		}
-		if e.label == "error" {
+		switch e.label {
+		case "error":
 			line = badStyle.Render(line)
+		case "warning":
+			line = accentStyle.Render(line)
 		}
 		b.WriteString(line + "\n")
 	}
@@ -270,10 +369,7 @@ func (m *Model) runView(r *liveRun) string {
 // the tabs that deal with what it left.
 func (m *Model) lastRunView(l *lastRun) string {
 	var b strings.Builder
-	title := capitalize(l.kind.String())
-	if l.dryRun {
-		title += " (dry run)"
-	}
+	title := l.title()
 	switch l.finish.State {
 	case engine.StateErrors:
 		title += " finished with errors"
@@ -288,6 +384,10 @@ func (m *Model) lastRunView(l *lastRun) string {
 	if n := l.finish.Counters.Errors; n > 0 {
 		items = append(items, attention{plural(n, "error", "errors"), TabRuns})
 	}
+	if l.warned > 0 {
+		// The run's detail lists them for as long as this TUI is open.
+		items = append(items, attention{plural(l.warned, "warning", "warnings"), TabRuns})
+	}
 	if n := int64(l.finish.NeedReview); n > 0 {
 		items = append(items, attention{plural(n, "duplicate group needs review", "duplicate groups need review"), TabDuplicates})
 	}
@@ -295,6 +395,14 @@ func (m *Model) lastRunView(l *lastRun) string {
 		fmt.Fprintf(&b, "  %-58s %s\n", it.text, dimStyle.Render(fmt.Sprintf("%d %s", int(it.tab)+1, it.tab)))
 	}
 	return b.String()
+}
+
+// warnedText adds a run's warnings to its counters, when it gave any.
+func warnedText(n int64) string {
+	if n == 0 {
+		return ""
+	}
+	return "  Warnings " + formatCount(n)
 }
 
 // countersLine sums up a run's counters.

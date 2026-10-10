@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,9 +34,10 @@ type undoPlanMsg struct {
 
 // undoDoneMsg says an undo has ended.
 type undoDoneMsg struct {
-	id     int64
-	finish engine.RunFinished
-	err    error
+	id       int64
+	finish   engine.RunFinished
+	warnings string // what the undo warned of, "" when nothing
+	err      error
 }
 
 // undoCheck reports whether the file at path still holds the tags a save
@@ -141,8 +143,9 @@ func (m *Model) undoKey(k string) tea.Cmd {
 		ctx, done := m.begin()
 		return func() tea.Msg {
 			defer close(done)
-			finish, err := runner.Undo(ctx, id, undoCheck, undoRestore, func(engine.Event) {})
-			return undoDoneMsg{id: id, finish: finish, err: err}
+			var warned warnings
+			finish, err := runner.Undo(ctx, id, undoCheck, undoRestore, warned.sink)
+			return undoDoneMsg{id: id, finish: finish, warnings: warned.text(), err: err}
 		}
 	}
 	return nil
@@ -175,14 +178,24 @@ func (m *Model) undoDone(msg undoDoneMsg) tea.Cmd {
 	if len(did) == 0 {
 		did = []string{"nothing could be put back"}
 	}
-	text := fmt.Sprintf("Run %d undone: %s", msg.id, strings.Join(did, ", "))
+	parts := []string{strings.Join(did, ", ")}
+	if c.Errors > 0 {
+		parts = append(parts, fmt.Sprintf("%s skipped or failed: see %d Runs", formatCount(c.Errors), int(TabRuns)+1))
+	}
+	if msg.warnings != "" {
+		parts = append(parts, msg.warnings)
+	}
+	text := strings.Join(parts, "; ")
 	switch {
 	case msg.finish.State == engine.StateInterrupted:
-		m.setToast(false, "The undo was interrupted: %s so far; undo the run again for the rest", strings.TrimPrefix(text, fmt.Sprintf("Run %d undone: ", msg.id)))
+		m.setToast(false, "The undo was interrupted: %s so far; undo the run again for the rest", text)
+	case msg.finish.NotUndone != "":
+		// The run is not marked undone: saying it was would be wrong.
+		m.setToast(false, "Run %d is not undone yet: %s; undo it again for the rest", msg.id, text)
 	case c.Errors > 0:
-		m.setToast(false, "%s; %s skipped or failed: see %d Runs", text, formatCount(c.Errors), int(TabRuns)+1)
+		m.setToast(false, "Run %d undone: %s", msg.id, text)
 	default:
-		m.setToast(true, "%s", text)
+		m.setToast(true, "Run %d undone: %s", msg.id, text)
 		// An undo is a run like any other.
 		m.offerUndo(msg.finish.RunID)
 	}
@@ -217,7 +230,7 @@ func (m *Model) undoBody(h int) string {
 	}
 	b.WriteString("\n  " + boldStyle.Render(title) + "\n")
 	if r.Kind != "" {
-		b.WriteString("  " + dimStyle.Render(route(r)) + "\n")
+		b.WriteString("  " + dimStyle.Render(clean(route(r))) + "\n")
 	}
 	b.WriteString("\n")
 	p := u.plan
@@ -226,7 +239,7 @@ func (m *Model) undoBody(h int) string {
 		b.WriteString("  " + dimStyle.Render("Working out what can be undone…") + "\n")
 		return b.String()
 	case p.Refusal != "":
-		b.WriteString("  " + badStyle.Render("This run cannot be undone: "+p.Refusal) + "\n")
+		b.WriteString("  " + badStyle.Render("This run cannot be undone: "+clean(p.Refusal)) + "\n")
 		return b.String()
 	}
 
@@ -247,11 +260,42 @@ func (m *Model) undoBody(h int) string {
 		b.WriteString("  " + dimStyle.Render("No file is overwritten. The undo is a run of its own, which can be undone in turn.") + "\n")
 	}
 	if n := len(p.Skipped); n > 0 {
+		var later, cues int64
+		for _, s := range p.Skipped {
+			if s.Later {
+				later++
+			}
+			if strings.EqualFold(filepath.Ext(s.Path), ".cue") {
+				cues++
+			}
+		}
 		b.WriteString("\n  " + accentStyle.Render(fmt.Sprintf("Left as %s (%s):", map[bool]string{true: "it is", false: "they are"}[n == 1], formatCount(int64(n)))) + "\n")
+		// What the lines under the list say of it.
+		var notes []string
+		if later > 0 {
+			notes = append(notes, "What is marked * can be undone later, once what is in the way is gone; the run stays to be undone again.")
+		}
+		if cues > 0 {
+			notes = append(notes, "A cue sheet left as it is keeps its text; the original kept beside it (.orig) still moves back with it.")
+		}
+		// The notes take a line each, and one to set them off.
 		room := max(h-10, 1)
+		if len(notes) > 0 {
+			room = max(room-len(notes)-1, 1)
+		}
 		u.scroll = max(min(u.scroll, n-room), 0)
 		for _, s := range p.Skipped[u.scroll:min(u.scroll+room, n)] {
-			b.WriteString("    " + m.shortPath(s.Path) + dimStyle.Render("  "+s.Reason) + "\n")
+			mark := "  "
+			if s.Later {
+				mark = "* "
+			}
+			b.WriteString("  " + accentStyle.Render(mark) + m.shortPath(s.Path) + dimStyle.Render("  "+clean(s.Reason)) + "\n")
+		}
+		for i, note := range notes {
+			if i == 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString("  " + dimStyle.Render(note) + "\n")
 		}
 	}
 	if u.working {

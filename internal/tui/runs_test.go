@@ -130,8 +130,14 @@ func TestRunDetailScrolls(t *testing.T) {
 	m := newModel(t, src, 120, 32)
 	press(t, m, "5")
 	press(t, m, "G")
-	for m.runs.selected(m.snap.Runs) != 5 {
+	for range len(m.snap.Runs) {
+		if m.runs.selected(m.snap.Runs) == 5 {
+			break
+		}
 		press(t, m, "up")
+	}
+	if id := m.runs.selected(m.snap.Runs); id != 5 {
+		t.Fatalf("up never reached run 5: the cursor is on run %d", id)
 	}
 	press(t, m, "enter")
 	if got := screen(m); !strings.Contains(got, "000.mp3") || strings.Contains(got, "099.mp3") {

@@ -48,11 +48,12 @@ type editorTagsMsg struct {
 
 // saved is how a save of tags to one file went.
 type saved struct {
-	id      int64
-	moved   string // where the file went, "" when it stayed
-	problem error  // what went wrong with the file, nil when nothing did
-	finish  engine.RunFinished
-	err     error
+	id       int64
+	moved    string // where the file went, "" when it stayed
+	problem  error  // what went wrong with the file, nil when nothing did
+	warnings string // what the run warned of, "" when nothing
+	finish   engine.RunFinished
+	err      error
 }
 
 // failed says in a toast why the save did not work, reporting whether it did
@@ -79,9 +80,11 @@ func (m *Model) saveOne(id int64, save engine.TagSave, done func(saved) tea.Msg)
 	return func() tea.Msg {
 		defer close(ended)
 		res := saved{id: id}
+		var warned warnings
 		// The run reports from one goroutine at a time and has ended before
 		// res is read.
 		sink := func(ev engine.Event) {
+			warned.sink(ev)
 			switch ev := ev.(type) {
 			case engine.FilePlaced:
 				if ev.Outcome == engine.Organized {
@@ -94,6 +97,7 @@ func (m *Model) saveOne(id int64, save engine.TagSave, done func(saved) tea.Msg)
 			}
 		}
 		res.finish, res.err = runner.SaveTags(ctx, []int64{id}, save, sink)
+		res.warnings = warned.text()
 		return done(res)
 	}
 }
@@ -431,13 +435,16 @@ func (m *Model) savedToast(s saved, where string, lacking bool) {
 	default:
 		m.setToast(true, "Saved")
 	}
+	if s.warnings != "" {
+		m.setToast(true, "%s; %s", m.toast, s.warnings)
+	}
 	m.offerUndo(s.finish.RunID)
 }
 
 // editorCrumb is the breadcrumb shown in place of the tabs.
 func (m *Model) editorCrumb() string {
 	e := m.edit
-	return " " + dimStyle.Render(e.from.String()+" › ") + boldStyle.Render("Edit tags") + dimStyle.Render(" › ") + filepath.Base(e.file.Path)
+	return " " + dimStyle.Render(e.from.String()+" › ") + boldStyle.Render("Edit tags") + dimStyle.Render(" › ") + clean(filepath.Base(e.file.Path))
 }
 
 // editorBody draws the editor.
@@ -453,7 +460,7 @@ func (m *Model) editorBody() string {
 
 	mark := "none; saving marks the file as tagged by hand"
 	if cur := firstValue(e.orig[tagwrite.Marker]); cur != "" {
-		mark = cur
+		mark = clean(cur)
 		if parsed, ok := marker.Parse(cur); ok && parsed.Method != marker.Hand {
 			mark += "; saving a change marks it as tagged by hand"
 		}

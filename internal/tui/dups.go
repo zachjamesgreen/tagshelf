@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"tagshelf/internal/engine"
 	"tagshelf/internal/store"
@@ -24,6 +23,10 @@ type dupsTab struct {
 	// keepers holds the copy chosen to keep for the groups where that is not
 	// the suggested one, by group key.
 	keepers map[string]int64
+	// suggested holds the copy the suggested-keeper rule picks for each
+	// group it has been worked out for, by group key, until the groups are
+	// read again.
+	suggested map[string]int64
 	// confirmed holds the possible groups a person said are the same song,
 	// which may then be resolved like any other.
 	confirmed map[string]bool
@@ -63,8 +66,10 @@ func (d *dupsTab) selected(groups []store.Group) (store.Group, bool) {
 // follow puts the cursor back on its group after the groups reloaded, or
 // keeps it within the list when that group is gone.
 func (d *dupsTab) follow(groups []store.Group) {
-	// A question about the groups as they were is not asked of new ones.
+	// A question about the groups as they were is not asked of new ones, and
+	// their copies may no longer be what a keeper was suggested from.
 	d.confirmAll = nil
+	clear(d.suggested)
 	for i, g := range groups {
 		if groupKey(g) == d.selKey {
 			d.cursor = i
@@ -85,10 +90,19 @@ func (d *dupsTab) moveTo(i int, groups []store.Group) {
 // keeper is the ID of the copy of g to keep: the one chosen, or else the one
 // the suggested-keeper rule picks.
 func (d *dupsTab) keeper(g store.Group) int64 {
-	if id, ok := d.keepers[groupKey(g)]; ok {
+	key := groupKey(g)
+	if id, ok := d.keepers[key]; ok {
 		return id
 	}
-	return g.Files[engine.SuggestedKeeper(g.Files)].ID
+	id, ok := d.suggested[key]
+	if !ok {
+		if d.suggested == nil {
+			d.suggested = make(map[string]int64)
+		}
+		id = g.Files[engine.SuggestedKeeper(g.Files)].ID
+		d.suggested[key] = id
+	}
+	return id
 }
 
 // resolvable reports whether g may be resolved: a possible group only once a
@@ -101,6 +115,10 @@ func (d *dupsTab) resolution(g store.Group) engine.Resolution {
 	return engine.Resolution{Kind: g.Kind, Members: g.IDs(), Keeper: d.keeper(g)}
 }
 
+// stillBusy is why nothing else that changes the library can start while an
+// action is being carried out.
+const stillBusy = "Still carrying out the last action"
+
 // canChange reports whether the library may be changed from a tab now,
 // saying why not in a toast.
 func (m *Model) canChange() bool {
@@ -111,7 +129,7 @@ func (m *Model) canChange() bool {
 	case m.run != nil:
 		m.setToast(false, "A run is going; wait for it to end")
 	case m.busy != nil:
-		m.setToast(false, "Still carrying out the last action")
+		m.setToast(false, "%s", stillBusy)
 	case m.header.DryRun:
 		m.setToast(false, "Dry run is on: turn it off with d on Home before changing the library")
 	case m.runner == nil:
@@ -271,6 +289,17 @@ func (m *Model) ended() {
 	m.busy, m.cancelAction = nil, nil
 }
 
+// stopping asks the action being carried out, if any, to stop: it goes no
+// further than the file it is on, and then says how it went.
+func (m *Model) stopping() {
+	if m.busy != nil && m.cancelAction != nil {
+		m.cancelAction()
+		if m.run == nil {
+			m.setToast(false, "Stopping after the file it is on")
+		}
+	}
+}
+
 // stopAction ends an action being carried out, for when the TUI closes: it
 // goes no further than the file it is on, and this waits for that.
 func (m *Model) stopAction() {
@@ -307,19 +336,17 @@ func (m *Model) dupsBody(h int) string {
 	keepW := max(m.width-dupsFixedWidth-nameW, 10)
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  %-*s  %-13s  %6s  %s", nameW, "Song", "Kind", "Copies", "Keeps")) + "\n")
 	rows := max(min(len(groups), (h-3)/3), 1)
-	first := 0
-	if d.cursor >= rows {
-		first = d.cursor - rows + 1
-	}
+	first := window(d.cursor, rows)
 	for i := first; i < len(groups) && i < first+rows; i++ {
 		g := groups[i]
 		keeps := dimStyle.Render("to be confirmed")
 		plain := "to be confirmed"
 		if d.resolvable(g) {
-			plain = ansi.Truncate(m.shortPath(fileByID(g, d.keeper(g)).Path), keepW, "…")
+			// The end of the path is what tells two copies in one album apart.
+			plain = tailPath(m.shortPath(fileByID(g, d.keeper(g)).Path), keepW)
 			keeps = plain
 		}
-		line := fmt.Sprintf("%-*s  %-13s  %6d  ", nameW, ansi.Truncate(groupName(g), nameW, "…"), g.Kind, len(g.Files))
+		line := fmt.Sprintf("%s  %-13s  %6d  ", cell(groupName(g), nameW), g.Kind, len(g.Files))
 		if i == d.cursor {
 			b.WriteString("› " + activeTab.Render(line+plain) + "\n")
 			continue
@@ -345,7 +372,7 @@ func (m *Model) dupsBody(h int) string {
 			star = goodStyle.Render("★")
 		}
 		fmt.Fprintf(&b, "  %s %-9s  %s\n", star, where(f.RootKind), m.shortPath(f.Path))
-		fmt.Fprintf(&b, "               %s\n", dimStyle.Render(fmt.Sprintf("%-5s %-22s %5s  %s", f.Format, rate(f), length(f.Length), tagLine(f))))
+		fmt.Fprintf(&b, "               %s\n", dimStyle.Render(fmt.Sprintf("%-5s %-22s %5s  %s", clean(f.Format), rate(f), length(f.Length), tagLine(f))))
 	}
 	for i, f := range g.AlsoOn {
 		label := "         "
@@ -379,12 +406,12 @@ func groupName(g store.Group) string {
 				artist = f.AlbumArtist
 			}
 			if artist == "" {
-				return f.Title
+				return clean(f.Title)
 			}
-			return artist + " - " + f.Title
+			return clean(artist + " - " + f.Title)
 		}
 	}
-	return filepath.Base(g.Files[0].Path)
+	return clean(filepath.Base(g.Files[0].Path))
 }
 
 func fileByID(g store.Group, id int64) store.File {
@@ -447,5 +474,5 @@ func tagLine(f store.File) string {
 			parts = append(parts, s)
 		}
 	}
-	return strings.Join(parts, " / ")
+	return clean(strings.Join(parts, " / "))
 }

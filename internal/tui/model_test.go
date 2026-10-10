@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +23,14 @@ type fakeSource struct {
 	holder  store.LockHolder
 	locked  bool
 	snap    Snapshot
-	err     error
-	loads   int
-	details map[int64]RunDetail
-	tags    map[string]tagwrite.Values // by path, for the tag editor
+	// err fails every method but Lock; the others fail one method alone.
+	err                         error
+	lockErr, loadErr, searchErr error
+	loads                       int
+	asked                       []Parts // what each load was asked for
+	details                     map[int64]RunDetail
+	detailed                    []int64                    // the runs whose detail was read
+	tags                        map[string]tagwrite.Values // by path, for the tag editor
 	// plans are what undoing each run would do, and planned which were asked.
 	plans   map[int64]engine.UndoPlan
 	planned []int64
@@ -40,16 +46,24 @@ func (f *fakeSource) UndoPlan(runID int64) (engine.UndoPlan, error) {
 	return f.plans[runID], f.err
 }
 
-// Search finds the library files with query somewhere in their tags.
+// Search finds the library files with query somewhere in their tags, in the
+// order the store lists them: by artist, album, disc and track.
 func (f *fakeSource) Search(query string, limit int) ([]store.File, error) {
 	f.searches = append(f.searches, query)
 	var found []store.File
 	for _, file := range f.library {
-		if strings.Contains(strings.ToLower(file.Artist+" "+file.Album+" "+file.Title), strings.ToLower(query)) && len(found) < limit {
+		if strings.Contains(strings.ToLower(file.Artist+" "+file.Album+" "+file.Title), strings.ToLower(query)) {
 			found = append(found, file)
 		}
 	}
-	return found, f.err
+	artist := func(file store.File) string {
+		return strings.ToLower(cmp.Or(file.AlbumArtist, file.Artist))
+	}
+	slices.SortStableFunc(found, func(a, b store.File) int {
+		return cmp.Or(cmp.Compare(artist(a), artist(b)), cmp.Compare(strings.ToLower(a.Album), strings.ToLower(b.Album)),
+			cmp.Compare(a.Disc, b.Disc), cmp.Compare(a.Track, b.Track), cmp.Compare(store.PathKey(a.RelPath), store.PathKey(b.RelPath)))
+	})
+	return found[:min(len(found), limit)], cmp.Or(f.searchErr, f.err)
 }
 
 func (f *fakeSource) Album(of store.File) ([]store.File, error) {
@@ -71,18 +85,33 @@ func (f *fakeSource) Tags(path string) (tagwrite.Values, error) {
 }
 
 func (f *fakeSource) RunDetail(id int64) (RunDetail, error) {
+	f.detailed = append(f.detailed, id)
 	return f.details[id], f.err
 }
 
 func (f *fakeSource) DataVersion() (int64, error) { return f.version, f.err }
 
 func (f *fakeSource) Lock() (store.LockHolder, bool, error) {
-	return f.holder, f.locked, nil
+	return f.holder, f.locked, f.lockErr
 }
 
-func (f *fakeSource) Load() (Snapshot, error) {
+// Load returns the snapshot with the lists asked for and no others, as the
+// real source reads them.
+func (f *fakeSource) Load(parts Parts) (Snapshot, error) {
 	f.loads++
-	return f.snap, f.err
+	f.asked = append(f.asked, parts)
+	snap := f.snap
+	snap.Parts = parts
+	if !parts.Untagged {
+		snap.Untagged = nil
+	}
+	if !parts.Groups {
+		snap.Groups = nil
+	}
+	if !parts.Runs {
+		snap.Runs = nil
+	}
+	return snap, cmp.Or(f.loadErr, f.err)
 }
 
 var (
@@ -91,36 +120,27 @@ var (
 )
 
 // newModel returns a model over src that has had its first load, sized w by
-// h, showing times in UTC.
+// h, showing times in UTC. It does not wait for its next poll: the tests
+// send the poll timer themselves, with tickNow.
 func newModel(t *testing.T, src Source, w, h int) *Model {
 	t.Helper()
 	m := New(src, header)
 	m.loc = time.UTC
+	m.tick = func() tea.Cmd { return nil }
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	do(t, m, m.Init())
 	return m
 }
 
-// do runs a command the way Bubble Tea would and feeds its message back,
-// except for ticks, which would sleep; those the tests send themselves.
+// do runs a command and whatever it leads to, as pump does, and returns the
+// first message it gave.
 func do(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 	t.Helper()
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	switch msg.(type) {
-	case refreshMsg, runDetailMsg:
-		m.Update(msg)
-	case dupDoneMsg, untaggedDoneMsg, undoDoneMsg:
-		// The reload that follows an action.
-		_, next := m.Update(msg)
-		do(t, m, next)
-	}
-	return msg
+	return pump(t, m, cmd)
 }
 
-// press sends a key and runs what it returns.
+// press sends a key, runs what comes of it and returns the first message
+// that gave.
 func press(t *testing.T, m *Model, k string) tea.Msg {
 	t.Helper()
 	_, cmd := m.Update(keyMsg(k))
@@ -134,8 +154,24 @@ func tickNow(t *testing.T, m *Model) {
 	do(t, m, cmd)
 }
 
+// textKey is a key press that types text, which may be more than one
+// character: a word an input method commits.
+func textKey(text string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: []rune(text)[0], Text: text}
+}
+
+// keyMsg is the key press named k: a named key, ctrl+ a letter, or a single
+// character.
 func keyMsg(k string) tea.KeyPressMsg {
 	switch k {
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "shift+tab":
@@ -164,8 +200,12 @@ func keyMsg(k string) tea.KeyPressMsg {
 	if k == "space" {
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	}
-	r := []rune(k)[0]
-	return tea.KeyPressMsg{Code: r, Text: k}
+	r := []rune(k)
+	if len(r) != 1 {
+		// A key made up from a name would be a letter carrying the name.
+		panic("keyMsg: no key is named " + k)
+	}
+	return tea.KeyPressMsg{Code: r[0], Text: k}
 }
 
 func screen(m *Model) string {
@@ -217,8 +257,8 @@ func TestZeroAndTinySizesDoNotPanic(t *testing.T) {
 			do(t, m, m.Init())
 			got := screen(m)
 			if size[0] > 0 && size[1] > 0 {
-				if size[0] > 20 && !strings.Contains(strings.ReplaceAll(got, "\n", ""), "at least") {
-					t.Errorf("%dx%d: view = %q, want the minimum size message", size[0], size[1], got)
+				if size[0] >= 5 && !strings.HasPrefix(got, "40x12") {
+					t.Errorf("%dx%d: view = %q, want the size it needs", size[0], size[1], got)
 				}
 				checkFits(t, got, size[0], size[1])
 			} else if got != "" {
@@ -243,11 +283,29 @@ func checkFits(t *testing.T, s string, w, h int) {
 }
 
 func TestMinimumSizeFits(t *testing.T) {
-	for _, src := range []*fakeSource{{snap: sampleSnapshot()}, lockedSource()} {
+	locked := everySource()
+	locked.locked, locked.holder, locked.snap.Active = true, lockedSource().holder, lockedSource().snap.Active
+	for name, src := range map[string]*fakeSource{
+		"nothing in the lists": {snap: sampleSnapshot()}, "locked, nothing in the lists": lockedSource(),
+		"full lists": everySource(), "locked, full lists": locked,
+	} {
 		m := newModel(t, src, minWidth, minHeight)
-		for _, k := range []string{"1", "2", "3", "4", "5", "?"} {
+		// Every tab, a run's detail, the undo of a run, and the help.
+		for _, k := range []string{"1", "2", "down", "3", "down", "4", "5", "down", "enter", "down", "u", "esc", "?", "down"} {
 			press(t, m, k)
-			checkFits(t, screen(m), minWidth, minHeight)
+			got := screen(m)
+			checkFits(t, got, minWidth, minHeight)
+			if strings.Contains(got, "Reading the library") {
+				t.Errorf("%s: after %s the tab's list is not drawn:\n%s", name, k, got)
+			}
+		}
+	}
+	// The lists have something in them at this size.
+	m := newModel(t, everySource(), minWidth, minHeight)
+	for k, want := range map[string]string{"2": "x.mp3", "3": "Julie and Candy", "5": "reorganize"} {
+		press(t, m, k)
+		if got := screen(m); !strings.Contains(got, want) {
+			t.Errorf("at the smallest size tab %s lacks %q:\n%s", k, want, got)
 		}
 	}
 }
@@ -388,8 +446,14 @@ func TestStalePollResultIsDropped(t *testing.T) {
 	src.version, src.snap.Overview.Untagged = 2, 40
 	_, newer := m.Update(keyMsg("R"))
 	m.Update(newer())
-	src.version, src.snap.Overview.Untagged = 1, 12
-	m.Update(older()) // started before the reload, finished after it
+	// The older poll sees a version it does not know either, so it reads a
+	// snapshot of its own: only its age keeps that from being shown.
+	src.version, src.snap.Overview.Untagged = 3, 12
+	msg := older() // started before the reload, finished after it
+	if r, ok := msg.(refreshMsg); !ok || r.snap == nil || r.snap.Overview.Untagged != 12 {
+		t.Fatalf("the older poll came back with %+v, want a snapshot of its own", msg)
+	}
+	m.Update(msg)
 
 	if m.snap.Overview.Untagged != 40 {
 		t.Errorf("untagged = %d, want 40 from the newer poll", m.snap.Overview.Untagged)

@@ -22,7 +22,7 @@ func undoSource() *fakeSource {
 	src.plans = map[int64]engine.UndoPlan{
 		5: {Run: src.snap.Runs[2], Moves: 46, TagSaves: 3, Cues: 1, Skipped: []engine.UndoSkip{
 			{Path: `D:\Music\Singer\Album (2001)\01 - One.flac`, Reason: "it has changed since it was indexed"},
-			{Path: `D:\Music\_Untagged\loose.mp3`, Reason: `something else is at its old path now (E:\Incoming\loose.mp3)`},
+			{Path: `D:\Music\_Untagged\loose.mp3`, Reason: `something else is at its old path now (E:\Incoming\loose.mp3)`, Later: true},
 		}},
 		4: {Run: src.snap.Runs[3], Refusal: "a dry run changed nothing"},
 	}

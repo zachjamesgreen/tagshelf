@@ -226,14 +226,18 @@ func TestLibraryReloadsLeaveANewSearchAlone(t *testing.T) {
 		t.Errorf("coming back did not read the results again: %v", src.searches[searches:])
 	}
 
-	// A repeat that fails keeps what was found.
-	src.err = errors.New("database is locked")
+	// A repeat that fails keeps what was found. Only the search fails: the
+	// poll that leads to it reads the library as ever.
+	src.searchErr = errors.New("database is locked")
 	src.version++
-	_, cmd := m.Update(tickMsg{})
-	pump(t, m, cmd)
-	src.err = nil
-	if got := screen(m); len(m.library.results) != 1 || !strings.Contains(got, "Foil") {
-		t.Errorf("a failed repeat lost the results:\n%s", got)
+	searches = len(src.searches)
+	tickNow(t, m)
+	src.searchErr = nil
+	if len(src.searches) != searches+1 {
+		t.Fatalf("the change was followed by %d searches, want the search repeated", len(src.searches)-searches)
+	}
+	if got := screen(m); len(m.library.results) != 1 || !strings.Contains(got, "Foil") || !strings.Contains(got, "Cannot read the search results again: database is locked") {
+		t.Errorf("a failed repeat lost the results or did not say so:\n%s", got)
 	}
 
 	// Clearing the query drops a search on its way.

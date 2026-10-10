@@ -150,11 +150,14 @@ func TestResolveAllExactAsksFirst(t *testing.T) {
 	if len(f.resolved) != 0 || m.dups.confirmAll != nil {
 		t.Fatal("n did not cancel")
 	}
+	// The copy chosen with k is the one kept, not the suggested one.
+	press(t, m, "down")
+	press(t, m, "k")
 	press(t, m, "A")
 	press(t, m, "y")
-	want := [][]engine.Resolution{{{Kind: store.GroupExact, Members: []int64{21, 22}, Keeper: 21}}}
+	want := [][]engine.Resolution{{{Kind: store.GroupExact, Members: []int64{21, 22}, Keeper: 22}}}
 	if !reflect.DeepEqual(f.resolved, want) {
-		t.Errorf("resolved = %+v, want only the exact group %+v", f.resolved, want)
+		t.Errorf("resolved = %+v, want only the exact group, keeping the copy chosen: %+v", f.resolved, want)
 	}
 }
 

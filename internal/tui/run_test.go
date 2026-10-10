@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,12 @@ type fakeRunner struct {
 	sunk    chan struct{} // the sink has had the event sent
 	finish  chan engine.RunFinished
 	err     error // returned at once instead of running
+	// gate, when set, holds Undo, SaveTags, Resolve and KeepBoth back.
+	gate *gate
+	// lag is how long a run or an action takes to stop once its context is
+	// cancelled, and stopped is set when it has.
+	lag     time.Duration
+	stopped atomic.Bool
 
 	// What the Duplicates tab asked for, and what Resolve answers.
 	resolved      [][]engine.Resolution
@@ -32,6 +39,7 @@ type fakeRunner struct {
 	// What the Untagged tab asked to save tags to, the events SaveTags then
 	// reports, and what it answers.
 	saved      [][]int64
+	saves      []engine.TagSave // the save given with each, to run on real files
 	saveEvents []engine.Event
 	saveFinish engine.RunFinished
 
@@ -45,6 +53,9 @@ func (f *fakeRunner) Undo(ctx context.Context, runID int64, check engine.TagChec
 		return engine.RunFinished{}, f.err
 	}
 	f.undone = append(f.undone, runID)
+	if f.gate.wait(ctx) != nil {
+		return f.interrupted(), nil
+	}
 	return f.undoFinish, nil
 }
 
@@ -52,7 +63,10 @@ func (f *fakeRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagS
 	if f.err != nil {
 		return engine.RunFinished{}, f.err
 	}
-	f.saved = append(f.saved, ids)
+	f.saved, f.saves = append(f.saved, ids), append(f.saves, save)
+	if f.gate.wait(ctx) != nil {
+		return f.interrupted(), nil
+	}
 	for _, e := range f.saveEvents {
 		sink(e)
 	}
@@ -64,6 +78,9 @@ func (f *fakeRunner) Resolve(ctx context.Context, resolutions []engine.Resolutio
 		return engine.RunFinished{}, f.err
 	}
 	f.resolved = append(f.resolved, resolutions)
+	if f.gate.wait(ctx) != nil {
+		return f.interrupted(), nil
+	}
 	return f.resolveFinish, nil
 }
 
@@ -72,6 +89,7 @@ func (f *fakeRunner) KeepBoth(kind store.GroupKind, members []int64) error {
 		return f.err
 	}
 	f.keptBoth = append(f.keptBoth, engine.Resolution{Kind: kind, Members: members})
+	f.gate.wait(context.Background())
 	return nil
 }
 
@@ -103,8 +121,26 @@ func (f *fakeRunner) Run(ctx context.Context, kind RunKind, dryRun bool, sink en
 		case fin := <-f.finish:
 			return fin, nil
 		case <-ctx.Done():
-			return engine.RunFinished{State: engine.StateInterrupted}, nil
+			return f.interrupted(), nil
 		}
+	}
+}
+
+// interrupted is how a run or an action that was cancelled ends, once it
+// has finished the file it was on.
+func (f *fakeRunner) interrupted() engine.RunFinished {
+	time.Sleep(f.lag)
+	f.stopped.Store(true)
+	return engine.RunFinished{State: engine.StateInterrupted}
+}
+
+// end lets the running fake finish with fin.
+func (f *fakeRunner) end(t *testing.T, fin engine.RunFinished) {
+	t.Helper()
+	select {
+	case f.finish <- fin:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no run is going to end")
 	}
 }
 
@@ -181,8 +217,8 @@ func TestOrganizeFromHome(t *testing.T) {
 		t.Errorf("a second o: toast %q", m.toast)
 	}
 
-	f.finish <- engine.RunFinished{State: engine.StateErrors, NeedReview: 3,
-		Counters: engine.Counters{Organized: 38, Untagged: 1, Errors: 1}}
+	f.end(t, engine.RunFinished{State: engine.StateErrors, NeedReview: 3,
+		Counters: engine.Counters{Organized: 38, Untagged: 1, Errors: 1}})
 	cmd := runEnded(t, m)
 	if m.run != nil {
 		t.Fatal("the run is still shown as going")
@@ -220,7 +256,7 @@ func TestRunKeys(t *testing.T) {
 		if s.kind != tt.kind || s.dryRun != tt.dryRun {
 			t.Errorf("%v: started %v dry %t, want %v dry %t", tt.keys, s.kind, s.dryRun, tt.kind, tt.dryRun)
 		}
-		f.finish <- engine.RunFinished{}
+		f.end(t, engine.RunFinished{})
 		runEnded(t, m)
 	}
 }
@@ -316,7 +352,9 @@ func TestRunnerLockedErrorShowsToast(t *testing.T) {
 	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
 	m := newRunModel(t, f)
 	press(t, m, "o")
-	runEnded(t, m)
+	if m.run != nil {
+		t.Fatal("a run the runner refused is still shown as going")
+	}
 	if !strings.Contains(m.toast, "4242") || m.toastOK {
 		t.Errorf("toast = %q (ok %t), want the lock error", m.toast, m.toastOK)
 	}
@@ -367,8 +405,8 @@ func TestGoldenRunViews(t *testing.T) {
 	checkFits(t, got, 120, 32)
 	golden(t, filepath.Join("testdata", "home_running.golden"), got)
 
-	f.finish <- engine.RunFinished{State: engine.StateErrors, NeedReview: 3,
-		Counters: engine.Counters{Organized: 2010, Untagged: 20, Duplicates: 18, Errors: 2}}
+	f.end(t, engine.RunFinished{State: engine.StateErrors, NeedReview: 3,
+		Counters: engine.Counters{Organized: 2010, Untagged: 20, Duplicates: 18, Errors: 2}})
 	runEnded(t, m)
 	got = screen(m)
 	checkFits(t, got, 120, 32)

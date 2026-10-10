@@ -594,7 +594,7 @@ func (m *Model) lookupKey(msg tea.KeyPressMsg) tea.Cmd {
 // lookupCrumb is the breadcrumb shown in place of the tabs.
 func (m *Model) lookupCrumb() string {
 	l := m.look
-	crumb := " " + dimStyle.Render(l.from.String()+" › ") + boldStyle.Render("Look up") + dimStyle.Render(" › ") + filepath.Base(l.file.Path)
+	crumb := " " + dimStyle.Render(l.from.String()+" › ") + boldStyle.Render("Look up") + dimStyle.Render(" › ") + clean(filepath.Base(l.file.Path))
 	switch l.step {
 	case stepPick, stepMore, stepLoading:
 		crumb += dimStyle.Render(" › ") + "Matches"
@@ -630,22 +630,15 @@ func (m *Model) lookupBody(h int) string {
 		head += "  " + d
 	}
 	b.WriteString(dimStyle.Render(head) + "\n\n")
-	problem := func() {
-		if l.problem != "" {
-			b.WriteString("\n  " + badStyle.Render(l.problem) + "\n")
-		}
-	}
 	switch l.step {
 	case stepDisabled:
-		b.WriteString("  " + boldStyle.Render("MusicBrainz lookups are off") + "\n\n")
-		b.WriteString("  MusicBrainz asks every program that uses it to say who is asking.\n")
-		b.WriteString("  To turn lookups on, add your email address or a URL to the config file:\n\n")
-		b.WriteString("      " + accentStyle.Render("musicbrainz_contact: you@example.com") + "\n\n")
-		b.WriteString("  and start tagshelf tui again. Until then ctrl+e edits the tags by hand.\n")
+		lookupsOff(&b, "ctrl+e edits the tags by hand")
 	case stepQuery, stepSearching:
 		b.WriteString("  " + boldStyle.Render("Search MusicBrainz for") + "\n\n")
 		b.WriteString(strings.TrimRight(l.form.View(), "\n") + "\n")
-		problem()
+		if l.problem != "" {
+			b.WriteString("\n  " + badStyle.Render(clean(l.problem)) + "\n")
+		}
 		if l.step == stepSearching {
 			b.WriteString("\n  " + dimStyle.Render("Searching MusicBrainz…") + "\n")
 		}
@@ -655,6 +648,24 @@ func (m *Model) lookupBody(h int) string {
 		m.diffBody(&b)
 	}
 	return b.String()
+}
+
+// lookupsOff says why there is no MusicBrainz to ask and how to turn it on;
+// until says what can be done in the meantime.
+func lookupsOff(b *strings.Builder, until string) {
+	b.WriteString("  " + boldStyle.Render("MusicBrainz lookups are off") + "\n\n")
+	b.WriteString("  MusicBrainz asks every program that uses it to say who is asking.\n")
+	b.WriteString("  To turn lookups on, add your email address or a URL to the config file:\n\n")
+	b.WriteString("      " + accentStyle.Render("musicbrainz_contact: you@example.com") + "\n\n")
+	b.WriteString("  and start tagshelf tui again. Until then " + until + ".\n")
+}
+
+// showValues writes a field's values for a diff, clean.
+func showValues(vs []string) string {
+	if len(vs) == 0 {
+		return "(none)"
+	}
+	return clean(strings.Join(vs, ", "))
 }
 
 // The width of a match's line without its flexible columns.
@@ -681,13 +692,10 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 	if l.problem != "" || l.step != stepPick {
 		rows = max(rows-2, 1)
 	}
-	first := 0
-	if l.cursor >= rows {
-		first = l.cursor - rows + 1
-	}
+	first := window(l.cursor, rows)
 	for i := first; i < l.shown && i < first+rows; i++ {
 		c := l.matches[i]
-		var release, year, country, pos, delta string
+		var release, year, country, pos, diff string
 		if c.Release != nil {
 			release, country = c.Release.Title, c.Release.Country
 			if c.InLibrary {
@@ -707,14 +715,9 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 			}
 		}
 		if c.HasLengthDelta {
-			sign := "+"
-			if c.LengthDelta < 0 {
-				sign = "-"
-			}
-			s := int(c.LengthDelta.Abs().Round(time.Second).Seconds())
-			delta = fmt.Sprintf("%s%d:%02d", sign, s/60, s%60)
+			diff = delta(c.LengthDelta)
 		}
-		line := row(strconv.Itoa(c.Score), c.Title(), c.Artist(), release, year, country, c.Format, pos, delta)
+		line := row(strconv.Itoa(c.Score), c.Title(), c.Artist(), release, year, country, c.Format, pos, diff)
 		if i == l.cursor {
 			b.WriteString("› " + activeTab.Render(line) + "\n")
 		} else {
@@ -722,7 +725,7 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 		}
 	}
 	if l.problem != "" {
-		b.WriteString("\n  " + badStyle.Render(l.problem) + "\n")
+		b.WriteString("\n  " + badStyle.Render(clean(l.problem)) + "\n")
 	}
 	switch l.step {
 	case stepLoading:
@@ -740,15 +743,10 @@ func (m *Model) diffBody(b *strings.Builder) {
 	if c.Release != nil {
 		what += ", on " + c.Release.Title
 	}
-	b.WriteString("  " + boldStyle.Render("Tag it as ") + what + "\n\n")
+	b.WriteString("  " + boldStyle.Render("Tag it as ") + clean(what) + "\n\n")
 	values := lookupValues(l.tags, l.file.Path)
 	valueW := max((m.width-2-17-4)/2, 12)
-	show := func(vs []string) string {
-		if len(vs) == 0 {
-			return "(none)"
-		}
-		return strings.Join(vs, ", ")
-	}
+	show := showValues
 	changed := 0
 	for _, f := range lookupFields {
 		now, ok := values[f.field]
@@ -766,7 +764,7 @@ func (m *Model) diffBody(b *strings.Builder) {
 	b.WriteString("\n")
 	mark := "musicbrainz, today"
 	if cur := firstValue(l.orig[tagwrite.Marker]); cur != "" && changed == 0 {
-		mark = cur + " (nothing to write)"
+		mark = clean(cur) + " (nothing to write)"
 	}
 	b.WriteString("  " + dimStyle.Render("Marker:        ") + mark + "\n")
 	line, _ := m.placed(l)

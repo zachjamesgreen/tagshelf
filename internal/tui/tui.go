@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -34,16 +35,22 @@ type Options struct {
 
 // Run shows the TUI until the user quits or ctx is cancelled.
 func Run(ctx context.Context, opts Options) error {
-	src := librarySource{st: opts.Store, pid: os.Getpid()}
+	src := librarySource{st: opts.Store, destination: opts.Destination, pid: os.Getpid()}
 	m := New(src, Header{Destination: opts.Destination, LibraryID: opts.LibraryID, DryRun: opts.DryRun})
 	m.runner = opts.Runner
 	m.compilations = opts.Compilations
 	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
 		m.mb = client
 	}
-	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
-	// However the program ended, a run it started stops cleanly before the
-	// library's database closes.
+	return m.show(ctx)
+}
+
+// show runs the model as a program until the user quits or ctx is
+// cancelled; options are for the tests, which have no terminal.
+func (m *Model) show(ctx context.Context, options ...tea.ProgramOption) error {
+	_, err := tea.NewProgram(m, append([]tea.ProgramOption{tea.WithContext(ctx)}, options...)...).Run()
+	// However the program ended, a run or an action it started stops cleanly
+	// before the library's database closes.
 	m.stopRun()
 	m.stopAction()
 	return err
@@ -56,8 +63,9 @@ type Source interface {
 	DataVersion() (int64, error)
 	// Lock reports whether another process holds the library lock, and who.
 	Lock() (holder store.LockHolder, held bool, err error)
-	// Load reads everything the TUI shows.
-	Load() (Snapshot, error)
+	// Load reads what every tab shows of the library, and of its lists
+	// those parts names.
+	Load(parts Parts) (Snapshot, error)
 	// RunDetail reads what one run did.
 	RunDetail(id int64) (RunDetail, error)
 	// Tags reads the tags of an audio file that the tag editor edits.
@@ -74,18 +82,34 @@ type Source interface {
 	LibraryReleases() (map[string]bool, error)
 }
 
+// Parts names the lists of a Snapshot. Each is as long as the library is
+// large and is shown by one tab, so a load reads only those asked for.
+type Parts struct {
+	Untagged bool // the Untagged tab's files
+	Groups   bool // the Duplicates tab's groups
+	Runs     bool // the Runs tab's history
+}
+
+// lacks reports whether p is without a part want names.
+func (p Parts) lacks(want Parts) bool {
+	return want.Untagged && !p.Untagged || want.Groups && !p.Groups || want.Runs && !p.Runs
+}
+
 // Snapshot is what the TUI shows of the library, as read at one moment.
 type Snapshot struct {
 	Overview store.Overview
 	// Active is the run recorded as running, nil when there is none. It is
 	// only shown while its process holds the library lock.
 	Active *store.ActiveRun
+	// NeedReview is how many duplicate groups wait for review.
+	NeedReview int64
+
+	// Parts says which of the lists below were read.
+	Parts Parts
 	// Runs is the run history, newest first.
 	Runs []store.Run
-	// Groups are the duplicate groups waiting for review, and NeedReview how
-	// many there are.
-	Groups     []store.Group
-	NeedReview int64
+	// Groups are the duplicate groups waiting for review.
+	Groups []store.Group
 	// Untagged are the files in the untagged folder, in path order.
 	Untagged []store.UntaggedFile
 }
@@ -94,26 +118,43 @@ type Snapshot struct {
 // most.
 const recentMoves = 4
 
+// runReload is how often at most the library is read again while a run is
+// going: a run changes it with every file it moves.
+const runReload = 3 * time.Second
+
 // librarySource reads a library's database.
 type librarySource struct {
-	st  *store.Store
-	pid int // this process, whose own lock is not another's
+	st          *store.Store
+	destination string // the library's root folder, "" when it is not known
+	pid         int    // this process, whose own lock is not another's
 }
 
 func (s librarySource) DataVersion() (int64, error) {
 	return s.st.DataVersion()
 }
 
+// Lock reads the lock of the database and the lock of the library: a run on
+// the library that uses another database holds only the second.
 func (s librarySource) Lock() (store.LockHolder, bool, error) {
 	h, held, err := store.ReadLock(s.st.Path())
+	if err != nil {
+		return store.LockHolder{}, false, err
+	}
+	if held && h.PID != s.pid {
+		return h, true, nil
+	}
+	if s.destination == "" {
+		return store.LockHolder{}, false, nil
+	}
+	h, held, err = store.ReadLibraryLock(s.destination)
 	if err != nil || !held || h.PID == s.pid {
 		return store.LockHolder{}, false, err
 	}
 	return h, true, nil
 }
 
-func (s librarySource) Load() (Snapshot, error) {
-	var snap Snapshot
+func (s librarySource) Load(parts Parts) (Snapshot, error) {
+	snap := Snapshot{Parts: parts}
 	var err error
 	if snap.Overview, err = s.st.Overview(); err != nil {
 		return snap, err
@@ -121,16 +162,31 @@ func (s librarySource) Load() (Snapshot, error) {
 	if snap.Active, err = s.st.ActiveRun(recentMoves); err != nil {
 		return snap, err
 	}
-	if snap.Runs, err = s.st.Runs(); err != nil {
-		return snap, err
+	if parts.Groups {
+		if snap.Groups, err = s.st.GroupsToReview(engine.PossibleKey); err != nil {
+			return snap, err
+		}
+		snap.NeedReview = int64(len(snap.Groups))
+	} else {
+		// Counting them reads no file's row in full.
+		n, err := s.st.GroupsNeedingReview(engine.PossibleKey)
+		if err != nil {
+			return snap, err
+		}
+		snap.NeedReview = int64(n)
 	}
-	slices.Reverse(snap.Runs)
-	if snap.Groups, err = s.st.GroupsToReview(engine.PossibleKey); err != nil {
-		return snap, err
+	if parts.Runs {
+		if snap.Runs, err = s.st.Runs(); err != nil {
+			return snap, err
+		}
+		slices.Reverse(snap.Runs)
 	}
-	snap.NeedReview = int64(len(snap.Groups))
-	snap.Untagged, err = s.st.UntaggedFiles()
-	return snap, err
+	if parts.Untagged {
+		if snap.Untagged, err = s.st.UntaggedFiles(); err != nil {
+			return snap, err
+		}
+	}
+	return snap, nil
 }
 
 func (s librarySource) RunDetail(id int64) (RunDetail, error) {

@@ -31,9 +31,12 @@ func geogaddi() *fakeMB {
 		}}}}
 	other := musicbrainz.Release{ID: "rel-other", Title: "Geogaddi (promo)", Date: "2002", TrackCount: 1, ArtistCredit: boards,
 		Media: []musicbrainz.Medium{{Position: 1, Format: "CD", TrackCount: 1}}}
+	promo := other
+	promo.Media = []musicbrainz.Medium{{Position: 1, Format: "CD", TrackCount: 1, Tracks: []musicbrainz.Track{track(1, "Ready Lets Go (edit)", 50*time.Second)}}}
 	found := rel
 	return &fakeMB{
-		release: &rel,
+		release:  &rel,
+		releases: map[string]*musicbrainz.Release{rel.ID: &rel, promo.ID: &promo},
 		candidates: []musicbrainz.ReleaseCandidate{
 			{Score: 96, Release: &found, Found: 2, Searched: 3},
 			{Score: 61, Release: &other, InLibrary: true, Searched: 3},
@@ -266,10 +269,61 @@ func TestReleaseMatchStepsBackAndShowsErrors(t *testing.T) {
 	// A save that cannot start leaves the diff to confirm again.
 	m, f = matchOn(t, geogaddi())
 	hit(t, m, "enter")
+	// With dry run on nothing is written: the runner would not refuse it.
+	m.header.DryRun = true
+	hit(t, m, "enter")
+	if m.match == nil {
+		t.Fatalf("the release match closed on a save in a dry run: toast %q", m.toast)
+	}
+	if len(f.saved) != 0 || m.match.step != matchConfirm || !strings.Contains(m.toast, "Dry run") {
+		t.Errorf("a save in a dry run: saved %v, step %d, toast %q", f.saved, m.match.step, m.toast)
+	}
+	m.header.DryRun = false
 	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
 	hit(t, m, "enter")
-	if m.match == nil || m.match.step != matchConfirm || !strings.Contains(m.toast, "4242") {
+	if m.match == nil {
+		t.Fatalf("the release match closed on a save that could not start: toast %q", m.toast)
+	}
+	if m.match.step != matchConfirm || !strings.Contains(m.toast, "4242") {
 		t.Errorf("a save that could not start: step %d, toast %q", m.match.step, m.toast)
+	}
+}
+
+// The release looked up is the one under the cursor, not the first found.
+func TestReleaseMatchPicksTheReleaseUnderTheCursor(t *testing.T) {
+	mb := geogaddi()
+	m, _ := newUntaggedModel(t, matchSource())
+	m.mb = mb
+	cursorTo(t, m, 101)
+	hit(t, m, "L", "enter", "down", "down", "up", "pgdown", "pgup", "down", "enter")
+	if !reflect.DeepEqual(mb.looked, []string{"rel-other"}) {
+		t.Fatalf("looked up %v, want the second release", mb.looked)
+	}
+	if m.match == nil || m.match.step != matchMap {
+		t.Fatalf("the release match did not get to the tracks:\n%s", screen(m))
+	}
+	if got := screen(m); !strings.Contains(got, "Geogaddi (promo) by Boards of Canada") || !strings.Contains(got, "Ready Lets Go (edit)") {
+		t.Errorf("the tracks are not those of the release picked:\n%s", got)
+	}
+
+	// However far down the list, the release under the cursor is on screen
+	// and is the one picked.
+	for i := range 60 {
+		rel := *mb.candidates[1].Release
+		rel.ID, rel.Title = fmt.Sprintf("rel-%02d", i), fmt.Sprintf("Pressing %02d", i)
+		mb.candidates = append(mb.candidates, musicbrainz.ReleaseCandidate{Score: 50, Release: &rel})
+	}
+	hit(t, m, "esc", "esc", "enter", "pgdown", "pgdown", "pgdown", "pgdown")
+	x := m.match
+	if x.step != matchPick || x.cursor != len(x.releases)-1 {
+		t.Fatalf("step %d, cursor %d of %d releases", x.step, x.cursor, len(x.releases))
+	}
+	if line := cursorLine(screen(m)); !strings.Contains(line, "Pressing 59") {
+		t.Errorf("the line under the cursor is %q, want the last release:\n%s", line, screen(m))
+	}
+	hit(t, m, "enter")
+	if last := mb.looked[len(mb.looked)-1]; last != "rel-59" {
+		t.Errorf("looked up %q, want the last release", last)
 	}
 }
 

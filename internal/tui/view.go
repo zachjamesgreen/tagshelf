@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -44,7 +45,7 @@ func (m *Model) render() string {
 		return ""
 	}
 	if w < minWidth || h < minHeight {
-		return fitLines(fmt.Sprintf("tagshelf needs a terminal of at least %dx%d (this one is %dx%d)", minWidth, minHeight, w, h), w, h)
+		return fitLines(wrap(fmt.Sprintf("%dx%d needed: this terminal is %dx%d", minWidth, minHeight, w, h), w), w, h)
 	}
 
 	top, bottom := m.chrome()
@@ -59,7 +60,7 @@ func (m *Model) render() string {
 	case m.undo != nil:
 		body = m.undoBody(h - len(top) - len(bottom))
 	case m.help:
-		body = helpScreen()
+		body = m.helpBody(h - len(top) - len(bottom))
 	case !m.loaded:
 		body = dimStyle.Render("Reading the library…")
 	default:
@@ -86,14 +87,53 @@ func (m *Model) chrome() (top, bottom []string) {
 	top = []string{m.headerLine(), tabs, dimStyle.Render(strings.Repeat("─", m.width))}
 	bottom = []string{m.toastLine(), dimStyle.Render(m.keyHelp())}
 	// The banner may use what the body can spare, but no more.
-	top = append(top, m.banner(m.height-len(top)-len(bottom)-4)...)
+	top = append(top, m.banner(m.height-chromeLines-4)...)
 	return top, bottom
 }
 
+// chromeLines is how many lines chrome draws when there is no banner: three
+// above the body and two below.
+const chromeLines = 3 + 2
+
 // bodyHeight is how many lines the tab's body has.
 func (m *Model) bodyHeight() int {
-	top, bottom := m.chrome()
-	return max(m.height-len(top)-len(bottom), 0)
+	return max(m.height-chromeLines-len(m.banner(m.height-chromeLines-4)), 0)
+}
+
+// wrap breaks s between words into lines of at most w cells; a word wider
+// than that has a line of its own.
+func wrap(s string, w int) string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case line == "":
+			line = word
+		case ansi.StringWidth(line)+1+ansi.StringWidth(word) <= w:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	return strings.Join(append(lines, line), "\n")
+}
+
+// clean makes text from outside tagshelf safe to draw: a tag, a file name or
+// an error message goes to the screen with a space in place of every line
+// break and control character, so that it stays on its line and no escape
+// sequence in it reaches the terminal.
+func clean(s string) string {
+	unsafe := func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }
+	if !strings.ContainsFunc(s, unsafe) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unsafe(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // fitLines cuts s to exactly h lines no wider than w.
@@ -213,18 +253,23 @@ func progressLine(p store.RunProgress, w int) string {
 	return phase + accentStyle.Render(strings.Repeat("█", done)) + dimStyle.Render(strings.Repeat("░", barWidth-done)) + counts
 }
 
-// shortPath shows a path relative to the library when it is inside it.
+// shortPath shows a path relative to the library when it is inside it, and
+// clean either way.
 func (m *Model) shortPath(path string) string {
 	if dest := m.header.Destination; dest != "" {
-		if rel, err := filepath.Rel(dest, path); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			return rel
+		// A folder of the library may itself have a name starting with dots.
+		if rel, err := filepath.Rel(dest, path); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return clean(rel)
 		}
 	}
-	return path
+	return clean(path)
 }
 
 // tabBody draws the tab showing in h lines.
 func (m *Model) tabBody(h int) string {
+	if m.seen.lacks(m.parts()) {
+		return dimStyle.Render("Reading the library…")
+	}
 	switch m.tab {
 	case TabHome:
 		return m.homeBody()
@@ -238,14 +283,6 @@ func (m *Model) tabBody(h int) string {
 		return m.runsBody(h)
 	}
 	return ""
-}
-
-func placeholder(name, summary string) string {
-	s := boldStyle.Render(name) + "\n"
-	if summary != "" {
-		s += "  " + summary + "\n"
-	}
-	return s + dimStyle.Render("  This tab is not built yet.")
 }
 
 func (m *Model) homeBody() string {
@@ -312,7 +349,13 @@ func (m *Model) needsAttention() []attention {
 
 func (m *Model) toastLine() string {
 	if m.confirmQuit {
-		return accentStyle.Render("Interrupt the run and quit? y interrupts and quits once the files already moving are done, n keeps it going")
+		switch {
+		case m.run != nil:
+			return accentStyle.Render("Interrupt the run and quit? y interrupts and quits once the files already moving are done, n keeps it going")
+		case m.busy != nil:
+			return accentStyle.Render("Stop what is being done and quit? y stops after the file it is on and quits, n lets it finish")
+		}
+		return accentStyle.Render("Quit? y quits, n stays")
 	}
 	if m.toast == "" {
 		return ""
@@ -338,6 +381,9 @@ func (m *Model) keyHelp() string {
 		return m.undoHelp()
 	}
 	if m.help {
+		if len(helpLines()) > m.bodyHeight() {
+			return "↑↓ scroll  esc back  " + help
+		}
 		return "esc back  " + help
 	}
 	switch {
@@ -374,7 +420,17 @@ func (m *Model) keyHelp() string {
 	return help
 }
 
-func helpScreen() string {
+// helpBody draws the key help in h lines, scrolled to m.helpScroll when it
+// is longer.
+func (m *Model) helpBody(h int) string {
+	lines := helpLines()
+	h = max(h, 1)
+	m.helpScroll = max(min(m.helpScroll, len(lines)-h), 0)
+	return strings.Join(lines[m.helpScroll:min(m.helpScroll+h, len(lines))], "\n")
+}
+
+// helpLines are the lines of the key help.
+func helpLines() []string {
 	keys := [][2]string{
 		{"1-5", "switch tab (tab next, shift+tab previous)"},
 		{"o", "organize the configured source (Home)"},
@@ -401,13 +457,11 @@ func helpScreen() string {
 		{"esc", "back"},
 		{"q", "quit"},
 	}
-	var b strings.Builder
-	b.WriteString(boldStyle.Render("Keys") + "\n")
+	lines := []string{boldStyle.Render("Keys")}
 	for _, k := range keys {
-		fmt.Fprintf(&b, "  %-6s %s\n", k[0], k[1])
+		lines = append(lines, fmt.Sprintf("  %-6s %s", k[0], k[1]))
 	}
-	b.WriteString("\n" + dimStyle.Render("The view reloads by itself when another tagshelf changes the library."))
-	return b.String()
+	return append(lines, "", dimStyle.Render("The view reloads by itself when another tagshelf changes the library."))
 }
 
 // formatTime shows a date and time of day where the user is.

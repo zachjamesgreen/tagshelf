@@ -1,8 +1,8 @@
 package tui
 
 import (
+	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -17,45 +17,129 @@ import (
 	"tagshelf/internal/tagwrite"
 )
 
+// pumpWait is how long pump waits for a command's message.
+const pumpWait = 50 * time.Millisecond
+
 // pump runs a command and whatever it leads to, as Bubble Tea would, feeding
-// every message back to the model. Commands that wait, such as a cursor's
-// blink, are left behind.
-func pump(t *testing.T, m *Model, cmd tea.Cmd) {
+// every message back to the model, and returns the first message the command
+// gave. A command that has not answered within pumpWait, such as a cursor's
+// blink, a timer or a fake that is held back, is left behind and its message
+// never delivered; a failing test's log says so.
+func pump(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 	t.Helper()
 	if cmd == nil {
-		return
+		return nil
 	}
 	got := make(chan tea.Msg, 1)
 	go func() { got <- cmd() }()
 	var msg tea.Msg
 	select {
 	case msg = <-got:
-	case <-time.After(50 * time.Millisecond):
-		return
+	case <-time.After(pumpWait):
+		t.Logf("pump: left a command behind that had not answered after %v", pumpWait)
+		return nil
 	}
 	if msg == nil {
-		return
+		return nil
 	}
 	// A batch or a sequence is a list of commands.
 	if v := reflect.ValueOf(msg); v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeOf(tea.Cmd(nil)) {
 		for i := range v.Len() {
 			pump(t, m, v.Index(i).Interface().(tea.Cmd))
 		}
-		return
+		return msg
 	}
-	if _, quit := msg.(tea.QuitMsg); quit {
-		return
+	switch msg.(type) {
+	case tea.QuitMsg, tickMsg, runTickMsg:
+		// The end of the program, and timers, which would go round for ever.
+		return msg
 	}
 	_, next := m.Update(msg)
 	pump(t, m, next)
+	return msg
 }
 
-// hit sends a key to the model and pumps what comes of it.
+// hit sends keys to the model and pumps what comes of each.
 func hit(t *testing.T, m *Model, keys ...string) {
 	t.Helper()
 	for _, k := range keys {
-		_, cmd := m.Update(keyMsg(k))
-		pump(t, m, cmd)
+		press(t, m, k)
+	}
+}
+
+// held is a command started and not yet answered: what a key leads to while
+// a fake holds it back.
+type held struct{ msg chan tea.Msg }
+
+// start sends a key and starts the command it returns, as Bubble Tea would,
+// without waiting for its message.
+func start(t *testing.T, m *Model, k string) held {
+	t.Helper()
+	_, cmd := m.Update(keyMsg(k))
+	if cmd == nil {
+		t.Fatalf("%s started nothing: toast %q\n%s", k, m.toast, screen(m))
+	}
+	h := held{msg: make(chan tea.Msg, 1)}
+	go func() { h.msg <- cmd() }()
+	return h
+}
+
+// answer waits for the command's message, delivers it and pumps what comes
+// of it, whose first message it returns.
+func (h held) answer(t *testing.T, m *Model) tea.Msg {
+	t.Helper()
+	select {
+	case msg := <-h.msg:
+		_, next := m.Update(msg)
+		return pump(t, m, next)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the command did not answer")
+	}
+	return nil
+}
+
+// gate holds a fake's calls back until the test lets them go.
+type gate struct {
+	entered chan struct{} // gets a value as each call starts to wait
+	open    chan struct{} // each value sent lets one call go on
+}
+
+func newGate() *gate {
+	return &gate{entered: make(chan struct{}, 16), open: make(chan struct{})}
+}
+
+// wait holds a call until the test lets it go or ctx is cancelled, which is
+// the error it returns. A nil gate holds nothing.
+func (g *gate) wait(ctx context.Context) error {
+	if g == nil {
+		return nil
+	}
+	g.entered <- struct{}{}
+	select {
+	case <-g.open:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// reached waits until a call is being held.
+func (g *gate) reached(t *testing.T) {
+	t.Helper()
+	select {
+	case <-g.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was asked of the fake")
+	}
+}
+
+// release lets one held call go on.
+func (g *gate) release(t *testing.T) {
+	t.Helper()
+	select {
+	case g.open <- struct{}{}:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no call is being held")
 	}
 }
 
@@ -166,6 +250,9 @@ func TestEditorOnALibraryFile(t *testing.T) {
 		tagwrite.Track: {"2"}, tagwrite.Compilation: {"1"}, tagwrite.Marker: {"musicbrainz 2026-01-02"},
 	}}
 	pump(t, m, m.openEditor(file))
+	if m.edit == nil || m.edit.form == nil {
+		t.Fatalf("the editor did not open on a library file: toast %q", m.toast)
+	}
 	got := screen(m)
 	for _, want := range []string{"Will stay at:  " + filepath.Join("Singer", "Albun (2001)", "02 - Song.flac"), "musicbrainz 2026-01-02", "2001-05-06"} {
 		if !strings.Contains(got, want) {
@@ -198,7 +285,10 @@ func TestEditorEscAsksBeforeDiscardingChanges(t *testing.T) {
 	m, f, _ := editorOn(t, 104, tagwrite.Values{tagwrite.Title: {"Live"}})
 	// Keys that mean something on the tabs are text here.
 	typeText(t, m, "q1?")
-	if m.edit == nil || m.edit.title != "Liveq1?" || m.help {
+	if m.edit == nil {
+		t.Fatalf("typing closed the editor: on tab %s, toast %q", m.tab, m.toast)
+	}
+	if m.edit.title != "Liveq1?" || m.help {
 		t.Fatalf("typing did not go to the field: title %q, help %t", m.edit.title, m.help)
 	}
 	hit(t, m, "esc")
@@ -236,7 +326,7 @@ func TestEditorRefusesWhatCannotBeSaved(t *testing.T) {
 	f.saveFinish = engine.RunFinished{State: engine.StateErrors, Counters: engine.Counters{Errors: 1}}
 	hit(t, m, "ctrl+s")
 	if len(f.saved) != 1 || m.edit == nil || m.edit.saving || m.toastOK || !strings.Contains(m.toast, "has changed since it was indexed") {
-		t.Errorf("a refused save: saved %v, editor open %t, toast %q", f.saved, m.edit != nil, m.toast)
+		t.Fatalf("a refused save: saved %v, editor open %t, toast %q", f.saved, m.edit != nil, m.toast)
 	}
 	if m.edit.date != "1999" {
 		t.Errorf("the year typed was lost: %q", m.edit.date)
@@ -283,23 +373,8 @@ func TestGoldenEditor(t *testing.T) {
 // leaves the rest of the file's tags alone.
 func TestEditSaveWritesChangesAndTheMarker(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ripped.flac")
-	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(filepath.Join(dir, "tagshelf.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	run, err := st.StartRun(store.KindTUIAction, false, "", dir, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := copyFixture(t, dir, fixtures.RipperFLAC, "ripped.flac")
+	st, run := realRun(t, dir)
 
 	before, err := librarySource{}.Tags(path)
 	if err != nil || firstValue(before[tagwrite.Title]) != fixtures.Title || firstValue(before[tagwrite.Marker]) != "" {
@@ -415,8 +490,11 @@ func TestEditorRereadsTagsAfterAFailedSave(t *testing.T) {
 	f.saveEvents = []engine.Event{engine.FileError{Path: path, Op: engine.OpMove, Err: errors.New("access denied")}}
 	f.saveFinish = engine.RunFinished{State: engine.StateErrors, Counters: engine.Counters{Errors: 1}}
 	hit(t, m, "ctrl+s")
-	if m.edit == nil || len(m.edit.changes()) != 0 {
-		t.Fatalf("after the failed save: editor open %t, changes %v", m.edit != nil, m.edit.changes())
+	if m.edit == nil {
+		t.Fatalf("the editor closed on the failed save: toast %q", m.toast)
+	}
+	if got := m.edit.changes(); len(got) != 0 {
+		t.Fatalf("after the failed save the form differs from the file by %v", got)
 	}
 	hit(t, m, "backspace")
 	typeText(t, m, "A")

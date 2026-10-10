@@ -48,12 +48,20 @@ type Model struct {
 	width, height int // 0 until the first WindowSizeMsg
 	tab           Tab
 	help          bool // the key help screen is showing
+	helpScroll    int  // the first line of the help shown
 
 	loaded  bool // snap holds a first load
 	snap    Snapshot
 	version int64 // the data version snap was read at
 	locked  bool  // another process holds the library lock
 	holder  store.LockHolder
+	// have are the lists snap holds as the library was at version, and seen
+	// those it has held at all: a list no tab was showing is left as it was
+	// when the library changes, and read again when its tab shows.
+	have, seen Parts
+	lastLoad   time.Time        // when snap was read
+	now        func() time.Time // the clock, the tests' own
+	tick       func() tea.Cmd   // waits for the next poll
 
 	// Each poll carries the sequence number it was started with; a result
 	// older than one already applied is dropped.
@@ -68,8 +76,8 @@ type Model struct {
 	runner      Runner
 	run         *liveRun // the run this TUI started, nil when none is going
 	last        *lastRun // how the latest run this TUI started ended
-	confirmQuit bool     // asking whether to interrupt the run and quit
-	quitting    bool     // quit once the run has ended
+	confirmQuit bool     // asking whether to interrupt the run or action and quit
+	quitting    bool     // quit once the run and the action have ended
 
 	runs     runsTab
 	dups     dupsTab
@@ -97,7 +105,7 @@ type Model struct {
 
 // New returns a model reading from src.
 func New(src Source, h Header) *Model {
-	return &Model{src: src, header: h, loc: time.Local}
+	return &Model{src: src, header: h, loc: time.Local, now: time.Now, tick: tick}
 }
 
 // tickMsg says it is time to poll the library again.
@@ -119,16 +127,27 @@ func (m *Model) Init() tea.Cmd {
 	return m.poll(true, true)
 }
 
+// parts are the lists the tab showing needs. A flow is open over the tab it
+// was opened from.
+func (m *Model) parts() Parts {
+	return Parts{Untagged: m.tab == TabUntagged, Groups: m.tab == TabDuplicates, Runs: m.tab == TabRuns}
+}
+
 // poll checks the library's data version and lock off the UI goroutine and
-// reloads when either changed since what the model shows, or when forced.
+// reloads when either changed since what the model shows, when the tab
+// showing needs a list the model does not have, or when forced. While a run
+// is going, here or in another process, a change is only read once runReload
+// has passed since the last load.
 func (m *Model) poll(force, scheduled bool) tea.Cmd {
 	m.nextSeq++
 	seq := m.nextSeq
 	src := m.src
 	known, knownLocked, knownHolder := m.version, m.locked, m.holder
-	if !m.loaded {
+	parts := m.parts()
+	if !m.loaded || m.have.lacks(parts) {
 		force = true
 	}
+	wait := (m.run != nil || m.activeRun() != nil) && m.now().Sub(m.lastLoad) < runReload
 	return func() tea.Msg {
 		r := refreshMsg{seq: seq, scheduled: scheduled}
 		if r.version, r.err = src.DataVersion(); r.err != nil {
@@ -137,10 +156,12 @@ func (m *Model) poll(force, scheduled bool) tea.Cmd {
 		if r.holder, r.locked, r.err = src.Lock(); r.err != nil {
 			return r
 		}
-		if !force && r.version == known && r.locked == knownLocked && r.holder == knownHolder {
+		if sameLock := r.locked == knownLocked && r.holder == knownHolder; !force && sameLock && (r.version == known || wait) {
+			// A change left unread is still one to the next poll.
+			r.version = known
 			return r
 		}
-		snap, err := src.Load()
+		snap, err := src.Load(parts)
 		if err != nil {
 			r.err = err
 			return r
@@ -156,6 +177,16 @@ func tick() tea.Cmd {
 
 // Update handles a message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	// Asked to quit while a run or an action was going: now that they have
+	// ended.
+	if m.quitting && m.run == nil && m.busy == nil {
+		return m, tea.Quit
+	}
+	return m, cmd
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -169,50 +200,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.match.form.WithWidth(m.editorWidth())
 		}
 	case tickMsg:
-		return m, m.poll(false, true)
+		return m.poll(false, true)
 	case refreshMsg:
-		return m, m.refreshed(msg)
+		return m.refreshed(msg)
 	case runDoneMsg:
-		return m, m.runEnded(msg.run)
+		return m.runEnded(msg.run)
 	case runDetailMsg:
 		m.detailLoaded(msg)
 	case dupDoneMsg:
-		return m, m.dupsDone(msg)
+		return m.dupsDone(msg)
 	case untaggedDoneMsg:
-		return m, m.untaggedDone(msg)
+		return m.untaggedDone(msg)
 	case editorTagsMsg:
-		return m, m.editorLoaded(msg)
+		return m.editorLoaded(msg)
 	case editorDoneMsg:
-		return m, m.editorDone(msg)
+		return m.editorDone(msg)
 	case lookupFoundMsg:
 		m.lookupFound(msg)
 	case lookupPickedMsg:
 		m.lookupPicked(msg)
 	case lookupDoneMsg:
-		return m, m.lookupDone(msg)
+		return m.lookupDone(msg)
 	case matchFoundMsg:
 		m.matchFound(msg)
 	case matchLoadedMsg:
 		m.matchLoaded(msg)
 	case matchDoneMsg:
-		return m, m.matchDone(msg)
+		return m.matchDone(msg)
 	case undoPlanMsg:
 		m.undoPlanned(msg)
 	case undoDoneMsg:
-		return m, m.undoDone(msg)
+		return m.undoDone(msg)
 	case librarySearchMsg:
 		m.librarySearched(msg)
 	case tea.PasteMsg:
 		if m.edit == nil && m.look == nil && m.match == nil && m.undo == nil {
 			m.libraryPaste(msg.Content)
-			return m, nil
+			return nil
 		}
-		return m, m.toFlowForm(msg)
+		return m.toFlowForm(msg)
 	case libraryAlbumMsg:
-		return m, m.libraryAlbum(msg)
+		return m.libraryAlbum(msg)
 	case runTickMsg:
 		if m.run != nil {
-			return m, runTick()
+			return runTick()
 		}
 	case tea.KeyPressMsg:
 		// The offer to undo the last action lasts until the next key.
@@ -221,25 +252,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if undoable != 0 && msg.String() == "u" && !m.confirmQuit && !m.help && !m.library.typing &&
 			m.edit == nil && m.look == nil && m.match == nil && m.undo == nil {
 			m.toast, m.readErr = "", false
-			return m, m.openUndo(undoable)
+			return m.openUndo(undoable)
 		}
 		if m.edit != nil && !m.confirmQuit {
-			return m, m.editorKey(msg)
+			return m.editorKey(msg)
 		}
 		if m.look != nil && !m.confirmQuit {
-			return m, m.lookupKey(msg)
+			return m.lookupKey(msg)
 		}
 		if m.match != nil && !m.confirmQuit {
-			return m, m.matchKey(msg)
+			return m.matchKey(msg)
 		}
 		if m.undo != nil && !m.confirmQuit {
-			return m, m.undoKey(msg.String())
+			return m.undoKey(msg.String())
 		}
-		return m, m.key(msg.String())
+		// Whatever a key types goes into the query: a word an input method
+		// commits comes as one key press of several characters.
+		if m.library.typing && !m.confirmQuit && msg.Text != "" {
+			m.toast, m.readErr = "", false
+			m.library.query += msg.Text
+			return nil
+		}
+		return m.key(msg.String())
 	default:
-		return m, m.toFlowForm(msg)
+		return m.toFlowForm(msg)
 	}
-	return m, nil
+	return nil
 }
 
 // toFlowForm hands a message that is not a key to the form of the flow that
@@ -263,7 +301,7 @@ func (m *Model) toFlowForm(msg tea.Msg) tea.Cmd {
 func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	var next tea.Cmd
 	if r.scheduled {
-		next = tick()
+		next = m.tick()
 	}
 	if r.seq < m.appliedSeq {
 		return next
@@ -277,12 +315,35 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	if m.readErr {
 		m.toast, m.readErr = "", false
 	}
+	changed := r.version != m.version
 	m.version = r.version
 	m.locked, m.holder = r.locked, r.holder
-	if r.snap != nil {
-		m.snap = *r.snap
-		m.loaded = true
+	if r.snap == nil {
+		return next
+	}
+	old := m.snap
+	m.snap = *r.snap
+	m.loaded, m.lastLoad = true, m.now()
+	// The lists this load did not read stay as they were: as good as they
+	// were when the library has not changed, and out of date when it has.
+	got := m.snap.Parts
+	if changed {
+		m.have = Parts{}
+	}
+	m.have = Parts{m.have.Untagged || got.Untagged, m.have.Groups || got.Groups, m.have.Runs || got.Runs}
+	m.seen = Parts{m.seen.Untagged || got.Untagged, m.seen.Groups || got.Groups, m.seen.Runs || got.Runs}
+	cmds := []tea.Cmd{next, m.libraryReloaded()}
+	if got.Groups {
 		m.dups.follow(m.snap.Groups)
+	} else {
+		m.snap.Groups = old.Groups
+	}
+	if got.Runs {
+		cmds = append(cmds, m.runsReloaded())
+	} else {
+		m.snap.Runs = old.Runs
+	}
+	if got.Untagged {
 		m.untagged.reload(m.snap.Untagged)
 		// The file a flow is open on, as the index has it now.
 		for _, f := range m.snap.Untagged {
@@ -300,9 +361,23 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(next, m.runsReloaded(), m.libraryReloaded())
+	} else {
+		m.snap.Untagged = old.Untagged
 	}
-	return next
+	// The tab changed while this was being read.
+	if m.have.lacks(m.parts()) {
+		cmds = append(cmds, m.poll(true, false))
+	}
+	return tea.Batch(cmds...)
+}
+
+// shown reads what the tab now showing needs and does not have as the
+// library is now.
+func (m *Model) shown() tea.Cmd {
+	if m.loaded && m.have.lacks(m.parts()) {
+		return m.poll(true, false)
+	}
+	return m.libraryShown()
 }
 
 func (m *Model) key(k string) tea.Cmd {
@@ -311,12 +386,40 @@ func (m *Model) key(k string) tea.Cmd {
 		m.confirmQuit = false
 		switch k {
 		case "y", "Y":
+			// Update quits once both have ended.
 			m.quitting = true
 			m.interrupt()
+			m.stopping()
 		case "ctrl+c":
+			if m.run == nil && m.busy != nil {
+				return tea.Quit
+			}
 			m.interrupt()
 		}
 		return nil
+	}
+	if m.help {
+		page := max(m.bodyHeight()-1, 1)
+		switch k {
+		case "up", "k":
+			m.helpScroll--
+			return nil
+		case "down", "j":
+			m.helpScroll++
+			return nil
+		case "pgup":
+			m.helpScroll -= page
+			return nil
+		case "pgdown", "space":
+			m.helpScroll += page
+			return nil
+		case "home", "g":
+			m.helpScroll = 0
+			return nil
+		case "end", "G":
+			m.helpScroll = len(helpLines())
+			return nil
+		}
 	}
 	if m.tab == TabRuns && !m.help && m.loaded {
 		if cmd, ok := m.runsKey(k); ok {
@@ -358,7 +461,8 @@ func (m *Model) key(k string) tea.Cmd {
 	}
 	switch k {
 	case "q":
-		if m.run != nil {
+		// An action stopped part way is as much to ask about as a run.
+		if m.run != nil || m.busy != nil {
 			m.confirmQuit = true
 			return nil
 		}
@@ -370,7 +474,7 @@ func (m *Model) key(k string) tea.Cmd {
 		}
 		return tea.Quit
 	case "?":
-		m.help = !m.help
+		m.help, m.helpScroll = !m.help, 0
 		return nil
 	case "esc":
 		m.help = false
@@ -385,7 +489,7 @@ func (m *Model) key(k string) tea.Cmd {
 	case "shift+tab":
 		m.switchTab((m.tab + tabCount - 1) % tabCount)
 	}
-	return m.libraryShown()
+	return m.shown()
 }
 
 // switchTab shows tab t, leaving any detail open on the tab it leaves.
@@ -398,8 +502,10 @@ func (m *Model) switchTab(t Tab) {
 	m.help = false
 }
 
+// setToast shows a message under the tab. Whatever of a file's tags or name
+// it quotes is shown clean.
 func (m *Model) setToast(ok bool, format string, args ...any) {
-	m.toast = fmt.Sprintf(format, args...)
+	m.toast = clean(fmt.Sprintf(format, args...))
 	m.toastOK = ok
 	m.readErr = false
 }

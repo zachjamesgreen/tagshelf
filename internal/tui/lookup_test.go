@@ -1,10 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,9 +20,14 @@ import (
 
 // fakeMB is a MusicBrainz that answers what the test gave it.
 type fakeMB struct {
-	pages   map[int]*musicbrainz.RecordingSearch // by offset
-	release *musicbrainz.Release
-	err     error
+	pages map[int]*musicbrainz.RecordingSearch // by offset
+	// release is what a lookup of any release answers, unless releases has
+	// one for the ID asked.
+	release  *musicbrainz.Release
+	releases map[string]*musicbrainz.Release
+	err      error
+	// gate, when set, holds every request back.
+	gate *gate
 
 	// What a release match is answered with, and what it asked.
 	candidates     []musicbrainz.ReleaseCandidate
@@ -34,10 +39,10 @@ type fakeMB struct {
 	looked  []string
 }
 
-func (f *fakeMB) SearchRecordings(_ context.Context, q musicbrainz.Query, offset int) (*musicbrainz.RecordingSearch, error) {
+func (f *fakeMB) SearchRecordings(ctx context.Context, q musicbrainz.Query, offset int) (*musicbrainz.RecordingSearch, error) {
 	f.queries, f.offsets = append(f.queries, q), append(f.offsets, offset)
-	if f.err != nil {
-		return nil, f.err
+	if err := cmp.Or(f.gate.wait(ctx), f.err); err != nil {
+		return nil, err
 	}
 	if p := f.pages[offset]; p != nil {
 		return p, nil
@@ -45,18 +50,21 @@ func (f *fakeMB) SearchRecordings(_ context.Context, q musicbrainz.Query, offset
 	return &musicbrainz.RecordingSearch{}, nil
 }
 
-func (f *fakeMB) SearchReleaseCandidates(_ context.Context, q musicbrainz.ReleaseQuery, boost []musicbrainz.Query, inLibrary func(string) bool) ([]musicbrainz.ReleaseCandidate, error) {
+func (f *fakeMB) SearchReleaseCandidates(ctx context.Context, q musicbrainz.ReleaseQuery, boost []musicbrainz.Query, inLibrary func(string) bool) ([]musicbrainz.ReleaseCandidate, error) {
 	f.releaseQueries, f.boosts = append(f.releaseQueries, q), append(f.boosts, boost)
-	if f.err != nil {
-		return nil, f.err
+	if err := cmp.Or(f.gate.wait(ctx), f.err); err != nil {
+		return nil, err
 	}
 	return f.candidates, nil
 }
 
-func (f *fakeMB) LookupRelease(_ context.Context, id string) (*musicbrainz.Release, error) {
+func (f *fakeMB) LookupRelease(ctx context.Context, id string) (*musicbrainz.Release, error) {
 	f.looked = append(f.looked, id)
-	if f.err != nil {
-		return nil, f.err
+	if err := cmp.Or(f.gate.wait(ctx), f.err); err != nil {
+		return nil, err
+	}
+	if rel := f.releases[id]; rel != nil {
+		return rel, nil
 	}
 	return f.release, nil
 }
@@ -153,6 +161,9 @@ func TestLookupTagsAndMovesAFile(t *testing.T) {
 		}
 	}
 	// The official album outranks the compilation the library has.
+	if len(m.look.matches) == 0 {
+		t.Fatal("no matches to pick from")
+	}
 	if c := m.look.matches[0]; c.Release == nil || c.Release.ID != "rel-album" {
 		t.Fatalf("first match = %+v, want the album", c.Release)
 	}
@@ -311,9 +322,25 @@ func TestLookupMoreShowsAndFetchesMatches(t *testing.T) {
 	// The cursor's match stays on screen however far down it is.
 	hit(t, m, "pgdown", "pgdown", "pgdown")
 	cur := m.look.matches[m.look.cursor]
-	if got := screen(m); !strings.Contains(got, "› ") || !strings.Contains(got, cur.Title()) {
-		t.Errorf("the cursor's match %q is off screen:\n%s", cur.Title(), got)
+	if m.look.cursor < 30 || cur.Release == nil {
+		t.Fatalf("the cursor is on match %d: %+v", m.look.cursor, cur)
 	}
+	// Each title is on the list once for each of its two releases, and the
+	// breadcrumb has an arrow of its own: the line is what counts.
+	if line := cursorLine(screen(m)); !strings.Contains(line, cur.Title()) || !strings.Contains(line, cur.Release.Title) {
+		t.Errorf("the line under the cursor is %q, want %q on %q:\n%s", line, cur.Title(), cur.Release.Title, screen(m))
+	}
+}
+
+// cursorLine is the line of the screen the cursor is on: the one that
+// starts with its arrow.
+func cursorLine(screen string) string {
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.HasPrefix(line, "› ") {
+			return line
+		}
+	}
+	return ""
 }
 
 func TestLookupSaveRefusedKeepsTheLookupOpen(t *testing.T) {
@@ -351,23 +378,8 @@ func TestGoldenLookup(t *testing.T) {
 // MusicBrainz has no value for, and marks the file as picked from there.
 func TestLookupSaveWritesTheMatch(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ripped.flac")
-	data, err := os.ReadFile(fixtures.Path(fixtures.RipperFLAC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(filepath.Join(dir, "tagshelf.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	run, err := st.StartRun(store.KindTUIAction, false, "", dir, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := copyFixture(t, dir, fixtures.RipperFLAC, "ripped.flac")
+	st, run := realRun(t, dir)
 
 	mb := julie()
 	tags := musicbrainz.TagsFor(mb.release, musicbrainz.TrackRef{Medium: 0, Index: 1})
