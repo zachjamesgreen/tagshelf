@@ -42,17 +42,33 @@ func TestReadWAVFixture(t *testing.T) {
 		t.Errorf("format %q, file type %q, want %q, %q", m.Format(), m.FileType(), ID3v2_4, WAV)
 	}
 
+	// The untagged fixtures have neither an ID3 chunk nor a LIST/INFO one.
 	for _, name := range []string{"untagged.wav", fixtures.UntaggedOddWAV} {
-		m, err := ReadFrom(bytes.NewReader(fixtureBytes(t, name)))
-		if err == ErrNoTagsFound {
-			continue
+		if _, err := ReadFrom(bytes.NewReader(fixtureBytes(t, name))); err != ErrNoTagsFound {
+			t.Errorf("ReadFrom(%s) = %v, want ErrNoTagsFound", name, err)
 		}
-		if err != nil {
-			t.Fatalf("ReadFrom(%s): %v", name, err)
+	}
+}
+
+// TestReadWAVUnreadableID3Chunk is the regression test for an ID3 chunk that
+// cannot be read, which used to make the whole file unreadable even when its
+// LIST/INFO chunk had every field. Without that chunk it is still an error.
+func TestReadWAVUnreadableID3Chunk(t *testing.T) {
+	bad := wavChunk("id3 ", []byte("ID3\x09\x00\x00\x00\x00\x00\x00"))
+	info := infoList("INAM", "Info Title", "IART", "Info Artist")
+	for name, b := range map[string][]byte{
+		"ID3 before INFO": wavFile(wavFmt, wavChunk("data", []byte{0, 0}), bad, info),
+		"INFO before ID3": wavFile(wavFmt, info, wavChunk("data", []byte{0, 0}), bad),
+	} {
+		m := readFromBytes(t, name, b)
+		if m.Title() != "Info Title" || m.Artist() != "Info Artist" || m.Format() != INFO {
+			t.Errorf("%s: read %q / %q as %s, want the INFO values", name, m.Title(), m.Artist(), m.Format())
 		}
-		if m.Title() != "" || m.Artist() != "" || m.Album() != "" {
-			t.Errorf("%s has tags: %q / %q / %q", name, m.Title(), m.Artist(), m.Album())
-		}
+	}
+
+	_, err := ReadFrom(bytes.NewReader(wavFile(wavFmt, wavChunk("data", []byte{0, 0}), bad)))
+	if err == nil || err == ErrNoTagsFound {
+		t.Errorf("unreadable ID3 chunk alone: error = %v, want the chunk's error", err)
 	}
 }
 

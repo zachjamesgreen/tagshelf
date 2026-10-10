@@ -16,6 +16,15 @@ func TestGetBit(t *testing.T) {
 		if !got {
 			t.Errorf("getBit(%v, %v) = %v, expected %v", b, i, got, true)
 		}
+		// Every other bit of b is clear, and bit i of its complement.
+		for j := uint(0); j < 8; j++ {
+			if j != i && getBit(b, j) {
+				t.Errorf("getBit(%v, %v) = %v, expected %v", b, j, true, false)
+			}
+		}
+		if getBit(^b, i) {
+			t.Errorf("getBit(%v, %v) = %v, expected %v", ^b, i, true, false)
+		}
 	}
 }
 

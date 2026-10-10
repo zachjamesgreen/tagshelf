@@ -41,6 +41,27 @@ func TestExtractFixtures(t *testing.T) {
 	}
 }
 
+// TestExtractID3v22Sample reads the IDs of the ID3v2.2 sample, whose frames
+// have the three-letter names UFI and TXX.
+func TestExtractID3v22Sample(t *testing.T) {
+	f, err := os.Open("../testdata/with_tags/sample.id3v22.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	m, err := tag.ReadFrom(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Format() != tag.ID3v2_2 {
+		t.Fatalf("format %q, want %q", m.Format(), tag.ID3v2_2)
+	}
+	want := mbz.IDs{RecordingID: fixtures.RecordingID, AlbumID: fixtures.ReleaseID, AlbumArtistIDs: []string{fixtures.AlbumArtistID}}
+	if got := mbz.Extract(m); !reflect.DeepEqual(got, want) {
+		t.Errorf("Extract = %+v\nwant      %+v", got, want)
+	}
+}
+
 // fakeMetadata carries only what Extract looks at.
 type fakeMetadata struct {
 	tag.Metadata
@@ -102,16 +123,15 @@ func TestExtractRecordingPerFormat(t *testing.T) {
 }
 
 // TestExtractUFIDWinsOverTXXX: a TXXX "track id" is only a stand-in for the
-// UFID recording. Raw() is a map, so run it often enough to see both orders.
+// UFID recording. Extract reads the keys of Raw() in sorted order, so one run
+// is every run.
 func TestExtractUFIDWinsOverTXXX(t *testing.T) {
 	m := fakeMetadata{format: tag.ID3v2_4, raw: map[string]any{
 		"UFID": &tag.UFID{Provider: "http://musicbrainz.org", Identifier: []byte("ufid")},
 		"TXXX": &tag.Comm{Description: "MusicBrainz Track Id", Text: "txxx"},
 	}}
-	for range 50 {
-		if got := mbz.Extract(m).RecordingID; got != "ufid" {
-			t.Fatalf("RecordingID = %q, want the UFID's", got)
-		}
+	if got := mbz.Extract(m).RecordingID; got != "ufid" {
+		t.Fatalf("RecordingID = %q, want the UFID's", got)
 	}
 	delete(m.raw, "UFID")
 	if got := mbz.Extract(m).RecordingID; got != "txxx" {

@@ -265,7 +265,7 @@ func TestSumASFSurvivesRetag(t *testing.T) {
 // without its 50-byte header or the index that follows it.
 func TestSumASFRange(t *testing.T) {
 	packets := []byte("the data packets")
-	want := sumBytes(t, "packets", packets) // SumAll fallback: plain SHA-1
+	want := sha1Hex(packets)
 	for name, b := range map[string][]byte{
 		"bare":   asfFile(packets),
 		"tagged": asfFile(packets, asfCD("t", "a"), asfECD(asfDescriptor("WM/AlbumTitle", asfUnicode, asfString("x")))),
