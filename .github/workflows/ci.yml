@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, check and test
+    # tagshelf is a Windows program, and some of its tests only pass there.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
+
+      - name: Third-party notices are up to date
+        run: |
+          go run ./internal/notices
+          git diff --exit-code -- THIRD_PARTY_NOTICES || {
+            echo "THIRD_PARTY_NOTICES is out of date: run 'go run ./internal/notices' and commit the result."
+            exit 1
+          }
+
+      - name: Test
+        run: go test ./... -count=1 -timeout 10m
