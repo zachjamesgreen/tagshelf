@@ -2,6 +2,7 @@ package rules
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tagshelf/internal/tag"
@@ -17,9 +18,18 @@ func TestSanitizeName(t *testing.T) {
 		{"What?*<>:|", "What______"},
 		{"Trailing Dot.", "Trailing Dot"},
 		{"  Spaces  ", "Spaces"},
-		{"", "Unknown"},
-		{"...", "Unknown"},
-		{"   ", "Unknown"},
+		// The backslash is what keeps a tag from naming folders on Windows.
+		{`AC\DC`, "AC_DC"},
+		{`..\..\up`, ".._.._up"},
+		{`Say "Hi"`, "Say _Hi_"},
+		{"Tab\there", "Tab_here"},
+		{"Bell\x07 and\x1f unit", "Bell_ and_ unit"},
+		// Nothing left: a stand-in, never a word a real tag could hold.
+		{"", "_"},
+		{"...", "_"},
+		{"   ", "_"},
+		{"..", "_"},
+		{"Unknown", "Unknown"},
 	}
 
 	for _, tt := range tests {
@@ -100,6 +110,36 @@ func TestHasMusicBrainzTags(t *testing.T) {
 	}
 }
 
+// TestHasMusicBrainzTagsInTXXX covers where Picard puts the album and release
+// track IDs of an MP3: user-defined text frames named by their description.
+func TestHasMusicBrainzTagsInTXXX(t *testing.T) {
+	const id = "c83984e7-47b2-4d76-8098-b80c10a48ad1"
+	tests := []struct {
+		name string
+		raw  map[string]interface{}
+		want bool
+	}{
+		{"album ID", map[string]interface{}{"TXXX": &tag.Comm{Description: "MusicBrainz Album Id", Text: id}}, true},
+		{"release track ID, by value", map[string]interface{}{"TXXX_1": tag.Comm{Description: "MusicBrainz Release Track Id", Text: id}}, true},
+		{"ID3v2.2 frame", map[string]interface{}{"TXX": &tag.Comm{Description: "MusicBrainz Album Id", Text: id}}, true},
+		// The looser rule: any description naming MusicBrainz and a release.
+		{"release group ID", map[string]interface{}{"TXXX": &tag.Comm{Description: "MusicBrainz Release Group Id", Text: id}}, true},
+		{"empty ID", map[string]interface{}{"TXXX": &tag.Comm{Description: "MusicBrainz Album Id", Text: "  "}}, false},
+		{"nil frame", map[string]interface{}{"TXXX": (*tag.Comm)(nil)}, false},
+		{"another description", map[string]interface{}{"TXXX": &tag.Comm{Description: "replaygain_track_gain", Text: "-6 dB"}}, false},
+		{"MusicBrainz, but no release or track", map[string]interface{}{"TXXX": &tag.Comm{Description: "MusicBrainz Artist Id", Text: id}}, false},
+		// The looser rule on a plain key, as in a Vorbis comment.
+		{"plain release group key", map[string]interface{}{"MUSICBRAINZ_RELEASEGROUPID": id}, true},
+		{"plain artist key", map[string]interface{}{"MUSICBRAINZ_ARTISTID": id}, false},
+		{"plain key without a value", map[string]interface{}{"MUSICBRAINZ_ALBUMID": ""}, false},
+	}
+	for _, tt := range tests {
+		if got := HasMusicBrainzTags(&mockMetadata{raw: tt.raw}); got != tt.want {
+			t.Errorf("%s: HasMusicBrainzTags = %t, want %t", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestLibraryPath(t *testing.T) {
 	dest := filepath.Join("C:", "Lib")
 	tests := []struct {
@@ -132,6 +172,25 @@ func TestLibraryPath(t *testing.T) {
 		{"missing title", mockMetadata{albumArtist: "Singer", album: "Album"}, "", false},
 		{"missing album", mockMetadata{albumArtist: "Singer", title: "Song"}, "", false},
 		{"missing both artists", mockMetadata{album: "Album", title: "Song"}, "", false},
+		{"blank title", mockMetadata{albumArtist: "Singer", album: "Album", title: "  "}, "", false},
+
+		// "Unknown" is a value like any other, and so is one with nothing left
+		// once it is made safe: neither is a missing tag.
+		{"everything called Unknown",
+			mockMetadata{albumArtist: "Unknown", album: "Unknown", title: "Unknown", track: 1},
+			filepath.Join(dest, "Unknown", "Unknown", "01 - Unknown.mp3"), true},
+		{"track artist called Unknown",
+			mockMetadata{artist: "Unknown", album: "Album", title: "Song"},
+			filepath.Join(dest, "Unknown", "Album", "Song.mp3"), true},
+		{"only dots",
+			mockMetadata{albumArtist: "...", album: "...", title: "...", track: 2},
+			filepath.Join(dest, "_", "_", "02 - _.mp3"), true},
+		{"only dots, with a year",
+			mockMetadata{albumArtist: "Singer", album: "...", title: "?", year: 1999},
+			filepath.Join(dest, "Singer", "... (1999)", "_.mp3"), true},
+		{"compilation whose track artist is only dots",
+			mockMetadata{artist: "...", albumArtist: "VA", album: "Hits", title: "Song"},
+			filepath.Join(dest, "Comps", "Hits", "_ - Song.mp3"), true},
 
 		// Compilations
 		{"compilation by MusicBrainz ID",
@@ -160,6 +219,51 @@ func TestLibraryPath(t *testing.T) {
 		got, ok := LibraryPath(dest, "Comps", &m, ".mp3")
 		if got != tt.want || ok != tt.ok {
 			t.Errorf("%s: LibraryPath = %q, %t; want %q, %t", tt.name, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+// TestLibraryPathStaysInTheLibrary checks that no tag can name a folder: the
+// path is always the destination, an artist folder, an album folder and a
+// file, whatever separators and dots the tags hold.
+func TestLibraryPathStaysInTheLibrary(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "lib")
+	hostile := []string{
+		`..`, `.`, `...`, `..\`, `../`, `..\..\up`, `../../up`, `..\..\..\..\escaped`, `\\server\share`,
+		`C:\Windows`, `/etc/passwd`, `a\b`, `a/b`, `..\ `, ` ..`, "..\x00", `.. (x)\..`,
+	}
+	for _, value := range hostile {
+		for _, tags := range []Tags{
+			{AlbumArtist: value, Album: "Album", Title: "Song"},
+			{Artist: value, Album: "Album", Title: "Song"},
+			{AlbumArtist: "Singer", Album: value, Title: "Song"},
+			{AlbumArtist: "Singer", Album: value, Title: "Song", Year: 2001},
+			{AlbumArtist: "Singer", Album: "Album", Title: value},
+			{AlbumArtist: "Singer", Album: "Album", Title: value, Track: 3, Disc: 2},
+			{AlbumArtist: "VA", Artist: value, Album: "Album", Title: "Song"},
+			{AlbumArtist: value, Album: value, Title: value},
+		} {
+			for _, compilations := range []string{"Comps", value} {
+				got, ok := LibraryPathFor(dest, compilations, tags, ".mp3")
+				if !ok {
+					t.Errorf("LibraryPathFor(%+v) does not qualify", tags)
+					continue
+				}
+				rel, err := filepath.Rel(dest, got)
+				if err != nil {
+					t.Errorf("LibraryPathFor(%+v) = %q: %v", tags, got, err)
+					continue
+				}
+				parts := strings.Split(rel, string(filepath.Separator))
+				if len(parts) != 3 {
+					t.Errorf("LibraryPathFor(%+v) = %q: %q is not artist, album and file", tags, got, rel)
+				}
+				for _, part := range parts {
+					if part == "" || part == "." || part == ".." {
+						t.Errorf("LibraryPathFor(%+v) = %q leaves the library", tags, got)
+					}
+				}
+			}
 		}
 	}
 }

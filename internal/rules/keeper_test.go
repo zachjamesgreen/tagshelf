@@ -31,6 +31,15 @@ func TestBetterCopyOrder(t *testing.T) {
 		{"quality before location", with(func(c *Copy) { c.Bitrate, c.IndexOrder = 321, 9 }), with(func(c *Copy) { c.InLibrary, c.MusicBrainzIDs = true, 3 })},
 		{"location before tags", with(func(c *Copy) { c.InLibrary, c.IndexOrder = true, 9 }), with(func(c *Copy) { c.MusicBrainzIDs, c.Manual, c.Art = 3, true, true })},
 		{"length before location", with(func(c *Copy) { c.Length, c.IndexOrder = 203*time.Second, 9 }), with(func(c *Copy) { c.InLibrary = true })},
+		// Each neighbouring pair of the quality rules: the better copy wins on
+		// the earlier rule and loses on the later.
+		{"lossless before bitrate", with(func(c *Copy) { c.Lossless, c.Bitrate, c.IndexOrder = true, 128, 9 }), with(func(c *Copy) { c.Bitrate = 999 })},
+		{"bitrate before sample rate", with(func(c *Copy) { c.Bitrate, c.IndexOrder = 321, 9 }), with(func(c *Copy) { c.SampleRate = 48000 })},
+		{"sample rate before bit depth", with(func(c *Copy) { c.SampleRate, c.IndexOrder = 48000, 9 }), with(func(c *Copy) { c.BitDepth = 24 })},
+		{"bit depth before length", with(func(c *Copy) { c.BitDepth, c.IndexOrder = 24, 9 }), with(func(c *Copy) { c.Length = 203 * time.Second })},
+		{"bitrate before length", with(func(c *Copy) { c.Bitrate, c.IndexOrder = 321, 9 }), with(func(c *Copy) { c.Length = 203 * time.Second })},
+		{"sample rate before length", with(func(c *Copy) { c.SampleRate, c.IndexOrder = 48000, 9 }), with(func(c *Copy) { c.Length = 203 * time.Second })},
+		{"tags before index order", with(func(c *Copy) { c.Art, c.IndexOrder = true, 9 }), base},
 		{"2 s or less is no longer", with(func(c *Copy) { c.Length, c.InLibrary, c.IndexOrder = 198*time.Second, true, 9 }), base},
 	}
 	for _, tt := range tests {
