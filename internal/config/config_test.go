@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"tagshelf/internal/engine"
 )
 
 // writeConfig writes a config file named name into a new temp folder and
@@ -314,6 +316,31 @@ func TestWithDefaults(t *testing.T) {
 	explicit := Config{Destination: "d", Untagged: "u", Other: "o", Compilations: "c", Workers: 3}.WithDefaults()
 	if explicit.Untagged != "u" || explicit.Other != "o" || explicit.Compilations != "c" || explicit.Workers != 3 {
 		t.Errorf("WithDefaults must not overwrite explicit values: %+v", explicit)
+	}
+}
+
+// TestDefaultsAreTheEngines checks that the settings the CLI prints are the
+// ones a run uses: the defaults are worked out in one place, the engine's
+// options, and a Config filled in from them is not changed by a second pass.
+func TestDefaultsAreTheEngines(t *testing.T) {
+	for _, cfg := range []Config{
+		{},
+		{Destination: filepath.Join("lib", "Music")},
+		{Destination: "d", Untagged: "u", Workers: -4},
+		{Destination: "d", Other: "o", Duplicates: "x", Compilations: "c", Workers: 3},
+	} {
+		got := cfg.WithDefaults()
+		o := engine.Options{Destination: cfg.Destination, Untagged: cfg.Untagged, Other: cfg.Other, Duplicates: cfg.Duplicates,
+			Compilations: cfg.Compilations, Workers: cfg.Workers}.WithDefaults()
+		if got.Untagged != o.Untagged || got.Other != o.Other || got.Duplicates != o.Duplicates || got.Compilations != o.Compilations || got.Workers != o.Workers {
+			t.Errorf("Config%+v.WithDefaults() = %+v, want the engine's %s, %s, %s, %s, %d", cfg, got, o.Untagged, o.Other, o.Duplicates, o.Compilations, o.Workers)
+		}
+		if again := got.WithDefaults(); !reflect.DeepEqual(again, got) {
+			t.Errorf("a second WithDefaults changed %+v to %+v", got, again)
+		}
+		if got.Workers < 1 {
+			t.Errorf("Config%+v.WithDefaults() has %d workers", cfg, got.Workers)
+		}
 	}
 }
 

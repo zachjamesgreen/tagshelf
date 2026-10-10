@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"tagshelf/internal/engine"
 	"tagshelf/internal/rules"
 )
 
@@ -67,26 +67,20 @@ func (c Config) Reorganizing() bool {
 }
 
 // WithDefaults fills in the values a run needs but the caller may have left at
-// zero. It is idempotent, so both main and RunOrganizer can apply it.
+// zero: the untagged, other and duplicates folders, the compilations name and
+// the worker count. The engine's options own those defaults, so the settings
+// the CLI prints are the ones the run uses. It is idempotent.
 func (c Config) WithDefaults() Config {
-	if c.Untagged == "" && c.Destination != "" {
-		c.Untagged = filepath.Join(c.Destination, "_Untagged")
-	}
-	if c.Other == "" && c.Destination != "" {
-		c.Other = filepath.Join(c.Destination, "_Other")
-	}
-	if c.Duplicates == "" && c.Destination != "" {
-		c.Duplicates = filepath.Join(c.Destination, "_Duplicates")
-	}
-	if c.Compilations == "" {
-		c.Compilations = rules.DefaultCompilations
-	}
-	if c.Workers <= 0 {
-		c.Workers = runtime.NumCPU()
-	}
-	if c.Workers < 1 {
-		c.Workers = 1
-	}
+	o := engine.Options{
+		Destination:  c.Destination,
+		Untagged:     c.Untagged,
+		Other:        c.Other,
+		Duplicates:   c.Duplicates,
+		Compilations: c.Compilations,
+		Workers:      c.Workers,
+	}.WithDefaults()
+	c.Untagged, c.Other, c.Duplicates = o.Untagged, o.Other, o.Duplicates
+	c.Compilations, c.Workers = o.Compilations, o.Workers
 	return c
 }
 
