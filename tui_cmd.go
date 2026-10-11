@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
@@ -66,13 +67,25 @@ func tuiFlags(set *flag.FlagSet) *libraryFlags {
 // index it was started without.
 type tuiSession struct {
 	flags *libraryFlags
+
+	// mu guards what follows: the TUI opens the library again, and reads
+	// and saves the settings, off its UI goroutine.
+	mu sync.Mutex
 	// file is the config file as last read.
 	file config.File
-	// st is the library's database, nil while there is no library.
-	st *store.Store
+	// st is the library's database, nil while there is no library, and cfg
+	// the configuration it was opened by.
+	st  *store.Store
+	cfg config.Config
 }
 
 func (s *tuiSession) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeStore()
+}
+
+func (s *tuiSession) closeStore() {
 	if s.st != nil {
 		s.st.Close()
 		s.st = nil
@@ -91,13 +104,13 @@ func (s *tuiSession) settings() (cfg config.Config, none *tui.NoLibrary, err err
 		// A file named for the TUI need not be there yet: the settings are
 		// then the flags alone.
 	case err != nil:
-		return config.Config{}, &tui.NoLibrary{What: err.Error(), Todo: []string{"Fix the file, then start tagshelf tui again."}}, nil
+		return config.Config{}, &tui.NoLibrary{What: err.Error(), Todo: []string{"Fix the file in an editor, then press R on 6 Settings to read it again."}}, nil
 	}
 	cfg = f.Config.With(s.flags.overrides())
 	if cfg.Destination == "" {
-		return cfg, &tui.NoLibrary{What: "no library folder is set", Todo: []string{
-			`Start again with one, as in: tagshelf tui -dest "D:\Music"`,
-			"Or set destination in " + s.configFileToEdit() + ".",
+		return cfg, &tui.NoLibrary{What: "no library folder is set", Setting: "destination", Todo: []string{
+			"Press 6 to set it in Settings, which keeps it in " + s.configFileToEdit() + ".",
+			`Or start again with one, as in: tagshelf tui -dest "D:\Music"`,
 		}}, nil
 	}
 	cfg, err = absolutePaths(cfg.WithDefaults())
@@ -125,10 +138,12 @@ func (s *tuiSession) configFileToEdit() string {
 // is missing, and the TUI opens on that. With an error, the options still
 // name the library's folder.
 func (s *tuiSession) open() (tui.Options, error) {
-	s.close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeStore()
 	cfg, none, err := s.settings()
 	opts := tui.Options{Destination: cfg.Destination, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
-		MusicBrainzContact: cfg.MusicBrainzContact, NoLibrary: none, Reopen: s.open}
+		MusicBrainzContact: cfg.MusicBrainzContact, NoLibrary: none, Reopen: s.open, Settings: s}
 	if err != nil || none != nil {
 		opts.Destination = ""
 		return opts, err
@@ -145,7 +160,7 @@ func (s *tuiSession) open() (tui.Options, error) {
 	case err != nil:
 		return opts, err
 	}
-	s.st = st
+	s.st, s.cfg = st, cfg
 	opts.Store, opts.LibraryID = st, st.LibraryID()
 	return opts, nil
 }
@@ -180,11 +195,11 @@ func (r tuiRunner) Run(ctx context.Context, kind tui.RunKind, dryRun bool, sink 
 	switch kind {
 	case tui.RunOrganize:
 		if cfg.Source == "" {
-			return engine.RunFinished{}, &tui.StartError{What: "no source folder is set",
-				Todo: `Start tagshelf tui with one, as in -source "D:\Incoming", or set source in the config file.`}
+			return engine.RunFinished{}, &tui.StartError{What: "no source folder is set", Setting: "source",
+				Todo: `Or start tagshelf tui with one, as in -source "D:\Incoming".`}
 		}
 		if p := sourceProblem(cfg.Source); p != nil {
-			return engine.RunFinished{}, &tui.StartError{What: p.what, Todo: p.todo}
+			return engine.RunFinished{}, &tui.StartError{What: p.what, Todo: p.todo, Setting: "source"}
 		}
 	case tui.RunReorganize:
 		cfg.Source = cfg.Destination

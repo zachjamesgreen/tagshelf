@@ -61,7 +61,8 @@ func TestFormatBytes(t *testing.T) {
 }
 
 // cliEnv sets up a CLI test: log output and standard output captured
-// together, the data folder in a temp dir, and an empty config file. It
+// together, the data and settings folders in temp dirs, and an empty config
+// file. It
 // returns the temp dir, the config and what was captured.
 func cliEnv(t *testing.T) (tmp, config string, logs *bytes.Buffer) {
 	t.Helper()
@@ -70,6 +71,11 @@ func cliEnv(t *testing.T) (tmp, config string, logs *bytes.Buffer) {
 	stdout = logs
 	t.Cleanup(func() { log.SetOutput(os.Stderr); stdout = os.Stdout })
 	isolateDataDir(t)
+	// The user's own config file is this test's alone: one test saving it
+	// must not set up the next.
+	settings := t.TempDir()
+	t.Setenv("APPDATA", settings)
+	t.Setenv("XDG_CONFIG_HOME", settings)
 	tmp = t.TempDir()
 	config = filepath.Join(tmp, "empty.yaml")
 	writeFile(t, config, "")

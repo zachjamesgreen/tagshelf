@@ -82,7 +82,7 @@ func TestTestsRunAwayFromTheUsersFiles(t *testing.T) {
 	if !strings.Contains(wd, "tagshelf-test-") {
 		t.Errorf("the tests run in %q, want a temp folder", wd)
 	}
-	if user, err := config.UserPath(); err != nil || !strings.Contains(user, "tagshelf-test-") {
+	if user, err := config.UserPath(); err != nil || !strings.HasPrefix(user, os.TempDir()) {
 		t.Errorf("the user's config file is %q, %v; want one in a temp folder", user, err)
 	} else if _, err := os.Stat(user); !os.IsNotExist(err) {
 		t.Errorf("the user's config file is there before any test made it: %v", err)

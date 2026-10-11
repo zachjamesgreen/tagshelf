@@ -252,7 +252,7 @@ func (m *Model) startRun(kind RunKind) tea.Cmd {
 		return nil
 	case m.noLibrary != nil && !m.noLibrary.CanRun:
 		// What to do about it is on the screen already, under it.
-		m.refuse(kind, &StartError{What: m.noLibrary.What})
+		m.refuse(kind, &StartError{What: m.noLibrary.What, Setting: m.noLibrary.Setting})
 		return nil
 	case m.locked:
 		m.refuse(kind, &StartError{

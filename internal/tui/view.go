@@ -273,6 +273,9 @@ func (m *Model) tabBody(h int) string {
 	if m.seen.lacks(m.parts()) {
 		return dimStyle.Render("Reading the library…")
 	}
+	if m.tab == TabSettings {
+		return m.settingsBody(h)
+	}
 	if m.noLibrary != nil && m.tab != TabHome {
 		return dimStyle.Render("No library yet: see 1 Home.")
 	}
@@ -370,6 +373,9 @@ func (m *Model) toastLine() string {
 		}
 		return accentStyle.Render("Quit? y quits, n stays")
 	}
+	if q := m.settingsQuestion(); q != "" {
+		return accentStyle.Render(q)
+	}
 	if m.toast == "" {
 		return ""
 	}
@@ -380,7 +386,7 @@ func (m *Model) toastLine() string {
 }
 
 func (m *Model) keyHelp() string {
-	help := "1-5 tabs  R reload  ? help  q quit"
+	help := "1-6 tabs  R reload  ? help  q quit"
 	if m.edit != nil {
 		return "↑↓/tab field  ←→ compilation  ctrl+s save  esc back"
 	}
@@ -420,6 +426,8 @@ func (m *Model) keyHelp() string {
 		help = "esc back  ↑↓ scroll  g/G top/end  u undo   " + help
 	case m.tab == TabRuns:
 		help = "↑↓ select  enter open  u undo   " + help
+	case m.tab == TabSettings:
+		help = m.settingsHelp(help)
 	case m.tab != TabHome:
 	case m.ReadOnly():
 		if m.width >= 100 {
@@ -445,14 +453,13 @@ func (m *Model) helpBody(h int) string {
 // helpLines are the lines of the key help.
 func helpLines() []string {
 	keys := [][2]string{
-		{"1-5", "switch tab (tab next, shift+tab previous)"},
+		{"1-6", "switch tab (tab next, shift+tab previous)"},
 		{"o", "organize the configured source (Home)"},
 		{"r", "reorganize the library in place (Home)"},
 		{"i", "bring the index up to date, moving nothing (Home)"},
 		{"d", "turn dry run on or off (Home)"},
 		{"ctrl+c", "interrupt the run going on"},
-		{"space", "select the file (Untagged)"},
-		{"g", "select the file's whole group (Untagged)"},
+		{"space", "select the file, g its whole group (Untagged)"},
 		{"v", "group by original folder, album tag or nothing (Untagged)"},
 		{"a", "accept the tags of the selected files as they are (Untagged)"},
 		{"e", "edit the file's tags (Untagged, Library); ctrl+s saves"},
@@ -465,7 +472,8 @@ func helpLines() []string {
 		{"b", "keep both copies (Duplicates)"},
 		{"c", "confirm a possible group is one song (Duplicates)"},
 		{"A", "resolve all exact groups (Duplicates)"},
-		{"R", "reload the library now"},
+		{"s", "save the settings to the config file (Settings)"},
+		{"R", "reload the library now, and on Settings the config file"},
 		{"?", "show or hide this help"},
 		{"esc", "back"},
 		{"q", "quit"},

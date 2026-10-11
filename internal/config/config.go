@@ -173,6 +173,15 @@ type File struct {
 	// Skipped says why a config.yaml in the working directory was passed
 	// over, empty when none was.
 	Skipped string
+	// Text is the file as read, nil when it could not be.
+	Text []byte
+}
+
+// Parse reads the text of a config file.
+func Parse(data []byte) (Config, error) {
+	var cfg Config
+	err := parse(data, &cfg)
+	return cfg, err
 }
 
 // userDir is the folder of the user's own settings. The tests put a temp
@@ -258,7 +267,7 @@ func (f *File) read() error {
 	case err != nil:
 		return fmt.Errorf("the config file %s is not valid YAML: %w", f.Path, err)
 	}
-	f.Config = cfg
+	f.Config, f.Text = cfg, data
 	return nil
 }
 
