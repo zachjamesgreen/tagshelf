@@ -14,11 +14,13 @@ import (
 	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
 
-// commandFlags are the flag sets of the two commands, each with its help.
+// commandFlags are the flag sets of the commands, each with its help.
 func commandFlags() map[string]*libraryFlags {
 	tuiSet := flag.NewFlagSet("tagshelf tui", flag.ContinueOnError)
+	report, _ := reportFlags(flag.NewFlagSet("tagshelf report", flag.ContinueOnError))
 	return map[string]*libraryFlags{
-		"tagshelf": organizeFlags(flag.NewFlagSet("tagshelf", flag.ContinueOnError)),
+		"tagshelf report": report,
+		"tagshelf":        organizeFlags(flag.NewFlagSet("tagshelf", flag.ContinueOnError)),
 		"tagshelf tui": addLibraryFlags(tuiSet, tuiHelp, "The source `folder`.",
 			"The library `folder`.", "Dry run."),
 	}
@@ -54,16 +56,21 @@ func TestHelpScreen(t *testing.T) {
 		var out bytes.Buffer
 		flags.help.write(&out, flags.set, "")
 		got := out.String()
-		for _, want := range []string{
-			"Usage:\n  " + name + " [flags]", "Examples:\n", "\nFolders:\n",
-			"  -source <folder>  ", "  -compilations <name>  ", "  -workers <n>  ", "  -dry-run  ", "  -config <file>  ",
+		wants := []string{
+			"Usage:\n  " + name + " [flags]", "Examples:\n", "  -config <file>  ",
 			"  -h  ", "\nConfig file:\n  None: no -config was given, and this folder has no config.yaml.\n  Your own config file would be " +
 				filepath.Join(os.Getenv("APPDATA"), "tagshelf", "config.yaml") + "\n",
-			// The examples and the defaults are written as this system
-			// writes a path.
-			here(`-dest D:\Music`), here(`<dest>\_Untagged).`),
-			filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db") + ").",
-		} {
+			// The examples are written as this system writes a path.
+			here(`-dest D:\Music`),
+		}
+		if name == "tagshelf report" {
+			wants = append(wants, "\nThe report:\n", "  -o <file>  ", "  -dest <folder>  ", "  -db <file>  ")
+		} else {
+			wants = append(wants, "\nFolders:\n", "  -source <folder>  ", "  -compilations <name>  ", "  -workers <n>  ", "  -dry-run  ",
+				// So are the defaults.
+				here(`<dest>\_Untagged).`), filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db")+").")
+		}
+		for _, want := range wants {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: the help lacks %q:\n%s", name, want, got)
 			}

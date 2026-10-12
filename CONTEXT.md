@@ -12,6 +12,10 @@ _Avoid_: collection, destination (when meaning the whole set)
 tagshelf's cached record of every audio file in a library (tags, audio hash, format properties), rebuilt from the files whenever they change.
 _Avoid_: catalog, scan cache
 
+**Report**:
+The CSV list `tagshelf report` makes of every indexed audio file, a row each, with what the index knows of it. It reads the index and changes nothing.
+_Avoid_: export, scan, health check
+
 **Run**:
 One organize or reorganize pass over a library, started from the CLI or the TUI, dry or real.
 _Avoid_: job, session, pass
