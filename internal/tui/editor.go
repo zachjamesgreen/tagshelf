@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,9 +37,18 @@ type editor struct {
 	// one line would run together: it is shown, and left as it is.
 	longComment bool
 
+	// shownFields are the form's text fields and shownIDs what each edits:
+	// editorFields, without the comment when it is a long one.
+	shownFields []huh.Field
+	shownIDs    []tagwrite.Field
+
 	last    huh.Field // the form's last field, where enter saves
 	saving  bool      // a save is being carried out
 	leaving bool      // esc was pressed with changes unsaved; again discards them
+	// counting is set while the folder's files are read for the question
+	// folder then holds: whether to write a field to them all.
+	counting bool
+	folder   *folderAsk
 }
 
 // editorTagsMsg is the tags of the file the editor opened on.
@@ -185,9 +195,12 @@ func (m *Model) editorLoaded(msg editorTagsMsg) tea.Cmd {
 		input("Genre", tagwrite.Genre, &e.genre).Placeholder("several are written Rock; Jazz"),
 		input("Composer", tagwrite.Composer, &e.composer),
 	}
+	e.shownIDs = editorFields[:len(fields)]
 	if !e.longComment {
 		fields = append(fields, input("Comment", tagwrite.Comment, &e.comment))
+		e.shownIDs = editorFields
 	}
+	e.shownFields = slices.Clone(fields)
 	if tagwrite.HasCompilation(e.file.Path) {
 		fields = append(fields, huh.NewConfirm().Title("Compilation").Value(&e.compilation).Inline(true))
 	}
@@ -401,12 +414,21 @@ func (m *Model) editorKey(msg tea.KeyPressMsg) tea.Cmd {
 	if k == "ctrl+c" {
 		return m.key(k)
 	}
-	if e.saving {
+	if e.saving || e.counting {
+		return nil
+	}
+	if ask := e.folder; ask != nil {
+		e.folder = nil
+		if k == "y" {
+			return m.writeToFolder(ask)
+		}
 		return nil
 	}
 	leaving := e.leaving
 	e.leaving = false
 	switch k {
+	case "ctrl+f":
+		return m.askFolder()
 	case "esc":
 		if e.form != nil && len(e.changes()) > 0 && !leaving {
 			e.leaving = true
@@ -570,6 +592,10 @@ func (m *Model) editorBody() string {
 	switch {
 	case e.saving:
 		b.WriteString("\n  " + dimStyle.Render("Saving…") + "\n")
+	case e.counting:
+		b.WriteString("\n  " + dimStyle.Render("Reading the folder…") + "\n")
+	case e.folder != nil:
+		b.WriteString("\n  " + accentStyle.Render(wrap(e.folder.question(), max(m.width-4, 20))) + "\n")
 	case e.leaving:
 		b.WriteString("\n  " + accentStyle.Render("Unsaved changes: esc again discards them, ctrl+s saves") + "\n")
 	}

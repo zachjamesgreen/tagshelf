@@ -243,6 +243,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.editorLoaded(msg)
 	case editorDoneMsg:
 		return m.editorDone(msg)
+	case editorFolderMsg:
+		m.editorFolder(msg)
+	case editorFolderDoneMsg:
+		return m.editorFolderDone(msg)
 	case lookupFoundMsg:
 		m.lookupFound(msg)
 	case lookupPickedMsg:
