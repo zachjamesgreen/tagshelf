@@ -108,6 +108,9 @@ type settingsTab struct {
 	cursor  int
 
 	input *lineInput // the value being typed, nil when none is
+	// picker is the folder picker, open for the setting under the cursor,
+	// nil when it is not.
+	picker *folderPicker
 	// hint says what the folder being typed is on the disk; hintSeq is the
 	// last request for one.
 	hint    string
@@ -177,6 +180,7 @@ func (m *Model) settingsLoaded(msg settingsLoadedMsg) {
 	s.loaded, s.loading = true, false
 	s.file, s.values = msg.file, msg.file.Config
 	s.input, s.hint, s.problems, s.confirm, s.leave = nil, "", maps.Clone(msg.file.Problems), nil, ""
+	s.picker = nil
 }
 
 // settingsTo puts the cursor on the setting with the given key.
@@ -252,6 +256,13 @@ func (m *Model) settingsKey(k string) (cmd tea.Cmd, ok bool) {
 		s.cursor = len(settingRows) - 1
 	case "enter", "space":
 		return m.settingsChange(), true
+	case "b":
+		if s.row().kind != kindFolder {
+			m.setToast(false, "Only a folder can be picked: enter changes this setting")
+			return nil, true
+		}
+		value, _ := s.values.Values()[s.row().key].(string)
+		return m.openPicker(value), true
 	case "esc":
 		if s.dirty() {
 			s.values, s.problems = s.file.Config, maps.Clone(s.file.Problems)
@@ -321,6 +332,11 @@ func (m *Model) settingsType(msg tea.KeyPressMsg) tea.Cmd {
 	case "tab":
 		if row.kind == kindFolder || row.kind == kindFile {
 			s.input.set(completePath(s.input.String(), row.kind == kindFolder))
+		}
+	case "ctrl+o":
+		// From typing to picking, at the folder typed so far.
+		if row.kind == kindFolder {
+			return m.openPicker(strings.Trim(strings.TrimSpace(s.input.String()), `"`))
 		}
 	default:
 		s.input.key(msg)
@@ -534,6 +550,8 @@ func (m *Model) settingsBody(h int) string {
 		return dimStyle.Render("Settings cannot be changed from here.")
 	case !s.loaded:
 		return dimStyle.Render("Reading the config file…")
+	case s.picker != nil:
+		return m.pickerBody()
 	}
 	w := max(m.width, 40)
 	var b strings.Builder
@@ -637,12 +655,19 @@ func (m *Model) settingsQuestion() string {
 func (m *Model) settingsHelp(rest string) string {
 	s := &m.settings
 	switch {
-	case s.input != nil && (s.row().kind == kindFolder || s.row().kind == kindFile):
+	case s.picker != nil:
+		return m.pickerHelp()
+	case s.input != nil && s.row().kind == kindFolder:
+		return "type or paste a path  tab complete  ctrl+o pick  enter done  esc cancel"
+	case s.input != nil && s.row().kind == kindFile:
 		return "type or paste a path  tab complete  enter done  esc cancel"
 	case s.input != nil:
 		return "type or paste  enter done  esc cancel"
 	case !s.loaded || s.file.Problem != "":
 		return rest
+	}
+	if s.row().kind == kindFolder {
+		return "↑↓ move  enter type  b pick a folder  s save  esc drop changes   " + rest
 	}
 	return "↑↓ move  enter change  s save  esc drop changes   " + rest
 }

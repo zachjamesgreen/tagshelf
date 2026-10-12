@@ -234,6 +234,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.seq == m.settings.hintSeq && m.settings.input != nil {
 			m.settings.hint = msg.text
 		}
+	case pickerReadMsg:
+		m.pickerRead(msg)
+	case pickerMadeMsg:
+		return m.pickerMade(msg)
 	case runDoneMsg:
 		return m.runEnded(msg.run)
 	case runDetailMsg:
@@ -300,6 +304,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		if m.undo != nil && !m.confirmQuit {
 			return m.undoKey(msg.String())
+		}
+		if m.tab == TabSettings && m.settings.picker != nil && !m.confirmQuit && !m.help {
+			return m.pickerKey(msg)
 		}
 		if m.tab == TabSettings && m.settings.input != nil && !m.confirmQuit && !m.help {
 			return m.settingsType(msg)
