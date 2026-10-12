@@ -118,7 +118,7 @@ tagshelf -reorganize D:\Music -dry-run
 A file **qualifies** for the library when it has both:
 
 - an artist, an album and a title; and
-- either MusicBrainz IDs in its tags (as [MusicBrainz Picard](https://picard.musicbrainz.org/) writes them), or tagshelf's **manual marker**, which tagshelf writes when you edit a file's tags, pick a MusicBrainz match, or accept its tags as they are in the terminal UI.
+- either MusicBrainz IDs in its tags (as [MusicBrainz Picard](https://picard.musicbrainz.org/) writes them), or tagshelf's **manual marker**, which tagshelf writes when you edit the tags a file is filed under, pick a MusicBrainz match, or accept its tags as they are in the terminal UI.
 
 Tags that a CD ripper or a download came with do not qualify on their own, however complete they look. That is deliberate: those are the tags that are most often wrong, and the terminal UI lets you accept them in one key press when they are right.
 
@@ -297,6 +297,7 @@ dry_run: true
 | `verbose` | `false` | Print a line for every file. |
 | `cue_rewrite` | `true` | Fix the `FILE` lines of moved cue sheets. |
 | `musicbrainz_contact` | none | An email address or URL for MusicBrainz. Lookups are off until it is set. |
+| `genre_from_musicbrainz` | `fill` | What a MusicBrainz match does with the genre: `fill` writes it to a file that has none, `replace` writes it whenever MusicBrainz has one, `off` never writes it. |
 | `database` | see below | The database file. |
 
 A key tagshelf does not know stops the run and is named in the message, so a misspelt `dry_run` is never silently ignored.
@@ -357,7 +358,7 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | `space`, `g` | Select the file, or its whole group. |
 | `v` | Group by original folder, by album tag, or not at all. |
 | `a` | Accept the tags of the selected files as they are. |
-| `e` | Edit the file's tags. `ctrl+s` saves. |
+| `e` | Edit the file's tags. `ctrl+s` saves; `ctrl+f` writes the field under the cursor to every file in the folder. |
 | `l` | Look the file up on MusicBrainz. |
 | `L` | Match the selection or group to a MusicBrainz release, all at once. |
 | **Duplicates** | |
@@ -378,6 +379,15 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | `esc` | Drop the changes that are not saved. |
 
 Once a file's tags qualify, saving them also moves it into the library. Every save shows where the file will go before you confirm.
+
+### The tag editor
+
+`e` on a file opens its tags: title, artist, album artist, album, year, track, disc, genre, composer, comment, and whether it is a compilation.
+
+- **Several genres or composers** are written with a semicolon between them, as in `Rock; Jazz`, and saved as separate values.
+- **A comment of several lines** is shown by its first line and left as it is.
+- **What marks a file.** Changing a tag the file is filed under (title, artist, album artist, album, year, track, disc, compilation) marks it as tagged by hand, and so does saving the form without a change, which vouches for the tags as they are. Changing only the genre, the composer or the comment does not: it says nothing of whether the other tags are right, so a ripper's file stays in `_Untagged`. The editor says which it will be before you save.
+- **The whole folder at once.** `ctrl+f` on the album artist, album, year, genre, composer or comment asks, with the number of files, and then writes that field to every file in the same folder. An emptied field takes the tag off them all. It is one action, which `u` undoes whole. The editor closes afterwards, so save or take back any other change first.
 
 ### Settings
 
@@ -406,6 +416,8 @@ The contact is sent to MusicBrainz in the `User-Agent` header of each request an
 
 - **Look up one file (`l`)**: searches by the file's tags, or by its file name when it has none. You pick a recording and a release, see the tags before and after, and confirm.
 - **Match a release (`L`)**: tags a whole album at once. tagshelf puts each file on a track by title, number and length; you can move files between tracks before confirming.
+
+A match also brings the **genre**, where MusicBrainz has one. The votes for each genre are added up over the recording, the release and its release group; of the five with the most votes, those with at least nine tenths of the leader's are written, each word with a capital, as [Picard](https://picard.musicbrainz.org/) picks them. By default a genre is only written to a file that has none. `genre_from_musicbrainz: replace` writes it over the file's own, and `off` leaves genres alone. A match that has no genre never takes one away. The composer and the comment are not looked up; they are yours to type.
 
 ## Undo
 

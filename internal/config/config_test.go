@@ -47,6 +47,7 @@ dry_run: true
 verbose: true
 cue_rewrite: false
 musicbrainz_contact: "me@example.com"
+genre_from_musicbrainz: replace
 database: "C:\\Data\\music.db"
 `
 
@@ -55,7 +56,7 @@ func wantEveryKey() Config {
 	return Config{
 		Source: `C:\MusicSource`, Destination: `C:\MusicDest`, Untagged: `C:\MusicUntagged`, Other: `C:\MusicOther`,
 		Duplicates: `C:\MusicDuplicates`, AutoResolveExact: &off, Compilations: "Compilations", Workers: 4,
-		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", Database: `C:\Data\music.db`,
+		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "replace", Database: `C:\Data\music.db`,
 	}
 }
 
@@ -410,5 +411,21 @@ func TestLoadConfigDatabase(t *testing.T) {
 	}
 	if cfg.Database != `D:\other.db` {
 		t.Errorf("Expected -db to override the database, got %q", cfg.Database)
+	}
+}
+
+// TestGenreMode checks what a MusicBrainz match does with the genre: fill
+// unless the setting says otherwise, and a value that is none of the three
+// is a problem to put right before the settings are saved.
+func TestGenreMode(t *testing.T) {
+	for value, want := range map[string]string{"": GenreFill, "fill": GenreFill, " Replace ": GenreReplace, "OFF": GenreOff, "always": "always"} {
+		c := Config{GenreFromMusicBrainz: value}
+		if got := c.GenreMode(); got != want {
+			t.Errorf("GenreMode with %q = %q, want %q", value, got, want)
+		}
+		problem := Check(c)["genre_from_musicbrainz"]
+		if bad := value == "always"; (problem != "") != bad {
+			t.Errorf("with %q the problem is %q", value, problem)
+		}
 	}
 }

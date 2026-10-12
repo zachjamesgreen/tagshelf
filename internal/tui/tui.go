@@ -28,6 +28,9 @@ type Options struct {
 	// MusicBrainzContact is the email address or URL MusicBrainz lookups
 	// identify themselves with; lookups are off while it is empty.
 	MusicBrainzContact string
+	// GenreFromMusicBrainz is what a match does with the genre: config's
+	// GenreOff, GenreFill or GenreReplace.
+	GenreFromMusicBrainz string
 	// Runner does the runs started from Home; nil disables them.
 	Runner Runner
 	// NoLibrary says why Store is nil.

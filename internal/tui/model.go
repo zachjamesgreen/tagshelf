@@ -112,6 +112,9 @@ type Model struct {
 	lookSeq int // the last sequence number given to a lookup's request
 
 	compilations string // the folder name compilations are filed under
+	// genreMode is what a MusicBrainz match does with the genre: config's
+	// GenreOff, GenreFill or GenreReplace. Empty is GenreFill.
+	genreMode string
 
 	// busy is closed when the action a tab is carrying out on the library has
 	// ended, nil when none is.

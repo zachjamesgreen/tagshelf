@@ -24,6 +24,14 @@ _Avoid_: job, session, pass
 A file whose tags a person chose in tagshelf, either typed by hand or picked from a MusicBrainz lookup, as opposed to tags written by a ripper or Picard.
 _Avoid_: hand-tagged (when a MusicBrainz pick is meant too), user-tagged
 
+**Placing tag**:
+A tag that decides where a file belongs: one its path in the library is made from (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID. A save that changes one makes the file manually tagged; a save of its genre, composer or comment alone does not.
+_Avoid_: core tag, main tag
+
+**Folder write**:
+Writing one field of the tag editor to every file in the folder of the file being edited, as one action.
+_Avoid_: batch edit, apply to album, copy to all
+
 **Manual marker**:
 The tag in a file that records it as manually tagged, with how (hand or MusicBrainz) and when.
 _Avoid_: manual flag, tagshelf tag

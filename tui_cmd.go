@@ -156,7 +156,8 @@ func (s *tuiSession) open() (tui.Options, error) {
 	s.closeStore()
 	cfg, none, err := s.settings()
 	opts := tui.Options{Destination: cfg.Destination, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
-		MusicBrainzContact: cfg.MusicBrainzContact, NoLibrary: none, Reopen: s.open, Settings: s}
+		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(),
+		NoLibrary: none, Reopen: s.open, Settings: s}
 	if err != nil || none != nil {
 		opts.Destination = ""
 		return opts, err

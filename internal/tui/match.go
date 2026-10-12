@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
+	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/marker"
 	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
@@ -316,16 +317,25 @@ func (m *Model) confirmMatch() tea.Cmd {
 		return nil
 	}
 	values := make(map[int64]tagwrite.Values)
+	genres := make(map[int64][]string)
 	var ids []int64
 	for _, a := range x.mapping.Assignments {
 		id := x.files[a.File].ID
 		ids = append(ids, id)
 		values[id] = x.values(a)
+		genres[id] = musicbrainz.TagsFor(x.release, a.Track).Genres
 	}
 	x.step = matchSaving
 	mark := marker.New(marker.MusicBrainz, time.Now())
+	mode := m.genreMode
 	save := func(st *store.Store, runID int64, f store.File) error {
-		_, err := tagwrite.Writer{History: st, RunID: runID}.Save(f.Path, values[f.ID], mark)
+		v := values[f.ID]
+		if g := genres[f.ID]; len(g) > 0 && mode != config.GenreOff {
+			// Whether the file has a genre to keep is read now, from the
+			// file as the save finds it.
+			v = withGenres(v, g, mode, genresOf(f.Path))
+		}
+		_, err := tagwrite.Writer{History: st, RunID: runID}.Save(f.Path, v, mark)
 		return err
 	}
 	return m.saveMany(ids, save, func(moved []string, warnings string, finish engine.RunFinished, err error) tea.Msg {

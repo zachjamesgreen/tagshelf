@@ -42,6 +42,12 @@ type Tags struct {
 	AlbumArtistIDs []string // musicbrainz_albumartistid, multi-valued
 	ArtistIDs      []string // musicbrainz_artistid, multi-valued
 	ReleaseGroupID string   // musicbrainz_releasegroupid
+
+	// Genres are the genres MusicBrainz has for the track (see GenresFor),
+	// nil when it has none. They are not written as the other fields are:
+	// whether they are, and over a genre the file has, is a setting, and
+	// none never clears the file's.
+	Genres []string
 }
 
 // TagsFor maps track ref of a looked-up release to the tags written for it,
@@ -66,6 +72,7 @@ func TagsFor(rel *Release, ref TrackRef) Tags {
 		AlbumArtistIDs: artistIDs(rel.ArtistCredit),
 		ArtistIDs:      artistIDs(t.ArtistCredit),
 		ReleaseGroupID: rel.ReleaseGroup.ID,
+		Genres:         GenresFor(rel, ref),
 	}
 	if tags.TrackTotal == 0 {
 		tags.TrackTotal = len(medium.Tracks)

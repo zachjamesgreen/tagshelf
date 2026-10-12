@@ -15,11 +15,11 @@ Settings  C:\Users\me\AppData\Roaming\tagshelf\config.yaml  unsaved changes
     Files at once        0  one for each CPU
     Verbose              off
     MusicBrainz contact  (not set: lookups are off)
+    MusicBrainz genre    (fill)
     Database file        (kept under %LOCALAPPDATA%\tagshelf, by the library's ID)
 
 The library: the folder the music is organized into.
 A flag sets this to E:\Other for this session. What you change here is the file, for the next time.
-
 
 
 

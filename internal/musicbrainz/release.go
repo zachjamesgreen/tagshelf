@@ -14,8 +14,10 @@ import (
 	"strings"
 )
 
-// releaseInc is what a release lookup includes: everything the tags come from.
-const releaseInc = "artist-credits+recordings+release-groups+media"
+// releaseInc is what a release lookup includes: everything the tags come
+// from. With genres, the release, its release group and its recordings each
+// list theirs.
+const releaseInc = "artist-credits+recordings+release-groups+media+genres"
 
 // MaxBoostFiles is how many files of a release match get a recording search
 // to boost the release candidates.

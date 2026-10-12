@@ -124,8 +124,8 @@ func TestEditorFolderWriteRefusals(t *testing.T) {
 	toField(t, m, tagwrite.Genre)
 	typeText(t, m, "Jazz")
 	hit(t, m, "ctrl+f")
-	if !strings.Contains(m.toast, "Save the other changes first") || m.edit.folder != nil {
-		t.Errorf("with the title changed too: toast %q", m.toast)
+	if !strings.Contains(m.toast, "Save the other changes first") || m.edit.folder != nil || len(f.saved) != 0 {
+		t.Errorf("with the title changed too: toast %q, saved %v", m.toast, f.saved)
 	}
 
 	m, f, _ = folderEditor(t)

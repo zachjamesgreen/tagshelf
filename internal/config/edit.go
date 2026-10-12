@@ -327,6 +327,11 @@ func Check(c Config) map[string]string {
 	if msg := folderNameProblem(c.Compilations); msg != "" {
 		problems["compilations"] = msg
 	}
+	switch c.GenreMode() {
+	case GenreOff, GenreFill, GenreReplace:
+	default:
+		problems["genre_from_musicbrainz"] = "must be off, fill or replace"
+	}
 
 	// A path this system cannot read as it is written, and the folders with
 	// ~ put in full, as a run would use them.

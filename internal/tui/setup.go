@@ -86,6 +86,7 @@ func (m *Model) open(opts Options, first bool) {
 	}
 	m.runner = opts.Runner
 	m.compilations = opts.Compilations
+	m.genreMode = opts.GenreFromMusicBrainz
 	m.mb = nil
 	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
 		m.mb = client

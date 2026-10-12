@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
+	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/marker"
 	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
@@ -401,13 +404,40 @@ var lookupFields = []struct {
 }{
 	{tagwrite.Title, "Title"}, {tagwrite.Artist, "Artist"}, {tagwrite.AlbumArtist, "Album artist"}, {tagwrite.Album, "Album"},
 	{tagwrite.Date, "Date"}, {tagwrite.Track, "Track"}, {tagwrite.Disc, "Disc"}, {tagwrite.Compilation, "Compilation"},
+	{tagwrite.Genre, "Genre"},
 	{tagwrite.RecordingID, "Recording ID"}, {tagwrite.ReleaseTrackID, "Track ID"}, {tagwrite.AlbumID, "Release ID"},
 	{tagwrite.ReleaseGroupID, "Release group ID"}, {tagwrite.ArtistIDs, "Artist IDs"}, {tagwrite.AlbumArtistIDs, "Album artist IDs"},
 }
 
 // lookupIDsFrom is where in lookupFields the MusicBrainz IDs start; the
 // fields before it are the ones a person reads.
-const lookupIDsFrom = 8
+const lookupIDsFrom = 9
+
+// withGenres is values with the genres MusicBrainz has for the match, when
+// the setting mode has a match write them to a file whose genres are has:
+// always, or only when it has none. With no genres from MusicBrainz the
+// file's own are never touched.
+func withGenres(values tagwrite.Values, genres []string, mode string, has []string) tagwrite.Values {
+	switch {
+	case len(genres) == 0, mode == config.GenreOff:
+		return values
+	case mode == config.GenreReplace, len(has) == 0:
+		values = maps.Clone(values)
+		values[tagwrite.Genre] = slices.Clone(genres)
+	}
+	return values
+}
+
+// genresOf reads the genres the file at path has now, for a save that fills
+// in a missing genre to know whether it is missing. A file that cannot be
+// read is taken to have one: its genre is then left alone.
+func genresOf(path string) []string {
+	v, err := tagwrite.Read(path)
+	if err != nil {
+		return []string{"?"}
+	}
+	return v[tagwrite.Genre]
+}
 
 // lookupValues are the tags t as a save takes them: every field a match
 // writes is there, and one MusicBrainz has no value for is cleared.
@@ -445,6 +475,12 @@ func lookupValues(t musicbrainz.Tags, path string) tagwrite.Values {
 	return v
 }
 
+// lookupWrites are the tags the picked match would write to the file: the
+// match's, and its genres when the setting has them written.
+func (m *Model) lookupWrites(l *lookup) tagwrite.Values {
+	return withGenres(lookupValues(l.tags, l.file.Path), l.tags.Genres, m.genreMode, l.orig[tagwrite.Genre])
+}
+
 // lookupSave is the tag save of a confirmed match: its tags and the manual
 // marker, saying a person picked them from MusicBrainz.
 func lookupSave(values tagwrite.Values, now time.Time) engine.TagSave {
@@ -463,7 +499,7 @@ func (m *Model) confirmLookup() tea.Cmd {
 		return nil
 	}
 	l.step = stepSaving
-	save := lookupSave(lookupValues(l.tags, l.file.Path), time.Now())
+	save := lookupSave(m.lookupWrites(l), time.Now())
 	return m.saveOne(l.file.ID, save, func(s saved) tea.Msg { return lookupDoneMsg{s} })
 }
 
@@ -744,7 +780,7 @@ func (m *Model) diffBody(b *strings.Builder) {
 		what += ", on " + c.Release.Title
 	}
 	b.WriteString("  " + boldStyle.Render("Tag it as ") + clean(what) + "\n\n")
-	values := lookupValues(l.tags, l.file.Path)
+	values := m.lookupWrites(l)
 	valueW := max((m.width-2-17-4)/2, 12)
 	show := showValues
 	changed := 0

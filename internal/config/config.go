@@ -44,10 +44,30 @@ type Config struct {
 	// MusicBrainzContact is the email address or URL sent in the MusicBrainz
 	// User-Agent. MusicBrainz lookups are disabled while it is empty.
 	MusicBrainzContact string `yaml:"musicbrainz_contact"`
+	// GenreFromMusicBrainz says what a MusicBrainz match does with the
+	// genre: GenreOff, GenreFill or GenreReplace. Empty means the default,
+	// GenreFill.
+	GenreFromMusicBrainz string `yaml:"genre_from_musicbrainz"`
 
 	// Database is the library's database file. Empty means the default
 	// location for the library's ID.
 	Database string `yaml:"database"`
+}
+
+// What a MusicBrainz match does with a file's genre.
+const (
+	GenreOff     = "off"     // nothing: the genre is left as it is
+	GenreFill    = "fill"    // writes MusicBrainz's genres to a file that has none
+	GenreReplace = "replace" // writes them whenever MusicBrainz has any
+)
+
+// GenreMode is what a MusicBrainz match does with the genre: one of GenreOff,
+// GenreFill and GenreReplace.
+func (c Config) GenreMode() string {
+	if mode := strings.ToLower(strings.TrimSpace(c.GenreFromMusicBrainz)); mode != "" {
+		return mode
+	}
+	return GenreFill
 }
 
 // RewriteCues reports whether moved cue sheets get their FILE lines fixed.
