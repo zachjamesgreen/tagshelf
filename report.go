@@ -138,7 +138,7 @@ func writeReportFile(path string, rep report) (err error) {
 // about the file as the index has it; the report passes no judgement.
 var reportColumns = []string{
 	"folder", "path", "format", "lossless", "bitrate_kbps", "sample_rate_hz", "bit_depth", "length_seconds", "size_bytes",
-	"artist", "album_artist", "album", "title", "year", "track", "disc",
+	"artist", "album_artist", "album", "title", "year", "track", "disc", "genre", "composer",
 	"musicbrainz_release_id", "musicbrainz_recording_id", "manual_marker", "embedded_art", "duplicate_group", "read_error",
 }
 
@@ -221,7 +221,7 @@ func buildReport(files []store.File, groups []store.Group) report {
 		rep.rows = append(rep.rows, []string{
 			string(f.RootKind), f.Path, f.Format, yesNo(f.Lossless), number(f.Bitrate), number(f.SampleRate), number(f.BitDepth),
 			number(int(math.Round(f.Length.Seconds()))), strconv.FormatInt(f.Size, 10),
-			f.Artist, f.AlbumArtist, f.Album, f.Title, number(f.Year), number(f.Track), number(f.Disc),
+			f.Artist, f.AlbumArtist, f.Album, f.Title, number(f.Year), number(f.Track), number(f.Disc), f.Genre, f.Composer,
 			f.ReleaseID, f.RecordingID, f.Manual, yesNo(f.HasArt), strings.Join(inGroups[f.ID], "; "), f.ReadError,
 		})
 	}

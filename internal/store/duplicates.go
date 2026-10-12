@@ -217,7 +217,8 @@ const briefColumns = `f.id, f.root_id, r.kind, f.rel_path, r.path, f.format,
 	f.artist, f.album_artist, f.album, f.title, f.track, f.track_total, f.disc, f.disc_total, f.year,
 	f.mb_release_id, f.mb_release_track_id, f.mb_recording_id, f.manual,
 	f.lossless, f.bitrate, f.sample_rate, f.bit_depth, f.channels, f.length_ms,
-	f.audio_sum, f.size, f.mtime, f.indexed_at, CASE WHEN f.has_art IS NULL THEN f.tags_json ELSE '' END, f.read_error, f.has_art`
+	f.audio_sum, f.size, f.mtime, f.indexed_at, CASE WHEN f.has_art IS NULL THEN f.tags_json ELSE '' END, f.read_error, f.has_art,
+	COALESCE(f.genre, ''), COALESCE(f.composer, '')`
 
 // fillGroups reads the given columns of the files of groups, which
 // groupKeys made with only their IDs.

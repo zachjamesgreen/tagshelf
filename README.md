@@ -248,7 +248,7 @@ The report covers the library, `_Untagged`, `_Duplicates` and `_Other`; the `fol
 | `path` | The full path of the file. |
 | `format`, `lossless` | The file type, and `yes` or `no`. |
 | `bitrate_kbps`, `sample_rate_hz`, `bit_depth`, `length_seconds`, `size_bytes` | The audio's measures. One that is not known is left empty. |
-| `artist`, `album_artist`, `album`, `title`, `year`, `track`, `disc` | The tags. |
+| `artist`, `album_artist`, `album`, `title`, `year`, `track`, `disc`, `genre`, `composer` | The tags. Several genres or composers are joined by `; `. |
 | `musicbrainz_release_id`, `musicbrainz_recording_id` | The MusicBrainz IDs in the tags. |
 | `manual_marker` | The manual marker, such as `hand 2026-09-27`, for a file that is manually tagged. |
 | `embedded_art` | `yes` when the file holds a picture. A cover image beside the file does not count. |

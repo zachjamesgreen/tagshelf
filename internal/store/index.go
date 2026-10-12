@@ -49,6 +49,9 @@ type File struct {
 	Disc        int
 	DiscTotal   int
 	Year        int
+	// Genre and Composer hold every value of the tag, joined by ListSeparator.
+	Genre    string
+	Composer string
 
 	ReleaseID      string
 	ReleaseTrackID string
@@ -72,6 +75,10 @@ type File struct {
 	HasArt    bool
 	ReadError string // what could not be read, "" when everything was
 }
+
+// ListSeparator joins the values of a tag that holds several, such as two
+// genres, where they are kept or shown as one text.
+const ListSeparator = "; "
 
 // FileStat is what freshness checks compare: a row's identity, size and
 // modification time, and the audio hash it was indexed with ("" when the
@@ -178,8 +185,8 @@ func (s *Store) PutFiles(files []File) error {
 		artist, album_artist, album, title, track, track_total, disc, disc_total, year,
 		mb_release_id, mb_release_track_id, mb_recording_id, manual,
 		lossless, bitrate, sample_rate, bit_depth, channels, length_ms,
-		audio_sum, size, mtime, indexed_at, tags_json, read_error, has_art)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		audio_sum, size, mtime, indexed_at, tags_json, read_error, has_art, genre, composer)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (root_id, path_key) DO UPDATE SET rel_path = excluded.rel_path, format = excluded.format,
 		artist = excluded.artist, album_artist = excluded.album_artist, album = excluded.album, title = excluded.title,
 		track = excluded.track, track_total = excluded.track_total, disc = excluded.disc, disc_total = excluded.disc_total,
@@ -188,7 +195,8 @@ func (s *Store) PutFiles(files []File) error {
 		bitrate = excluded.bitrate, sample_rate = excluded.sample_rate, bit_depth = excluded.bit_depth,
 		channels = excluded.channels, length_ms = excluded.length_ms, audio_sum = excluded.audio_sum,
 		size = excluded.size, mtime = excluded.mtime, indexed_at = excluded.indexed_at,
-		tags_json = excluded.tags_json, read_error = excluded.read_error, has_art = excluded.has_art`)
+		tags_json = excluded.tags_json, read_error = excluded.read_error, has_art = excluded.has_art,
+		genre = excluded.genre, composer = excluded.composer`)
 	if err != nil {
 		return fmt.Errorf("writing the index: %w", err)
 	}
@@ -210,7 +218,7 @@ func (s *Store) PutFiles(files []File) error {
 			f.Artist, f.AlbumArtist, f.Album, f.Title, f.Track, f.TrackTotal, f.Disc, f.DiscTotal, f.Year,
 			f.ReleaseID, f.ReleaseTrackID, f.RecordingID, f.Manual,
 			f.Lossless, f.Bitrate, f.SampleRate, f.BitDepth, f.Channels, f.Length.Milliseconds(),
-			sum, f.Size, f.ModTime.UnixNano(), formatTime(indexedAt), tags, f.ReadError, f.HasArt); err != nil {
+			sum, f.Size, f.ModTime.UnixNano(), formatTime(indexedAt), tags, f.ReadError, f.HasArt, f.Genre, f.Composer); err != nil {
 			return fmt.Errorf("indexing %q: %w", f.RelPath, err)
 		}
 	}
@@ -252,7 +260,8 @@ const fileColumns = `f.id, f.root_id, r.kind, f.rel_path, r.path, f.format,
 	f.artist, f.album_artist, f.album, f.title, f.track, f.track_total, f.disc, f.disc_total, f.year,
 	f.mb_release_id, f.mb_release_track_id, f.mb_recording_id, f.manual,
 	f.lossless, f.bitrate, f.sample_rate, f.bit_depth, f.channels, f.length_ms,
-	f.audio_sum, f.size, f.mtime, f.indexed_at, f.tags_json, f.read_error, f.has_art`
+	f.audio_sum, f.size, f.mtime, f.indexed_at, f.tags_json, f.read_error, f.has_art,
+	COALESCE(f.genre, ''), COALESCE(f.composer, '')`
 
 // Files lists every indexed file, in the order they were first indexed.
 func (s *Store) Files() ([]File, error) {
@@ -292,7 +301,7 @@ func (s *Store) queryFiles(query string, args ...any) ([]File, error) {
 			&f.Artist, &f.AlbumArtist, &f.Album, &f.Title, &f.Track, &f.TrackTotal, &f.Disc, &f.DiscTotal, &f.Year,
 			&f.ReleaseID, &f.ReleaseTrackID, &f.RecordingID, &f.Manual,
 			&f.Lossless, &f.Bitrate, &f.SampleRate, &f.BitDepth, &f.Channels, &lengthMS,
-			&sum, &f.Size, &mtime, &indexedAt, &f.TagsJSON, &f.ReadError, &hasArt); err != nil {
+			&sum, &f.Size, &mtime, &indexedAt, &f.TagsJSON, &f.ReadError, &hasArt, &f.Genre, &f.Composer); err != nil {
 			return nil, err
 		}
 		f.RootKind = RootKind(kind)
@@ -423,4 +432,62 @@ func (s *Store) FileAt(path string) (File, bool, error) {
 		return File{}, false, err
 	}
 	return files[0], true, nil
+}
+
+// TagsRow is a row's ID with everything the tag reader returned for it.
+type TagsRow struct {
+	ID       int64
+	TagsJSON string
+}
+
+// FilesWithoutLists lists the rows read before the index kept genres and
+// composers, for SetLists to fill in.
+func (s *Store) FilesWithoutLists() ([]TagsRow, error) {
+	rows, err := s.db.Query(`SELECT id, tags_json FROM files WHERE genre IS NULL OR composer IS NULL ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("reading the index: %w", err)
+	}
+	defer rows.Close()
+	var out []TagsRow
+	for rows.Next() {
+		var r TagsRow
+		if err := rows.Scan(&r.ID, &r.TagsJSON); err != nil {
+			return nil, fmt.Errorf("reading the index: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// FileLists are the genres and the composers of the row with an ID, each
+// joined by ListSeparator.
+type FileLists struct {
+	ID              int64
+	Genre, Composer string
+}
+
+// SetLists records the genres and composers of rows, in one transaction.
+func (s *Store) SetLists(lists []FileLists) error {
+	if len(lists) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("writing the index: %w", err)
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`UPDATE files SET genre = ?, composer = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("writing the index: %w", err)
+	}
+	defer stmt.Close()
+	for _, l := range lists {
+		if _, err := stmt.Exec(l.Genre, l.Composer, l.ID); err != nil {
+			return fmt.Errorf("writing the index: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("writing the index: %w", err)
+	}
+	return nil
 }

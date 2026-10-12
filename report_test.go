@@ -31,6 +31,7 @@ func TestBuildReport(t *testing.T) {
 		{ID: 2, RootKind: store.RootLibrary, Path: at(store.RootLibrary, filepath.Join("Zed", "Album", "01 - One.flac")), Format: "FLAC",
 			Lossless: true, Bitrate: 900, SampleRate: 44100, BitDepth: 16, Length: 61400 * time.Millisecond, Size: 1234,
 			Artist: "Zed", AlbumArtist: "Zed", Album: "Album", Title: "One", Year: 2001, Track: 1, Disc: 2,
+			Genre: "Rock; Hip Hop", Composer: "Ann",
 			ReleaseID: "rel", RecordingID: "rec", HasArt: true},
 		{ID: 3, RootKind: store.RootLibrary, Path: at(store.RootLibrary, filepath.Join("Abel", "Album", "01 - One.mp3")), Manual: "hand 2026-09-27"},
 		{ID: 4, RootKind: store.RootSource, Path: fixtures.OSPath(`D:\Incoming\new.mp3`)},
@@ -60,7 +61,7 @@ func TestBuildReport(t *testing.T) {
 	for name, want := range map[string]string{
 		"folder": "library", "format": "FLAC", "lossless": "yes", "bitrate_kbps": "900", "sample_rate_hz": "44100",
 		"bit_depth": "16", "length_seconds": "61", "size_bytes": "1234", "artist": "Zed", "album_artist": "Zed",
-		"album": "Album", "title": "One", "year": "2001", "track": "1", "disc": "2",
+		"album": "Album", "title": "One", "year": "2001", "track": "1", "disc": "2", "genre": "Rock; Hip Hop", "composer": "Ann",
 		"musicbrainz_release_id": "rel", "musicbrainz_recording_id": "rec", "manual_marker": "",
 		"embedded_art": "yes", "duplicate_group": "1 exact", "read_error": "",
 	} {

@@ -124,6 +124,7 @@ func (o *organizer) refreshIndex(ctx context.Context, roots []*indexRoot) (jobs 
 		return nil, false
 	}
 	first = n == 0
+	o.fillOldLists()
 	for _, root := range roots {
 		id, err := st.SetRoot(root.kind, root.path)
 		if err != nil {
@@ -326,7 +327,34 @@ func fillTags(f *store.File, md tag.Metadata) {
 		f.Manual = m.String()
 	}
 	f.HasArt = md.Picture() != nil
+	f.Genre = strings.Join(tag.Genres(md.Raw()), store.ListSeparator)
+	f.Composer = strings.Join(tag.Composers(md.Raw()), store.ListSeparator)
 	f.TagsJSON = rawJSON(md.Raw())
+}
+
+// fillOldLists gives the rows read before the index kept genres and
+// composers theirs, from the tags the row already holds: no file is read.
+func (o *organizer) fillOldLists() {
+	st := o.cfg.Store
+	rows, err := st.FilesWithoutLists()
+	if err != nil {
+		o.fail(st.Path(), "", OpRecord, err)
+		return
+	}
+	lists := make([]store.FileLists, 0, len(rows))
+	for _, row := range rows {
+		var raw map[string]any
+		// A row whose tags cannot be read back has none to list.
+		_ = json.Unmarshal([]byte(row.TagsJSON), &raw)
+		lists = append(lists, store.FileLists{
+			ID:       row.ID,
+			Genre:    strings.Join(tag.Genres(raw), store.ListSeparator),
+			Composer: strings.Join(tag.Composers(raw), store.ListSeparator),
+		})
+	}
+	if err := st.SetLists(lists); err != nil {
+		o.fail(st.Path(), "", OpRecord, err)
+	}
 }
 
 // isLossless reports whether go-taglib's properties describe lossless audio.
