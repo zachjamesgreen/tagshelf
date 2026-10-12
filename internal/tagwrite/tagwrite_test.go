@@ -551,7 +551,8 @@ func TestSaveRejectsBadValues(t *testing.T) {
 		{Compilation: {"yes"}},
 		{Marker: {"hand"}},
 		{TrackStored: {"TRACKNUMBER=03"}},
-		{Field("genre"): {"Rock"}},
+		{Field("mood"): {"calm"}},
+		{Comment: {"one", "two"}},
 	} {
 		if _, err := (Writer{}).Save(path, v, marker.New(marker.Hand, day)); err == nil || errors.Is(err, ErrNotVerified) {
 			t.Errorf("Save(%v) = %v, want a validation error", v, err)
@@ -864,7 +865,7 @@ func TestReadReturnsWhatSaveTakes(t *testing.T) {
 			}
 			want := Values{
 				Title: {fixtures.Title}, Artist: {fixtures.Artist}, AlbumArtist: {fixtures.AlbumArtist}, Album: {fixtures.Album},
-				Date: {"2001"}, Track: {"3/10"}, Disc: {"1/2"}, Compilation: {},
+				Date: {"2001"}, Track: {"3/10"}, Disc: {"1/2"}, Compilation: {}, Genre: {}, Composer: {}, Comment: {},
 				RecordingID: {fixtures.RecordingID}, ReleaseTrackID: {fixtures.ReleaseTrackID}, AlbumID: {fixtures.ReleaseID},
 				ReleaseGroupID: {fixtures.ReleaseGroupID}, ArtistIDs: {fixtures.ArtistID}, AlbumArtistIDs: {fixtures.AlbumArtistID},
 				Marker: {},
