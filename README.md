@@ -34,19 +34,20 @@ Fixture Artist - Silence Café  release-track, 2 copies
 - [MusicBrainz lookups](#musicbrainz-lookups)
 - [Undo](#undo)
 - [Where tagshelf keeps its data](#where-tagshelf-keeps-its-data)
+- [On Linux](#on-linux)
 - [Building and testing](#building-and-testing)
 - [Contributing](#contributing)
 - [License and credits](#license-and-credits)
 
 ## Status
 
-- **Windows only, for now.** tagshelf is written on Windows 11 and released for Windows. Its tests also pass on Linux, but there is no Linux download yet.
+- **Windows and Linux.** tagshelf is written on Windows 11 and tested on both. The Linux download is one static program for any distribution, on amd64 or arm64: see [On Linux](#on-linux). There is no macOS download.
 - **Version 0.x.** Flags, config keys and the database may still change between versions. The database is upgraded on first use by a newer version, and a copy of the old one is kept beside it.
 - **Back up first.** tagshelf moves and renames your files and can write tags into them. It never deletes an audio file, and it records what it does, but a tool this young should not be the only thing between you and your only copy. Start with a dry run.
 
 ## Install
 
-### Download
+### Download for Windows
 
 1. Go to [Releases](https://github.com/zachjamesgreen/tagshelf/releases) and download `tagshelf-<version>-windows-amd64.zip`.
 2. Unzip it anywhere and run `tagshelf.exe` from a terminal (Windows Terminal or PowerShell). Double-clicking it opens the [terminal UI](#the-terminal-ui) in a window of its own.
@@ -54,14 +55,27 @@ Fixture Artist - Silence Café  release-track, 2 copies
 The exe is not code-signed, so Windows SmartScreen may warn the first time you run it. To check that the download is the one published here, compare its SHA-256 with the `.sha256` file beside it on the release page:
 
 ```powershell
-Get-FileHash .\tagshelf-v0.1.0-windows-amd64.zip -Algorithm SHA256
+Get-FileHash .\tagshelf-v0.3.0-windows-amd64.zip -Algorithm SHA256
 ```
+
+### Download for Linux
+
+1. Go to [Releases](https://github.com/zachjamesgreen/tagshelf/releases) and download `tagshelf-<version>-linux-amd64.tar.gz`, or `-linux-arm64` for a 64-bit ARM machine, with the `.sha256` file beside it.
+2. Check it, unpack it and put the program on your path:
+
+```bash
+sha256sum -c tagshelf-v0.3.0-linux-amd64.tar.gz.sha256
+tar -xzf tagshelf-v0.3.0-linux-amd64.tar.gz
+install -D tagshelf-v0.3.0-linux-amd64/tagshelf ~/.local/bin/tagshelf
+```
+
+The program needs nothing installed, not even a C library, so the same file runs on Debian, Ubuntu, Fedora, Arch, openSUSE and Alpine.
 
 ### With Go
 
-With [Go](https://go.dev/dl/) 1.26 or newer:
+With [Go](https://go.dev/dl/) 1.26 or newer, on either system:
 
-```powershell
+```bash
 go install github.com/zachjamesgreen/tagshelf@latest
 ```
 
@@ -69,7 +83,7 @@ No C compiler is needed.
 
 ## Quick start
 
-Say your unsorted music is in `D:\Incoming` and you want the library in `D:\Music`.
+Say your unsorted music is in `D:\Incoming` and you want the library in `D:\Music`. The examples in this README are written for Windows. On Linux only the paths differ: `~/Incoming` and `~/Music`, say, as in `tagshelf -source ~/Incoming -dest ~/Music -dry-run`.
 
 1. **Preview.** A dry run moves nothing and prints what it would do:
 
@@ -116,6 +130,7 @@ Tags that a CD ripper or a download came with do not qualify on their own, howev
 | Multi-disc album | `Album Artist\Album (Year)\2-03 - Title.ext` |
 | Various Artists compilation | `Various Artists\Album (Year)\03 - Track Artist - Title.ext` |
 
+- On Linux the same paths are written with `/`. The names are the same on both systems, so a library can be copied from one to the other.
 - The album artist tag is used for the folder, or the track artist when there is none.
 - `(Year)` is left out when the file has no year.
 - Characters Windows does not allow in names (`< > : " / \ | ? *`) are replaced with `_`.
@@ -141,7 +156,7 @@ Cover art, booklets, logs and cue sheets follow the audio of their folder into i
 
 - **Links.** A symbolic link or a junction inside a walked folder is neither followed nor moved, whether it leads to a folder or to a file. The run says so with a warning. A source or library folder that is itself a symbolic link is different: the run works in the folder it leads to, and says which that is.
 - **What is not a file.** A named pipe, a socket or a device is left alone, with a warning.
-- **The system's own folders at the top of a drive.** `System Volume Information` and `$RECYCLE.BIN` are passed over without a word.
+- **The system's own folders at the top of a drive.** `System Volume Information` and `$RECYCLE.BIN` are passed over without a word. So are `lost+found` and the trash folders `.Trash` and `.Trash-<user number>` at the top of a mounted volume on Linux.
 
 ### Duplicates
 
@@ -198,7 +213,7 @@ Check the path given with -source, or as source in the config file.
 
 Anything on the command line that is not a flag stops tagshelf before it does anything, so a mistyped command cannot start a run by accident.
 
-Ctrl-C stops a run after the files it is in the middle of. A second Ctrl-C exits at once.
+Ctrl-C stops a run after the files it is in the middle of. A second Ctrl-C exits at once. On Linux a run stops the same way when it is told to end (`SIGTERM`) or its terminal is closed (`SIGHUP`).
 
 A run ends with warnings for what went less than right without failing a file: a link it left alone, a cue sheet it could not rewrite, or a file whose length and bit rate could not be read into the index.
 
@@ -207,7 +222,7 @@ A run ends with warnings for what went less than right without failing a file: a
 | 0 | The run finished and every file went well. |
 | 1 | The run finished, but some files failed. They are listed at the end. |
 | 2 | The run could not start: bad flags, config or database. Nothing was touched. |
-| 130 | Ctrl-C stopped the run. |
+| 130 | Ctrl-C, or one of the two signals, stopped the run. |
 
 ## Config file
 
@@ -215,13 +230,13 @@ tagshelf reads the first of these that exists:
 
 1. the file named with `-config`;
 2. `config.yaml` in the folder it is started in;
-3. your own config file, `%APPDATA%\tagshelf\config.yaml`, so that tagshelf can be started from any folder.
+3. your own config file, so that tagshelf can be started from any folder: `%APPDATA%\tagshelf\config.yaml` on Windows, `~/.config/tagshelf/config.yaml` on Linux.
 
-Flags override it. To make one, use the [Settings tab](#settings) of the terminal UI, or copy [`config.example.yaml`](config.example.yaml). The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
+Flags override it. To make one, use the [Settings tab](#settings) of the terminal UI, or copy the example: [`config.example.yaml`](config.example.yaml) for Windows, [`config.example.linux.yaml`](config.example.linux.yaml) for Linux. Each download holds the one for its system as `config.example.yaml`. The last lines of `tagshelf -h` name the config file that would be read, and a run prints the one it used.
 
 A `config.yaml` in the folder that is not YAML at all, such as one belonging to another program, is passed over with a warning.
 
-A folder may be written from `~`, your home folder, as in `~\Music`. That works in a config file, in the Settings tab and in a flag. Only `~` alone is known: `~name`, another user's home folder, is refused.
+A folder may be written from `~`, your home folder, as in `~\Music` or `~/Music`. That works in a config file, in the Settings tab and in a flag. Only `~` alone is known: `~name`, another user's home folder, is refused.
 
 A config file alone does not start a run: see [Command line](#command-line).
 
@@ -329,7 +344,7 @@ Once a file's tags qualify, saving them also moves it into the library. Every sa
 
 ### Settings
 
-The Settings tab edits the config file tagshelf read: the one named with `-config`, the `config.yaml` in the folder, or else your own, `%APPDATA%\tagshelf\config.yaml`. The top line names it. If it does not exist yet, the first save makes it, from the same commented template as `config.example.yaml`, with dry run on so that the first run of a new set-up is a preview.
+The Settings tab edits the config file tagshelf read: the one named with `-config`, the `config.yaml` in the folder, or else [your own](#where-tagshelf-keeps-its-data). The top line names it. If it does not exist yet, the first save makes it, from the same commented template as the example file, with dry run on so that the first run of a new set-up is a preview.
 
 - **Change several settings, then press `s`.** Changed rows are marked with `*`. Nothing is written before `s`, and leaving the tab with changes asks first.
 - **Paths can be typed or pasted.** `tab` completes a folder name, and a note under the field says whether the folder exists. A path may start with `~`, your home folder, and is saved as you typed it.
@@ -371,10 +386,18 @@ What undo does not do: bring back a file you deleted, or restore tags another pr
 
 ## Where tagshelf keeps its data
 
+| What | On Windows | On Linux |
+|---|---|---|
+| Your config file | `%APPDATA%\tagshelf\config.yaml` | `~/.config/tagshelf/config.yaml` |
+| Database (index and run history) | `%LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db` | `~/.local/share/tagshelf/libraries/<library-id>/tagshelf.db` |
+| The tag reader's cache | In your temp folder | `~/.cache/tagshelf` |
+
+Your config file is read when no other is named or found, and the Settings tab makes it on the first save. The database is there unless `-db` or `database` says otherwise. On Linux `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME` move the three, as for any program, and the folders tagshelf makes there are yours alone (mode 0700).
+
+The rest is the same on both:
+
 | What | Where |
 |---|---|
-| Your config file | `%APPDATA%\tagshelf\config.yaml`, read when no other is named or found. The Settings tab makes it on the first save. |
-| Database (index and run history) | `%LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db`, unless `-db` or `database` says otherwise |
 | Database backups | Beside the database, as `tagshelf.db.bak-v<N>`, made before each upgrade |
 | Library ID | `.tagshelf-library` in the library folder |
 | Lock | `.tagshelf-lock` in the library folder, and `tagshelf.db.lock` beside the database |
@@ -387,20 +410,39 @@ The index is only a record of the files. If the database is lost, `tagshelf -ind
 
 To stop using tagshelf, delete the database folder, your config file and the two `.tagshelf-` files in the library. Your music stays as it is. The only thing tagshelf leaves in the files is the manual marker, a tag named `TAGSHELF_MANUAL`.
 
+## On Linux
+
+tagshelf does the same on Linux as on Windows. What differs is listed here.
+
+- **Paths.** A folder is written as Linux writes it, and may start with `~`. A Windows path such as `D:\Music` is refused, in a flag and in a config file: on Linux it would name a folder called `D:\Music` inside the folder tagshelf was started in.
+- **Letter case.** Linux can hold `The Beatles` and `the beatles` side by side. tagshelf never makes the second: it uses the one that is there. If both are there already, it uses the one that sorts first, says so, and a reorganize moves what is in the other into it.
+- **A folder that is a link.** If your source or library folder is a symbolic link, as `~/Music` often is, tagshelf works in the folder it leads to.
+- **No double click.** `tagshelf` with nothing after it prints the help. Start the terminal UI with `tagshelf tui`.
+- **The terminal.** The terminal UI needs a terminal that shows UTF-8, which every desktop terminal and tmux do. On the bare text console of a machine without a desktop some of its marks, such as `★`, may not show; that has not been tried.
+- **Pasting.** Pasting through the terminal works everywhere. The paste key of the text fields themselves needs `xclip`, `xsel` or `wl-clipboard` installed.
+
+Things to know before you rely on it:
+
+- **One library, two systems.** The same library folder can be used from Windows and from Linux, on a machine that starts both or over a share. Each system keeps its own index and run history for it, so a run can be undone only on the system that made it.
+- **One computer at a time.** Two computers working on one library at the same moment is not supported. The lock that stops two runs on one computer is not known to hold over NFS or SMB.
+- **A home folder on a network drive.** The database must be on a local disk. If your home folder is on NFS, put it elsewhere with `-db` or `database`.
+- **Names over 255 bytes.** Linux limits a name to 255 bytes, which a long title in a script other than Latin can pass. Such a file is left where it is, with an error. tagshelf does not shorten names.
+- **What has been run.** Every change is tested on Ubuntu, on amd64 and arm64. Each release is also run on Debian, Fedora, Arch, openSUSE and Alpine before it is published. NixOS should work, and has not been tried.
+
 ## Building and testing
 
 You need [Go](https://go.dev/dl/) 1.26 or newer, on Windows or Linux. Nothing else: the test audio files are in the repository.
 
-```powershell
+```bash
 git clone https://github.com/zachjamesgreen/tagshelf
 cd tagshelf
-go build -o tagshelf.exe .
+go build .
 go test ./...
 ```
 
 The checks CI runs on every pull request, on Windows and on Linux (amd64 and arm64):
 
-```powershell
+```bash
 gofmt -l .                                                    # must print nothing
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...

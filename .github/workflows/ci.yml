@@ -58,10 +58,9 @@ jobs:
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
 
-      # The notices list what the Windows build links, whatever system
-      # makes them; one leg is enough to check them.
+      # The notices list what the builds for all the release targets link,
+      # and come out the same on whatever system makes them.
       - name: Third-party notices are up to date
-        if: runner.os == 'Windows'
         run: |
           go run ./internal/notices
           git diff --exit-code -- THIRD_PARTY_NOTICES || {
@@ -71,3 +70,26 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1 -timeout 10m
+
+  distros:
+    # The Linux build is static, so one binary should run on every
+    # distribution: this runs it on the major ones. It is not a check a merge
+    # waits for, because it can fail for no fault of the change, when an
+    # image has moved on or the registry is down. A release does wait for it.
+    name: Run on Linux distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o build/tagshelf .
+
+      - name: Run it on each distribution
+        run: .github/scripts/distros.sh build/tagshelf

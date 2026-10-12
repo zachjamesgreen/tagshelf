@@ -1,5 +1,7 @@
 // Command notices writes THIRD_PARTY_NOTICES: the licence of every module
-// built into tagshelf.exe, and of the tag reader tagshelf carries a copy of.
+// built into a download of tagshelf, for any of the systems it is released
+// for, and of the tag reader tagshelf carries a copy of. One file goes into
+// every download, so it lists what any of them holds.
 //
 // Run it from the repository root after adding, removing or updating a
 // dependency:
@@ -55,25 +57,33 @@ func main() {
 
 type module struct{ path, dir string }
 
-// modules are the modules whose packages the Windows build of tagshelf
-// imports, other than tagshelf itself, sorted by path.
+// targets are the systems tagshelf is released for, as GOOS and GOARCH. The
+// release workflow builds one download for each.
+var targets = [][2]string{{"windows", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}}
+
+// modules are the modules whose packages a build of tagshelf for any of the
+// targets imports, other than tagshelf itself, sorted by path. The targets
+// are named here, so that the file comes out the same on whatever system it
+// is made.
 func modules() []module {
-	cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}}\t{{.Dir}}{{end}}{{end}}", ".")
-	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64")
-	cmd.Stderr = os.Stderr
-	list, err := cmd.Output()
-	if err != nil {
-		log.Fatalf("go list: %v", err)
-	}
 	seen := map[string]bool{}
 	var mods []module
-	for _, line := range strings.Split(strings.TrimSpace(string(list)), "\n") {
-		path, dir, ok := strings.Cut(strings.TrimSpace(line), "\t")
-		if !ok || seen[path] {
-			continue
+	for _, target := range targets {
+		cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}}\t{{.Dir}}{{end}}{{end}}", ".")
+		cmd.Env = append(os.Environ(), "GOOS="+target[0], "GOARCH="+target[1], "CGO_ENABLED=0")
+		cmd.Stderr = os.Stderr
+		list, err := cmd.Output()
+		if err != nil {
+			log.Fatalf("go list for %s/%s: %v", target[0], target[1], err)
 		}
-		seen[path] = true
-		mods = append(mods, module{path, dir})
+		for _, line := range strings.Split(strings.TrimSpace(string(list)), "\n") {
+			path, dir, ok := strings.Cut(strings.TrimSpace(line), "\t")
+			if !ok || seen[path] {
+				continue
+			}
+			seen[path] = true
+			mods = append(mods, module{path, dir})
+		}
 	}
 	sort.Slice(mods, func(i, j int) bool { return mods[i].path < mods[j].path })
 	return mods
