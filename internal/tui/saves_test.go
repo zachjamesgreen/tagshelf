@@ -148,7 +148,8 @@ func TestLookupSaveWritesTheMatchPicked(t *testing.T) {
 	want := tagwrite.Values{
 		tagwrite.Title: {"Julie and Candy"}, tagwrite.Artist: {"Boards of Canada"}, tagwrite.AlbumArtist: {"Boards of Canada"},
 		tagwrite.Album: {"Geogaddi"}, tagwrite.Date: {"2002-02-18"}, tagwrite.Track: {"5/23"}, tagwrite.Disc: {"1/1"},
-		tagwrite.Compilation: {}, tagwrite.RecordingID: {"rec-1"}, tagwrite.ReleaseTrackID: {"track-5"},
+		tagwrite.Compilation: {}, tagwrite.Genre: {}, tagwrite.Composer: {}, tagwrite.Comment: {},
+		tagwrite.RecordingID: {"rec-1"}, tagwrite.ReleaseTrackID: {"track-5"},
 		tagwrite.AlbumID: {"rel-album"}, tagwrite.ReleaseGroupID: {"rg-1"},
 		tagwrite.ArtistIDs: {"artist-1"}, tagwrite.AlbumArtistIDs: {"artist-1"},
 		tagwrite.Marker: {"musicbrainz " + time.Now().Format(time.DateOnly)},

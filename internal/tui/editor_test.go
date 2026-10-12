@@ -232,7 +232,7 @@ func TestEditorPartialSaveStays(t *testing.T) {
 	typeText(t, m, "Hand Tagged")
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{LeftInPlace: 1}}
 	// Enter walks the rest of the form and, on its last field, saves.
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter")
+	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter")
 	if len(f.saved) != 1 || m.edit != nil {
 		t.Fatalf("saved %v, editor open %t", f.saved, m.edit != nil)
 	}
@@ -266,7 +266,7 @@ func TestEditorOnALibraryFile(t *testing.T) {
 	// Fix the album's spelling and clear the compilation flag.
 	hit(t, m, "down", "down", "down", "backspace")
 	typeText(t, m, "m")
-	hit(t, m, "down", "down", "down", "down", "n", "tab", "space")
+	hit(t, m, "down", "down", "down", "down", "down", "down", "down", "n", "tab", "space")
 	if got := screen(m); !strings.Contains(got, "Will go to:    "+filepath.Join("Singer", "Album (2001)", "02 - Song.flac")) {
 		t.Errorf("the editor does not show the new place:\n%s", got)
 	}
@@ -423,7 +423,7 @@ func TestEditorFitsAShortTerminal(t *testing.T) {
 func TestEditorEnterSaveRefusedKeepsTheForm(t *testing.T) {
 	m, f, _ := editorOn(t, 104, tagwrite.Values{tagwrite.Title: {"Live"}})
 	m.header.DryRun = true
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "tab", "down", "enter")
+	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "tab", "down", "enter")
 	if len(f.saved) != 0 || !strings.Contains(m.toast, "Dry run") {
 		t.Fatalf("saved %v, toast %q", f.saved, m.toast)
 	}
@@ -472,7 +472,7 @@ func TestEditorHidesCompilationForWMA(t *testing.T) {
 	if got := screen(m); strings.Contains(got, "Compilation") || !strings.Contains(got, "Disc") {
 		t.Fatalf("the WMA editor:\n%s", got)
 	}
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter")
+	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter")
 	if len(f.saved) != 1 {
 		t.Errorf("enter on the last field saved %v", f.saved)
 	}
