@@ -76,10 +76,22 @@ const (
 	ReleaseGroupID Field = "musicbrainz_releasegroupid"
 	ArtistIDs      Field = "musicbrainz_artistid"
 	AlbumArtistIDs Field = "musicbrainz_albumartistid"
+	AcoustID       Field = "acoustid_id"
 
 	// Marker is the manual marker. Save writes it from its marker argument;
 	// it appears only in a Result's Before and After.
 	Marker Field = "marker"
+
+	// SetMarker sets the marker to its one value, or with no value takes it
+	// off, in place of the marker a save writes of its own accord: a person
+	// changed it by hand. It appears only in what a save is given; what was
+	// written is under Marker in a Result.
+	SetMarker Field = "set_marker"
+
+	// NotText lists, in what ReadAll returns, the names of the tags that are
+	// not text, such as a picture: they are shown, kept by every save, and
+	// cannot be set.
+	NotText Field = "not_text"
 
 	// TrackStored and DiscStored hold a track or disc number as it stood in
 	// the file, each go-taglib key as KEY=value, when that is not how Save
@@ -137,7 +149,54 @@ var simpleKeys = map[Field]string{
 	ReleaseGroupID: taglib.MusicBrainzReleaseGroupID,
 	ArtistIDs:      taglib.MusicBrainzArtistID,
 	AlbumArtistIDs: taglib.MusicBrainzAlbumArtistID,
+	AcoustID:       taglib.AcoustIDID,
 	Marker:         marker.Key,
+}
+
+// otherPrefix starts a Field that names a tag by the name go-taglib gives
+// it, the same in every format: one of the tags the fields above do not
+// cover, such as MOOD or LABEL.
+const otherPrefix = "tag:"
+
+// Other is the field of the tag go-taglib names name.
+func Other(name string) Field { return Field(otherPrefix + name) }
+
+// OtherName is the go-taglib name of a field made by Other, and whether f is
+// one.
+func (f Field) OtherName() (string, bool) { return strings.CutPrefix(string(f), otherPrefix) }
+
+// taken are the go-taglib names the named fields are kept under, which no
+// field made by Other may name, and those of pictures kept as text.
+var taken = func() map[string]bool {
+	names := map[string]bool{
+		taglib.TrackNumber: true, taglib.DiscNumber: true,
+		"TRACKTOTAL": true, "TOTALTRACKS": true, "DISCTOTAL": true, "TOTALDISCS": true,
+		"METADATA_BLOCK_PICTURE": true, "COVERART": true,
+	}
+	for _, name := range simpleKeys {
+		names[name] = true
+	}
+	return names
+}()
+
+// otherName matches a name a person may give a new tag.
+var otherName = regexp.MustCompile(`^[A-Z0-9_][A-Z0-9_ ]*[A-Z0-9_]$|^[A-Z0-9_]$`)
+
+// NewOther is the field for a tag a person names name, which is written in
+// capitals whatever its case was. A name may hold letters and digits of the
+// plain alphabet, spaces and underscores, and must not be the name of a tag
+// that has a field of its own.
+func NewOther(name string) (Field, error) {
+	name = strings.ToUpper(strings.TrimSpace(name))
+	switch {
+	case name == "":
+		return "", errors.New("a tag needs a name")
+	case !otherName.MatchString(name):
+		return "", fmt.Errorf("a tag's name may hold letters, digits, spaces and _ only, not %q", name)
+	case taken[name]:
+		return "", fmt.Errorf("%s has a field of its own", name)
+	}
+	return Other(name), nil
 }
 
 // Values maps fields to their values. A field present with no values (or
@@ -223,6 +282,60 @@ func Read(path string) (Values, error) {
 		return nil, fmt.Errorf("reading the tags of %q: %w", path, err)
 	}
 	return v, nil
+}
+
+// ReadAll is Read with the rest of the file's tags: its AcoustID ID, every
+// other tag that is text, each under the field Other makes of its name, and
+// under NotText the names of those that are not.
+func ReadAll(path string) (Values, error) {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return nil, ErrUnsupported
+	}
+	v, keys, err := currentKeys(f, path, append(slices.Clone(editable), AcoustID))
+	if err != nil {
+		return nil, fmt.Errorf("reading the tags of %q: %w", path, err)
+	}
+	for name, vs := range keys {
+		if vs = clean(vs); !taken[name] && len(vs) > 0 {
+			v[Other(name)] = vs
+		}
+	}
+	if names := notText(path); len(names) > 0 {
+		v[NotText] = names
+	}
+	return v, nil
+}
+
+// notText lists the names internal/tag gives the tags of the file at path
+// that are not text: pictures and other bytes.
+func notText(path string) []string {
+	md, err := readTags(path)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	picture := false
+	for name, value := range md.Raw() {
+		switch value.(type) {
+		case *tag.Picture:
+			picture = true
+			names = append(names, name)
+		case []byte:
+			names = append(names, name)
+		case string:
+			if n := strings.ToUpper(name); n == "METADATA_BLOCK_PICTURE" || n == "COVERART" {
+				picture = true
+				names = append(names, name)
+			}
+		}
+	}
+	if !picture && md.Picture() != nil {
+		// A FLAC file keeps its pictures beside its comments, not among them.
+		names = append(names, "PICTURE")
+	}
+	slices.Sort(names)
+	return names
 }
 
 // current reads the named fields of the file at path as they are now.
@@ -314,8 +427,11 @@ func (w Writer) save(path string, fields Values, m *marker.Marker) (Result, erro
 		delete(want, Compilation)
 	}
 
+	// A marker set by hand goes in as it is given, whatever m is.
+	set, byHand := want[SetMarker]
+	delete(want, SetMarker)
 	named := slices.Collect(maps.Keys(want))
-	if m != nil {
+	if m != nil || byHand {
 		named = append(named, Marker)
 	}
 	before, err := beforeWrite(f, path, named)
@@ -324,7 +440,14 @@ func (w Writer) save(path string, fields Values, m *marker.Marker) (Result, erro
 	}
 	after := maps.Clone(want)
 	unchanged := equalExcept(before, after, "")
-	if m != nil {
+	switch {
+	case byHand:
+		if f.asf && len(set) == 0 && len(before[Marker]) > 0 {
+			return Result{}, fmt.Errorf("saving tags to %q: %w", path, ErrMarkerStays)
+		}
+		after[Marker] = set
+		unchanged = equalExcept(before, after, "")
+	case m != nil:
 		after[Marker] = []string{m.String()}
 		unchanged = len(before[Marker]) > 0 && equalExcept(before, after, Marker)
 	}
@@ -336,6 +459,19 @@ func (w Writer) save(path string, fields Values, m *marker.Marker) (Result, erro
 	}
 	return Result{Changed: true, Before: before, After: after}, nil
 }
+
+// CannotHoldError is why a save was refused whose copy came back without a
+// tag it was given: the file's format has no place for a tag of that name.
+// It comes wrapped with ErrNotVerified.
+type CannotHoldError struct{ Name string }
+
+func (e *CannotHoldError) Error() string {
+	return fmt.Sprintf("this kind of file cannot hold a tag named %s", e.Name)
+}
+
+// ErrMarkerStays is returned for a save that would take the marker off a WMA
+// file, which tagshelf cannot do.
+var ErrMarkerStays = errors.New("tagshelf cannot take the marker off a WMA file")
 
 // ErrChanged is returned by Restore for a file whose tags are no longer what
 // the save being undone left.
@@ -591,10 +727,22 @@ func equalExcept(a, b Values, skip Field) bool {
 func normalize(fields Values) (Values, error) {
 	out := Values{}
 	for k, vs := range fields {
-		if k == Marker {
-			return nil, errors.New("the marker is not a field to set")
+		if k == Marker || k == NotText {
+			return nil, fmt.Errorf("%s is not a field to set", k)
 		}
-		if _, ok := simpleKeys[k]; !ok && k != Track && k != Disc {
+		if k == SetMarker {
+			set, err := normalizeMarker(vs)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = set
+			continue
+		}
+		if name, ok := k.OtherName(); ok {
+			if name == "" || taken[name] {
+				return nil, fmt.Errorf("the tag %q has a field of its own", name)
+			}
+		} else if _, ok := simpleKeys[k]; !ok && k != Track && k != Disc {
 			return nil, fmt.Errorf("unknown field %q", k)
 		}
 		clean := []string{}
@@ -603,7 +751,7 @@ func normalize(fields Values) (Values, error) {
 				clean = append(clean, v)
 			}
 		}
-		if len(clean) > 1 && !multiValued[k] {
+		if len(clean) > 1 && !isList(k) {
 			return nil, fmt.Errorf("field %q takes one value, not %d", k, len(clean))
 		}
 		if len(clean) == 1 {
@@ -625,6 +773,27 @@ func normalize(fields Values) (Values, error) {
 		out[k] = clean
 	}
 	return out, nil
+}
+
+// isList reports whether field may hold more than one value: the fields
+// listed in multiValued, and every tag named by Other.
+func isList(field Field) bool {
+	_, other := field.OtherName()
+	return other || multiValued[field]
+}
+
+// normalizeMarker checks a marker set by hand: none, which takes it off, or
+// one that says how the tags were chosen and on what day.
+func normalizeMarker(vs []string) ([]string, error) {
+	vs = clean(vs)
+	if len(vs) == 0 {
+		return vs, nil
+	}
+	m, ok := marker.Parse(vs[0])
+	if len(vs) > 1 || !ok || m.Method == marker.Unknown || m.Date.IsZero() {
+		return nil, errors.New("a marker is hand or musicbrainz and a day, as in hand 2026-10-12")
+	}
+	return []string{m.String()}, nil
 }
 
 // normalizeXofN checks a track or disc number, N or N/M, and drops leading
@@ -677,7 +846,7 @@ func toKeys(f format, v Values) map[string][]string {
 			xOfNKeys(f, keys, vs, taglib.DiscNumber, "DISCTOTAL", "TOTALDISCS")
 		case TrackStored, DiscStored: // below, over the number's own keys
 		default:
-			keys[simpleKeys[field]] = nonNil(vs)
+			keys[keyOf(field)] = nonNil(vs)
 		}
 	}
 	for field, stored := range storedForm {
@@ -744,6 +913,14 @@ func xOfNKeys(f format, keys map[string][]string, vs []string, number, total, to
 	}
 }
 
+// keyOf is the go-taglib name a field that maps to one key is kept under.
+func keyOf(field Field) string {
+	if name, ok := field.OtherName(); ok {
+		return name
+	}
+	return simpleKeys[field]
+}
+
 func nonNil(vs []string) []string {
 	if vs == nil {
 		return []string{}
@@ -766,7 +943,7 @@ func fromKeys(f format, keys map[string][]string, named []Field) Values {
 		case DiscStored:
 			v[field] = asStored(f, keys, Disc)
 		default:
-			v[field] = clean(keys[simpleKeys[field]])
+			v[field] = clean(keys[keyOf(field)])
 		}
 	}
 	return v
@@ -1040,15 +1217,21 @@ func verify(f format, path string, want Values) error {
 		if f.asf && field == Marker {
 			continue // go-taglib never reads it; checked with internal/tag below
 		}
-		if f.asf && multiValued[field] {
+		if f.asf && isList(field) {
 			// go-taglib reads the list rotated (see asfBefore); internal/tag
 			// checks the order below.
 			if !slices.Equal(slices.Sorted(slices.Values(got[field])), slices.Sorted(slices.Values(vs))) {
+				if name, ok := field.OtherName(); ok && len(got[field]) == 0 {
+					return fmt.Errorf("%w: %w", ErrNotVerified, &CannotHoldError{Name: name})
+				}
 				return fmt.Errorf("%w: %s is %q, want %q", ErrNotVerified, field, got[field], vs)
 			}
 			continue
 		}
 		if !slices.Equal(got[field], vs) {
+			if name, ok := field.OtherName(); ok && len(got[field]) == 0 {
+				return fmt.Errorf("%w: %w", ErrNotVerified, &CannotHoldError{Name: name})
+			}
 			return fmt.Errorf("%w: %s is %q, want %q", ErrNotVerified, field, got[field], vs)
 		}
 	}
