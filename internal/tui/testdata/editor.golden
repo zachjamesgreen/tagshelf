@@ -3,30 +3,30 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   _Untagged\live.mp3
 
-  Title        > Live                                                                               
-  Artist       > Hand Tagged                                                                        
-  Album artist >                                                                                    
-┃ Album        > Tape                                                                               
-  Year         > YYYY or YYYY-MM-DD                                                                 
-  Track        > N or N/total                                                                       
-  Disc         > N or N/total                                                                       
-  Genre        > several are written Rock; Jazz                                                     
-  Composer     >                                                                                    
-  Comment      >                                                                                    
-  Compilation  Yes     No                                                                          
+  Title            > Live                                                                           
+  Artist           > Hand Tagged                                                                    
+  Album artist     >                                                                                
+┃ Album            > Tape                                                                           
+  Year             > YYYY or YYYY-MM-DD                                                             
+  Track            > N or N/total                                                                   
+  Disc             > N or N/total                                                                   
+  Genre            > several are written Rock; Jazz                                                 
+  Composer         >                                                                                
+  Comment          >                                                                                
+  Compilation         Yes     No                                                                    
+  Recording ID     >                                                                                
+  Track ID         >                                                                                
+  Release ID       >                                                                                
+  Release group ID >                                                                                
+  Artist IDs       >                                                                                
+  Album artist IDs >                                                                                
+  AcoustID ID      >                                                                                
+  Marker           > hand 2026-09-01                                                                
 
-  Marker:        hand 2026-09-01
+  Saving marks it tagged by hand; genre, composer, comment and other tags don't
   Will go to:    Hand Tagged\Tape\Live.mp3
 
 
 
 
-
-
-
-
-
-
-
-
-↑↓/tab field  ←→ compilation  ctrl+s save  ctrl+f to whole folder  esc back
+↑↓/tab field  ctrl+s save  ctrl+n new tag  ctrl+f to whole folder  esc back

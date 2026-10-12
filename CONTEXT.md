@@ -25,8 +25,12 @@ A file whose tags a person chose in tagshelf, either typed by hand or picked fro
 _Avoid_: hand-tagged (when a MusicBrainz pick is meant too), user-tagged
 
 **Placing tag**:
-A tag that decides where a file belongs: one its path in the library is made from (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID. A save that changes one makes the file manually tagged; a save of its genre, composer or comment alone does not.
+A tag that decides where a file belongs: one its path in the library is made from (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID. A save that changes one makes the file manually tagged; a save of its genre, composer, comment or other tags alone does not.
 _Avoid_: core tag, main tag
+
+**Other tag**:
+A tag of a file that the tag editor has no fixed field for, such as MOOD or LABEL, listed and edited by the name the tag library gives it, which is the same in every format.
+_Avoid_: custom tag, arbitrary tag, extra tag, raw tag
 
 **Folder write**:
 Writing one field of the tag editor to every file in the folder of the file being edited, as one action.

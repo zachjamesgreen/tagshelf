@@ -171,13 +171,30 @@ func editorOn(t *testing.T, id int64, tags tagwrite.Values) (*Model, *fakeRunner
 	return m, f, src
 }
 
+// enterToTheEnd presses enter on each field of the editor's form down to its
+// last, and there once more, which saves.
+func enterToTheEnd(t *testing.T, m *Model) {
+	t.Helper()
+	for range 60 {
+		if m.edit == nil || m.edit.form == nil {
+			return
+		}
+		last := m.edit.form.GetFocusedField() == m.edit.last
+		hit(t, m, "enter")
+		if last {
+			return
+		}
+	}
+	t.Fatal("enter never reached the form's last field")
+}
+
 func TestEditorSavesAnUntaggedFileIntoTheLibrary(t *testing.T) {
 	m, f, src := editorOn(t, 103, nil)
 	got := screen(m)
 	for _, want := range []string{
 		"Untagged › Edit tags › demo.mp3", filepath.Join("_Untagged", "demo.mp3"),
 		"Title", "Artist", "Album artist", "Album", "Year", "Track", "Disc", "Compilation",
-		"Marker:", "none", "Will stay in _Untagged: needs artist, album, title", "ctrl+s save",
+		"Marker", "Recording ID", "Saving marks it tagged by hand", "Will stay in _Untagged: needs artist, album, title", "ctrl+s save",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the editor lacks %q:\n%s", want, got)
@@ -232,7 +249,7 @@ func TestEditorPartialSaveStays(t *testing.T) {
 	typeText(t, m, "Hand Tagged")
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{LeftInPlace: 1}}
 	// Enter walks the rest of the form and, on its last field, saves.
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter")
+	enterToTheEnd(t, m)
 	if len(f.saved) != 1 || m.edit != nil {
 		t.Fatalf("saved %v, editor open %t", f.saved, m.edit != nil)
 	}
@@ -266,7 +283,7 @@ func TestEditorOnALibraryFile(t *testing.T) {
 	// Fix the album's spelling and clear the compilation flag.
 	hit(t, m, "down", "down", "down", "backspace")
 	typeText(t, m, "m")
-	hit(t, m, "down", "down", "down", "down", "down", "down", "down", "n", "tab", "space")
+	hit(t, m, "down", "down", "down", "down", "down", "down", "down", "n", "space")
 	if got := screen(m); !strings.Contains(got, "Will go to:    "+filepath.Join("Singer", "Album (2001)", "02 - Song.flac")) {
 		t.Errorf("the editor does not show the new place:\n%s", got)
 	}
@@ -411,7 +428,8 @@ func TestEditorFitsAShortTerminal(t *testing.T) {
 	typeText(t, m, "2")
 	got := screen(m)
 	checkFits(t, got, 80, 16)
-	for _, want := range []string{"Disc", "> 2", "Marker:", "Will stay in _Untagged: needs artist, album", "ctrl+s save"} {
+	for _, want := range []string{"Disc", "> 2", "Saving marks it tagged by hand; genre, composer, comment and other tags don't",
+		"Will stay in _Untagged: needs artist, album", "ctrl+s save"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the short editor lacks %q:\n%s", want, got)
 		}
@@ -423,7 +441,7 @@ func TestEditorFitsAShortTerminal(t *testing.T) {
 func TestEditorEnterSaveRefusedKeepsTheForm(t *testing.T) {
 	m, f, _ := editorOn(t, 104, tagwrite.Values{tagwrite.Title: {"Live"}})
 	m.header.DryRun = true
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "tab", "down", "enter")
+	enterToTheEnd(t, m)
 	if len(f.saved) != 0 || !strings.Contains(m.toast, "Dry run") {
 		t.Fatalf("saved %v, toast %q", f.saved, m.toast)
 	}
@@ -431,7 +449,8 @@ func TestEditorEnterSaveRefusedKeepsTheForm(t *testing.T) {
 		t.Fatalf("the form is gone after a refused save:\n%s", got)
 	}
 	m.header.DryRun = false
-	hit(t, m, "up")
+	// From the marker, the last field, up past the IDs and the flag to the comment.
+	hit(t, m, "up", "up", "up", "up", "up", "up", "up", "up", "up")
 	typeText(t, m, "2")
 	hit(t, m, "ctrl+s")
 	if len(f.saved) != 1 {
@@ -472,7 +491,7 @@ func TestEditorHidesCompilationForWMA(t *testing.T) {
 	if got := screen(m); strings.Contains(got, "Compilation") || !strings.Contains(got, "Disc") {
 		t.Fatalf("the WMA editor:\n%s", got)
 	}
-	hit(t, m, "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter", "enter")
+	enterToTheEnd(t, m)
 	if len(f.saved) != 1 {
 		t.Errorf("enter on the last field saved %v", f.saved)
 	}

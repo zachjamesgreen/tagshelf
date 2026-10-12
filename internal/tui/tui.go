@@ -210,7 +210,7 @@ func (s librarySource) RunDetail(id int64) (RunDetail, error) {
 }
 
 func (s librarySource) Tags(path string) (tagwrite.Values, error) {
-	return tagwrite.Read(path)
+	return tagwrite.ReadAll(path)
 }
 
 func (s librarySource) LibraryReleases() (map[string]bool, error) {

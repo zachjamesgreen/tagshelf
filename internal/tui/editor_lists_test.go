@@ -125,24 +125,6 @@ func TestEditorShowsListsJoined(t *testing.T) {
 	}
 }
 
-// A comment of several lines has no field in the form, which would run its
-// lines together: it is shown by its first line and never saved over.
-func TestEditorLeavesACommentOfSeveralLinesAlone(t *testing.T) {
-	m, _, _ := editorOn(t, 104, tagwrite.Values{tagwrite.Title: {"Live"}, tagwrite.Comment: {"first line\r\nsecond\nthird"}})
-	got := screen(m)
-	if !strings.Contains(got, "first line") || !strings.Contains(got, "(3 lines; left as it is)") || strings.Contains(got, "second") {
-		t.Errorf("the editor does not show the comment by its first line:\n%s", got)
-	}
-	typeText(t, m, "!")
-	if got, want := m.edit.changes(), (tagwrite.Values{tagwrite.Title: {"Live!"}}); !reflect.DeepEqual(got, want) {
-		t.Errorf("changes = %v, want %v", got, want)
-	}
-	// The form ends a field earlier: enter on the composer saves.
-	if m.edit.form.GetFocusedField() == m.edit.last {
-		t.Fatal("the title is the form's last field")
-	}
-}
-
 // TestMarks checks which saves of the editor mark a file.
 func TestMarks(t *testing.T) {
 	tests := []struct {

@@ -50,20 +50,24 @@ type editorFolderDoneMsg struct {
 	err      error
 }
 
-// focused is the field the form's cursor is on, false on the compilation
-// flag.
-func (e *editor) focused() (tagwrite.Field, bool) {
-	cur := e.form.GetFocusedField()
-	for i, f := range e.shownFields {
-		if f == cur {
-			return e.shownIDs[i], true
-		}
+// folderName is what the question calls a field that can be written to the
+// whole folder, false for one that cannot: one file's own, an ID or the
+// marker.
+func folderName(field tagwrite.Field) (string, bool) {
+	if name, ok := field.OtherName(); ok {
+		return "tag " + name, true
 	}
-	return "", false
+	name, ok := folderFields[field]
+	return name, ok
 }
 
 // value is what the form holds for field, as a save takes it.
 func (e *editor) value(field tagwrite.Field) []string {
+	for _, r := range e.rows {
+		if r.field == field {
+			return r.values()
+		}
+	}
 	for i, p := range e.inputs() {
 		if editorFields[i] != field {
 			continue
@@ -88,9 +92,10 @@ func (m *Model) askFolder() tea.Cmd {
 	if e.form == nil {
 		return nil
 	}
-	field, ok := e.focused()
-	if _, shared := folderFields[field]; !ok || !shared {
-		m.setToast(false, "Only the album artist, album, year, genre, composer and comment can be written to the whole folder")
+	entry, _, ok := e.focusedEntry()
+	field := entry.id
+	if _, shared := folderName(field); !ok || !shared {
+		m.setToast(false, "Only the album artist, album, year, genre, composer, comment and the other tags can be written to the whole folder")
 		return nil
 	}
 	if err := e.invalid(); err != nil {
@@ -145,11 +150,11 @@ func (a *folderAsk) question() string {
 	if len(a.ids) == 1 {
 		files = "the one file in this folder"
 	}
-	name := folderFields[a.field]
+	name, _ := folderName(a.field)
 	if len(a.values) == 0 {
 		return fmt.Sprintf("Take the %s off %s? y takes it off, any other key does not", name, files)
 	}
-	return fmt.Sprintf("Write the %s %q to %s? y writes it, any other key does not", name, clean(shown(a.field, a.values)), files)
+	return fmt.Sprintf("Write the %s %q to %s? y writes it, any other key does not", name, clean(strings.Join(a.values, store.ListSeparator)), files)
 }
 
 // writeToFolder carries the answered question out, as one run that undo
@@ -183,7 +188,7 @@ func (m *Model) editorFolderDone(msg editorFolderDoneMsg) tea.Cmd {
 		return reload
 	}
 	m.edit = nil
-	name := folderFields[msg.field]
+	name, _ := folderName(msg.field)
 	parts := []string{strings.ToUpper(name[:1]) + name[1:] + " written to " + plural(int64(msg.files), "file", "files")}
 	if n := len(msg.moved); n > 0 {
 		dirs := map[string]bool{}
