@@ -12,13 +12,14 @@ There is no promise of a quick reply.
 
 ## Setting up
 
-You need Go 1.26 or newer on Windows. See [Building and testing](README.md#building-and-testing) in the README for the commands; CI runs the same ones.
+You need Go 1.26 or newer, on Windows or Linux. See [Building and testing](README.md#building-and-testing) in the README for the commands; CI runs the same ones.
 
 ## What a pull request needs
 
 - **A test that fails without the change.** tagshelf moves people's files, so behaviour without a test is not taken on trust. Tests work on files in a temporary folder; none may touch real music, a real config file or the network.
-- **`gofmt`, `go vet` and `staticcheck` clean**, and `go test ./...` passing on Windows.
-- **Docs kept true.** If a flag, a config key or a screen changes, update `README.md` and `config.example.yaml`. If a screen of the terminal UI changes on purpose, run `go test ./internal/tui -update` and check the diff.
+- **`gofmt`, `go vet` and `staticcheck` clean**, and `go test ./...` passing on Windows and on Linux. CI runs both, so you need only one of them.
+- **Paths in tests that work on both.** Build a real path with `filepath.Join`. A made-up one, such as the library a screen shows, is written the Windows way and passed through `fixtures.OSPath`, which turns `D:\Music` into `/d/Music` off Windows.
+- **Docs kept true.** If a flag, a config key or a screen changes, update `README.md` and `config.example.yaml`. If a screen of the terminal UI changes on purpose, run `go test ./internal/tui -update` on Windows and check the diff. The golden files hold Windows screens, so `-update` is refused elsewhere.
 - **One change per pull request**, described in plain words: what it changes and why.
 
 Pull requests are squashed into one commit on `main`, so the title should say what the change does.

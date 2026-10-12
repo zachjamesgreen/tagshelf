@@ -40,7 +40,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
 
 ## Status
 
-- **Windows only.** tagshelf is written and tested on Windows 11. Nobody has run it anywhere else.
+- **Windows only, for now.** tagshelf is written on Windows 11 and released for Windows. Its tests also pass on Linux, but there is no Linux download yet.
 - **Version 0.x.** Flags, config keys and the database may still change between versions. The database is upgraded on first use by a newer version, and a copy of the old one is kept beside it.
 - **Back up first.** tagshelf moves and renames your files and can write tags into them. It never deletes an audio file, and it records what it does, but a tool this young should not be the only thing between you and your only copy. Start with a dry run.
 
@@ -377,7 +377,7 @@ To stop using tagshelf, delete the database folder, your config file and the two
 
 ## Building and testing
 
-You need [Go](https://go.dev/dl/) 1.26 or newer on Windows. Nothing else: the test audio files are in the repository.
+You need [Go](https://go.dev/dl/) 1.26 or newer, on Windows or Linux. Nothing else: the test audio files are in the repository.
 
 ```powershell
 git clone https://github.com/zachjamesgreen/tagshelf
@@ -386,7 +386,7 @@ go build -o tagshelf.exe .
 go test ./...
 ```
 
-The checks CI runs on every pull request:
+The checks CI runs on every pull request, on Windows and on Linux (amd64 and arm64):
 
 ```powershell
 gofmt -l .                                                    # must print nothing
@@ -399,7 +399,7 @@ go test ./... -count=1
 Useful to know:
 
 - The tests never read your `config.yaml`, your music or your application data, and never use the network. The MusicBrainz tests talk to a server inside the test.
-- The terminal UI's screens are compared with files in `internal/tui/testdata`. After changing a screen on purpose, run `go test ./internal/tui -update` and read the diff.
+- The terminal UI's screens are compared with files in `internal/tui/testdata`. After changing a screen on purpose, run `go test ./internal/tui -update` on Windows and read the diff: the files hold Windows screens, and on Linux the paths in them are read as Linux writes them.
 - The test audio in `testdata/audio` is described in its own [README](testdata/audio/README.md). It is regenerated with `go generate ./internal/fixtures`, which needs ffmpeg 7.1; you only need that to add a fixture.
 
 ### How the code is laid out

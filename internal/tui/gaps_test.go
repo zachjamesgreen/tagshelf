@@ -21,7 +21,7 @@ func renamed(t *testing.T, m *Model, src *fakeSource, id int64, name string) str
 	t.Helper()
 	for i := range src.snap.Untagged {
 		if f := &src.snap.Untagged[i]; f.ID == id {
-			f.RelPath, f.Path = name, filepath.Join(`D:\Music\_Untagged`, name)
+			f.RelPath, f.Path = name, filepath.Join(p(`D:\Music\_Untagged`), name)
 			src.version++
 			tickNow(t, m)
 			return f.Path
@@ -58,7 +58,7 @@ func TestReloadUpdatesTheFileAFlowIsOpenOn(t *testing.T) {
 func TestDetailOfARunStillGoingFollowsIt(t *testing.T) {
 	src := historySource()
 	move := func(n int) store.Move {
-		return store.Move{From: `E:\Incoming\a.flac`, To: filepath.Join(`D:\Music\Singer\Album`, string(rune('0'+n))+".flac"), Reason: store.ReasonOrganized}
+		return store.Move{From: p(`E:\Incoming\a.flac`), To: filepath.Join(p(`D:\Music\Singer\Album`), string(rune('0'+n))+".flac"), Reason: store.ReasonOrganized}
 	}
 	src.details[7] = RunDetail{Moves: []store.Move{move(1)}}
 	m := newModel(t, src, 120, 32)
@@ -92,7 +92,7 @@ func TestDetailOfARunStillGoingFollowsIt(t *testing.T) {
 // A save the Runner cannot start, and one that was interrupted, leave the
 // editor and the lookup open with what went wrong.
 func TestSavesThatDoNotStartOrFinish(t *testing.T) {
-	locked := &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	locked := &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 
 	m, f, _ := editorOn(t, 104, tagwrite.Values{tagwrite.Title: {"Live"}})
 	typeText(t, m, "!")
@@ -341,7 +341,7 @@ func TestLibrarySourceSearchAlbumAndReleases(t *testing.T) {
 func TestReleaseMatchCorners(t *testing.T) {
 	// A file tagshelf cannot tag keeps the selection from being matched.
 	src := matchSource()
-	src.snap.Untagged[1].Path = `D:\Music\_Untagged\02 track.xyz`
+	src.snap.Untagged[1].Path = p(`D:\Music\_Untagged\02 track.xyz`)
 	m, _ := newUntaggedModel(t, src)
 	m.mb = geogaddi()
 	cursorTo(t, m, 101)
@@ -421,7 +421,7 @@ func TestReleaseMatchCorners(t *testing.T) {
 func TestFlowsOpenOnEveryIndexedFormat(t *testing.T) {
 	for _, ext := range []string{".mp3", ".flac", ".m4a", ".ogg", ".oga", ".opus", ".wma", ".aac", ".ape", ".mpc", ".m4p", ".m4b", ".m4r", ".wav", ".dsf"} {
 		src := untaggedSource()
-		src.snap.Untagged[2].Path = `D:\Music\_Untagged\demo` + ext // file 103
+		src.snap.Untagged[2].Path = p(`D:\Music\_Untagged\demo`) + ext // file 103
 		m, _ := newUntaggedModel(t, src)
 		m.mb = julie()
 		cursorTo(t, m, 103)

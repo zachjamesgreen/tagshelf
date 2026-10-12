@@ -208,7 +208,7 @@ func TestEditorSavesAnUntaggedFileIntoTheLibrary(t *testing.T) {
 		t.Errorf("changes = %v, want %v", got, changes)
 	}
 
-	dst := `D:\Music\Hand Tagged\Tape (1999)\03 - Demo Song.mp3`
+	dst := p(`D:\Music\Hand Tagged\Tape (1999)\03 - Demo Song.mp3`)
 	f.saveEvents = []engine.Event{engine.FilePlaced{Path: m.edit.file.Path, Destination: dst, Outcome: engine.Organized}}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 1}}
 	loads := src.loads
@@ -244,7 +244,7 @@ func TestEditorPartialSaveStays(t *testing.T) {
 func TestEditorOnALibraryFile(t *testing.T) {
 	src := untaggedSource()
 	m, f := newUntaggedModel(t, src)
-	file := store.File{ID: 7, RootKind: store.RootLibrary, Path: `D:\Music\Singer\Albun (2001)\02 - Song.flac`}
+	file := store.File{ID: 7, RootKind: store.RootLibrary, Path: p(`D:\Music\Singer\Albun (2001)\02 - Song.flac`)}
 	src.tags = map[string]tagwrite.Values{file.Path: {
 		tagwrite.Title: {"Song"}, tagwrite.Artist: {"Singer"}, tagwrite.Album: {"Albun"}, tagwrite.Date: {"2001-05-06"},
 		tagwrite.Track: {"2"}, tagwrite.Compilation: {"1"}, tagwrite.Marker: {"musicbrainz 2026-01-02"},
@@ -341,7 +341,7 @@ func TestEditorRefusesWhatCannotBeSaved(t *testing.T) {
 
 func TestEditorDoesNotOpenOnWhatItCannotTag(t *testing.T) {
 	src := untaggedSource()
-	src.snap.Untagged[2].Path = `D:\Music\_Untagged\demo.xyz`
+	src.snap.Untagged[2].Path = p(`D:\Music\_Untagged\demo.xyz`)
 	m, _ := newUntaggedModel(t, src)
 	cursorTo(t, m, 103)
 	hit(t, m, "e")
@@ -465,7 +465,7 @@ func TestEditorLeavesOddValuesItDoesNotWrite(t *testing.T) {
 // A WMA file has no compilation flag to edit; enter on its last field saves.
 func TestEditorHidesCompilationForWMA(t *testing.T) {
 	src := untaggedSource()
-	src.snap.Untagged[2].Path = `D:\Music\_Untagged\demo.wma`
+	src.snap.Untagged[2].Path = p(`D:\Music\_Untagged\demo.wma`)
 	m, f := newUntaggedModel(t, src)
 	cursorTo(t, m, 103)
 	hit(t, m, "e")

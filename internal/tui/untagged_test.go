@@ -24,7 +24,7 @@ import (
 func untaggedSource() *fakeSource {
 	file := func(id int64, name, from string, f store.File) store.UntaggedFile {
 		f.ID, f.RootKind, f.RelPath = id, store.RootUntagged, filepath.FromSlash(name)
-		f.Path = filepath.Join(`D:\Music\_Untagged`, f.RelPath)
+		f.Path = filepath.Join(p(`D:\Music\_Untagged`), f.RelPath)
 		return store.UntaggedFile{File: f, From: from}
 	}
 	rip := store.File{Format: "FLAC", Artist: "Boards of Canada", Album: "Geogaddi", Length: 77 * time.Second}
@@ -32,10 +32,10 @@ func untaggedSource() *fakeSource {
 	one.Title, two.Title = "Ready Lets Go", "Music Is Math"
 	src := &fakeSource{snap: sampleSnapshot()}
 	src.snap.Untagged = []store.UntaggedFile{
-		file(101, "01 track.flac", `E:\Rips\Geogaddi\01 track.flac`, one),
-		file(102, "02 track.flac", `E:\Rips\Geogaddi\02 track.flac`, two),
-		file(103, "demo.mp3", `E:\Incoming\demo.mp3`, store.File{Format: "MP3", Length: 95 * time.Second}),
-		file(104, "live.mp3", `E:\Incoming\live.mp3`, store.File{Format: "MP3", Artist: "Hand Tagged", Title: "Live", Manual: "hand 2026-09-01"}),
+		file(101, "01 track.flac", p(`E:\Rips\Geogaddi\01 track.flac`), one),
+		file(102, "02 track.flac", p(`E:\Rips\Geogaddi\02 track.flac`), two),
+		file(103, "demo.mp3", p(`E:\Incoming\demo.mp3`), store.File{Format: "MP3", Length: 95 * time.Second}),
+		file(104, "live.mp3", p(`E:\Incoming\live.mp3`), store.File{Format: "MP3", Artist: "Hand Tagged", Title: "Live", Manual: "hand 2026-09-01"}),
 		file(105, "loose/x.mp3", "", store.File{Format: "MP3", Artist: "Somebody"}),
 	}
 	src.snap.Overview.Untagged = 5
@@ -70,7 +70,7 @@ func TestUntaggedTabShowsFilesByOriginalFolder(t *testing.T) {
 	got := screen(m)
 	for _, want := range []string{
 		"Untagged (5 files)", "grouped by original folder",
-		`E:\Rips\Geogaddi  2 files`, `E:\Incoming  2 files`, filepath.Join("_Untagged", "loose") + "  1 file",
+		p(`E:\Rips\Geogaddi  2 files`), p(`E:\Incoming  2 files`), filepath.Join("_Untagged", "loose") + "  1 file",
 		"01 track.flac", "Boards of Canada", "Geogaddi", "Ready Lets Go", "1:17", "ripper tags",
 		"demo.mp3", "no tags", "needs: album (hand)", "needs: album, title",
 	} {
@@ -91,11 +91,11 @@ func TestUntaggedTabShowsFilesByOriginalFolder(t *testing.T) {
 func TestAcceptTagsOfTheSelection(t *testing.T) {
 	src := untaggedSource()
 	m, f := newUntaggedModel(t, src)
-	album := `D:\Music\Boards of Canada\Geogaddi`
+	album := p(`D:\Music\Boards of Canada\Geogaddi`)
 	f.saveEvents = []engine.Event{
-		engine.FilePlaced{Path: `D:\Music\_Untagged\01 track.flac`, Destination: album + `\01 - Ready Lets Go.flac`, Outcome: engine.Organized},
-		engine.FilePlaced{Path: `D:\Music\_Untagged\02 track.flac`, Destination: album + `\02 - Music Is Math.flac`, Outcome: engine.Organized},
-		engine.FilePlaced{Path: `D:\Music\_Untagged\cover.jpg`, Destination: album + `\cover.jpg`, Outcome: engine.Companion},
+		engine.FilePlaced{Path: p(`D:\Music\_Untagged\01 track.flac`), Destination: album + p(`\01 - Ready Lets Go.flac`), Outcome: engine.Organized},
+		engine.FilePlaced{Path: p(`D:\Music\_Untagged\02 track.flac`), Destination: album + p(`\02 - Music Is Math.flac`), Outcome: engine.Organized},
+		engine.FilePlaced{Path: p(`D:\Music\_Untagged\cover.jpg`), Destination: album + p(`\cover.jpg`), Outcome: engine.Companion},
 	}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 2}}
 
@@ -151,13 +151,13 @@ func TestAcceptToastsSayWhatStays(t *testing.T) {
 		toast  []string
 	}{
 		"one moved": {
-			[]engine.Event{engine.FilePlaced{Destination: `D:\Music\A\B\01 - C.mp3`, Outcome: engine.Organized}},
+			[]engine.Event{engine.FilePlaced{Destination: p(`D:\Music\A\B\01 - C.mp3`), Outcome: engine.Organized}},
 			engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 1}},
 			true, []string{"Moved to " + filepath.Join("A", "B", "01 - C.mp3")}},
 		"moved to two albums, one stays": {
 			[]engine.Event{
-				engine.FilePlaced{Destination: `D:\Music\A\B\01 - C.mp3`, Outcome: engine.Organized},
-				engine.FilePlaced{Destination: `D:\Music\A\D\01 - E.mp3`, Outcome: engine.Organized}},
+				engine.FilePlaced{Destination: p(`D:\Music\A\B\01 - C.mp3`), Outcome: engine.Organized},
+				engine.FilePlaced{Destination: p(`D:\Music\A\D\01 - E.mp3`), Outcome: engine.Organized}},
 			engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 2, LeftInPlace: 1}},
 			true, []string{"2 files moved into 2 folders", "1 file stays in _Untagged until it has an artist, album and title"}},
 		"an error": {
@@ -175,7 +175,7 @@ func TestAcceptToastsSayWhatStays(t *testing.T) {
 	}
 
 	m, f := newUntaggedModel(t, untaggedSource())
-	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	f.err = &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 	press(t, m, "a")
 	if m.toastOK || !strings.Contains(m.toast, "4242") {
 		t.Errorf("toast = %q (ok %t), want the lock error", m.toast, m.toastOK)
@@ -277,7 +277,7 @@ func TestUntaggedListScrollsWithTheCursor(t *testing.T) {
 	for i := range 60 {
 		f := src.snap.Untagged[0]
 		f.ID = int64(200 + i)
-		f.Path = filepath.Join(`D:\Music\_Untagged`, "many", "track "+string(rune('A'+i%26))+string(rune('a'+i/26))+".flac")
+		f.Path = filepath.Join(p(`D:\Music\_Untagged`), "many", "track "+string(rune('A'+i%26))+string(rune('a'+i/26))+".flac")
 		f.From = ""
 		src.snap.Untagged = append(src.snap.Untagged, f)
 	}

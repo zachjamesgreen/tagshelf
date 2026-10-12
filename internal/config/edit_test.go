@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 )
 
 // TestUpdateTheExampleFile changes settings in the example config file and
@@ -202,7 +205,14 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	ok := Config{Source: `D:\In`, Destination: `D:\Music`}
+	p := fixtures.OSPath
+	ok := Config{Source: p(`D:\In`), Destination: p(`D:\Music`)}
+	// The library folder written another way: with a separator at its end,
+	// and on Windows, where case does not matter, in other letters as well.
+	library := p(`D:\Music\`)
+	if runtime.GOOS == "windows" {
+		library = `d:\MUSIC\`
+	}
 	with := func(change func(*Config)) Config {
 		c := ok
 		change(&c)
@@ -215,8 +225,8 @@ func TestCheck(t *testing.T) {
 	}{
 		{"nothing set", Config{}, nil},
 		{"the usual", ok, nil},
-		{"reorganizing in place", with(func(c *Config) { c.Source = `d:\music\` }), nil},
-		{"folders of its own", with(func(c *Config) { c.Untagged, c.Other, c.Duplicates = `E:\U`, `E:\O`, `E:\D` }), nil},
+		{"reorganizing in place", with(func(c *Config) { c.Source = library }), nil},
+		{"folders of its own", with(func(c *Config) { c.Untagged, c.Other, c.Duplicates = p(`E:\U`), p(`E:\O`), p(`E:\D`) }), nil},
 		{"workers below zero", with(func(c *Config) { c.Workers = -1 }), map[string]string{"workers": "0 or more"}},
 		{"a contact that is an address", with(func(c *Config) { c.MusicBrainzContact = " me@example.org " }), nil},
 		{"a contact that is a URL", with(func(c *Config) { c.MusicBrainzContact = "https://example.org/me" }), nil},
@@ -225,12 +235,12 @@ func TestCheck(t *testing.T) {
 		{"a contact without a host", with(func(c *Config) { c.MusicBrainzContact = "me@example" }), map[string]string{"musicbrainz_contact": "email address"}},
 		{"a compilations name with a slash", with(func(c *Config) { c.Compilations = "Various/Artists" }), map[string]string{"compilations": "cannot hold"}},
 		{"a compilations name ending in a full stop", with(func(c *Config) { c.Compilations = "Various." }), map[string]string{"compilations": "full stop"}},
-		{"the library inside the source", with(func(c *Config) { c.Destination = `D:\In\Music` }), map[string]string{"destination": "inside the source folder"}},
-		{"the source inside the library", with(func(c *Config) { c.Source = `D:\Music\New` }), nil},
-		{"a folder with the source's name as its start", with(func(c *Config) { c.Destination = `D:\Inside` }), nil},
-		{"untagged is the library", with(func(c *Config) { c.Untagged = `D:\MUSIC\` }), map[string]string{"untagged": "library folder itself"}},
-		{"duplicates is the source", with(func(c *Config) { c.Duplicates = `D:\In` }), map[string]string{"duplicates": "source folder itself"}},
-		{"other is where untagged goes by default", with(func(c *Config) { c.Other = `D:\Music\_Untagged` }), map[string]string{"other": "same folder as untagged"}},
+		{"the library inside the source", with(func(c *Config) { c.Destination = p(`D:\In\Music`) }), map[string]string{"destination": "inside the source folder"}},
+		{"the source inside the library", with(func(c *Config) { c.Source = p(`D:\Music\New`) }), nil},
+		{"a folder with the source's name as its start", with(func(c *Config) { c.Destination = p(`D:\Inside`) }), nil},
+		{"untagged is the library", with(func(c *Config) { c.Untagged = library }), map[string]string{"untagged": "library folder itself"}},
+		{"duplicates is the source", with(func(c *Config) { c.Duplicates = p(`D:\In`) }), map[string]string{"duplicates": "source folder itself"}},
+		{"other is where untagged goes by default", with(func(c *Config) { c.Other = p(`D:\Music\_Untagged`) }), map[string]string{"other": "same folder as untagged"}},
 		{"two wrong at once", with(func(c *Config) { c.Workers, c.Compilations = -2, "A:B" }), map[string]string{"workers": "0 or more", "compilations": "cannot hold"}},
 	}
 	for _, tt := range tests {

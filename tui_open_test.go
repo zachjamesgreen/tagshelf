@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/tui"
 )
@@ -87,7 +88,11 @@ func TestTUIOpensWithoutALibrary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmp, _, logs := cliEnv(t)
-			fill := strings.NewReplacer("TMP", tmp, "APPDATA", os.Getenv("APPDATA")).Replace
+			user, err := config.UserPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			fill := strings.NewReplacer(`APPDATA\tagshelf\config.yaml`, user, `TMP\`, tmp+string(filepath.Separator), "TMP", tmp).Replace
 			args := tt.args(t, tmp)
 			logs.Reset()
 			shown, code := openTUI(t, args, nil)

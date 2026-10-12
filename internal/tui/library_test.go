@@ -21,7 +21,7 @@ import (
 func librarySrc() *fakeSource {
 	file := func(id int64, rel string, f store.File) store.File {
 		f.ID, f.RootKind, f.RelPath = id, store.RootLibrary, filepath.FromSlash(rel)
-		f.Path = filepath.Join(`D:\Music`, f.RelPath)
+		f.Path = filepath.Join(p(`D:\Music`), f.RelPath)
 		return f
 	}
 	album := store.File{Format: "FLAC", Artist: "Boards of Canada", Album: "Geogadi", Year: 2002, Length: 59 * time.Second}
@@ -112,7 +112,7 @@ func TestLibraryResultOpensEditLookupAndReleaseMatch(t *testing.T) {
 	if got := screen(m); !strings.Contains(got, want) {
 		t.Fatalf("the editor lacks %q:\n%s", want, got)
 	}
-	dst := `D:\Music\Boards of Canada\Geogaddi (2002)\02 - Music Is Math.flac`
+	dst := p(`D:\Music\Boards of Canada\Geogaddi (2002)\02 - Music Is Math.flac`)
 	f.saveEvents = []engine.Event{engine.FilePlaced{Path: m.edit.file.Path, Destination: dst, Outcome: engine.Organized}}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 1}}
 	searches := len(src.searches)
@@ -172,7 +172,7 @@ func TestLibrarySearchProblemsAndLimit(t *testing.T) {
 	src.err = nil
 	for i := range searchLimit + 20 {
 		src.library = append(src.library, store.File{ID: int64(1000 + i), RootKind: store.RootLibrary, Artist: "Many", Album: "Songs",
-			Title: fmt.Sprintf("Song %03d", i), Path: fmt.Sprintf(`D:\Music\Many\Songs\%03d.mp3`, i)})
+			Title: fmt.Sprintf("Song %03d", i), Path: fmt.Sprintf(p(`D:\Music\Many\Songs\%03d.mp3`), i)})
 	}
 	hit(t, m, "/", "ctrl+u")
 	typeText(t, m, "many")

@@ -185,7 +185,7 @@ func TestLookupTagsAndMovesAFile(t *testing.T) {
 		}
 	}
 
-	dst := `D:\Music\Boards of Canada\Geogaddi (2002)\05 - Julie and Candy.mp3`
+	dst := p(`D:\Music\Boards of Canada\Geogaddi (2002)\05 - Julie and Candy.mp3`)
 	f.saveEvents = []engine.Event{engine.FilePlaced{Path: m.look.file.Path, Destination: dst, Outcome: engine.Organized}}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 1}}
 	hit(t, m, "enter")

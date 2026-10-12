@@ -21,8 +21,8 @@ func undoSource() *fakeSource {
 	src := historySource()
 	src.plans = map[int64]engine.UndoPlan{
 		5: {Run: src.snap.Runs[2], Moves: 46, TagSaves: 3, Cues: 1, Skipped: []engine.UndoSkip{
-			{Path: `D:\Music\Singer\Album (2001)\01 - One.flac`, Reason: "it has changed since it was indexed"},
-			{Path: `D:\Music\_Untagged\loose.mp3`, Reason: `something else is at its old path now (E:\Incoming\loose.mp3)`, Later: true},
+			{Path: p(`D:\Music\Singer\Album (2001)\01 - One.flac`), Reason: "it has changed since it was indexed"},
+			{Path: p(`D:\Music\_Untagged\loose.mp3`), Reason: p(`something else is at its old path now (E:\Incoming\loose.mp3)`), Later: true},
 		}},
 		4: {Run: src.snap.Runs[3], Refusal: "a dry run changed nothing"},
 	}
@@ -55,7 +55,7 @@ func TestUndoPreflightShowsWhatWouldBeDone(t *testing.T) {
 	}
 	got := screen(m)
 	for _, want := range []string{
-		"Runs › Undo › run 5", "Undo run 5: organize of", `E:\Incoming -> D:\Music`,
+		"Runs › Undo › run 5", "Undo run 5: organize of", p(`E:\Incoming -> D:\Music`),
 		"Can be undone: 46 files move back, 3 files get their earlier tags back, 1 cue sheet gets its original back",
 		"No file is overwritten", "Left as they are (2):",
 		filepath.Join("Singer", "Album (2001)", "01 - One.flac"), "it has changed since it was indexed",
@@ -113,7 +113,7 @@ func TestUndoPreflightRefusalsAndEsc(t *testing.T) {
 		t.Errorf("an undo in a dry run: undone %v, toast %q", f.undone, m.toast)
 	}
 	m.header.DryRun = false
-	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	f.err = &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 	hit(t, m, "enter")
 	if m.undo == nil || m.undo.working || !strings.Contains(m.toast, "4242") {
 		t.Errorf("an undo that could not start: preflight open %t, toast %q", m.undo != nil, m.toast)
@@ -125,7 +125,7 @@ func TestToastOffersToUndoTheLastAction(t *testing.T) {
 	src := untaggedSource()
 	src.plans = map[int64]engine.UndoPlan{42: {Run: store.Run{ID: 42, Kind: store.KindTUIAction, Started: started}, Moves: 1, TagSaves: 1}}
 	m, f := newUntaggedModel(t, src)
-	f.saveEvents = []engine.Event{engine.FilePlaced{Destination: `D:\Music\A\B\01 - C.mp3`, Outcome: engine.Organized}}
+	f.saveEvents = []engine.Event{engine.FilePlaced{Destination: p(`D:\Music\A\B\01 - C.mp3`), Outcome: engine.Organized}}
 	f.saveFinish = engine.RunFinished{RunID: 42, State: engine.StateOK, Counters: engine.Counters{Organized: 1}}
 	hit(t, m, "a")
 	if !strings.Contains(m.toast, "Moved to") || !strings.HasSuffix(m.toast, "(u undo)") {

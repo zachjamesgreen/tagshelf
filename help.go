@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/zachjamesgreen/tagshelf/internal/config"
@@ -252,4 +254,24 @@ func sourceProblem(source string) *refusal {
 		return &refusal{"the source " + source + " is a file, not a folder", todo}
 	}
 	return nil
+}
+
+// dataFolderName is how the folder that holds the libraries' databases is
+// written for a reader: by its variable on Windows, where the folder is
+// hidden and the variable is what one types, and elsewhere the folder
+// itself, with ~ for the home folder.
+func dataFolderName() string {
+	if runtime.GOOS == "windows" {
+		return `%LOCALAPPDATA%\tagshelf`
+	}
+	dir, err := store.DataFolder()
+	if err != nil {
+		return filepath.Join("~", ".local", "share", "tagshelf")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rest, ok := strings.CutPrefix(dir, strings.TrimSuffix(home, string(filepath.Separator))+string(filepath.Separator)); ok {
+			return filepath.Join("~", rest)
+		}
+	}
+	return dir
 }

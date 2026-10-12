@@ -46,7 +46,7 @@ func newFileConfig() config.Config {
 func (s *tuiSession) Load() tui.SettingsFile {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := tui.SettingsFile{Session: s.flagValues()}
+	out := tui.SettingsFile{Session: s.flagValues(), DataFolder: dataFolderName()}
 	f, err := config.Read(*s.flags.config)
 	out.Path = f.Path
 	if f.From == config.FromNowhere {

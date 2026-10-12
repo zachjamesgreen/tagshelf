@@ -11,6 +11,10 @@ var update = flag.Bool("update", false, "rewrite the golden View() snapshots in 
 
 // TestGoldenViews compares whole screens at 120x32, without colours, against
 // testdata/*.golden. Run go test ./internal/tui -update to accept changes.
+//
+// The golden files hold the screens of Windows, with its paths. On another
+// system the paths in them are read as that system writes them (see p), and
+// -update is refused: a Windows screen cannot be told from another one.
 func TestGoldenViews(t *testing.T) {
 	tests := []struct {
 		name string
@@ -43,7 +47,7 @@ func TestGoldenViews(t *testing.T) {
 
 // TestGoldenLoading is the screen before the first load has come back.
 func TestGoldenLoading(t *testing.T) {
-	m := New(&fakeSource{}, Header{Destination: `D:\Music`, DryRun: true})
+	m := New(&fakeSource{}, Header{Destination: p(`D:\Music`), DryRun: true})
 	m.Update(windowSize(120, 32))
 	golden(t, filepath.Join("testdata", "loading.golden"), screen(m))
 }
@@ -51,6 +55,9 @@ func TestGoldenLoading(t *testing.T) {
 func golden(t *testing.T, path, got string) {
 	t.Helper()
 	if *update {
+		if filepath.Separator != '\\' {
+			t.Fatal("the golden files hold Windows paths: run -update on Windows")
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -59,11 +66,11 @@ func golden(t *testing.T, path, got string) {
 		}
 		return
 	}
-	want, err := os.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("%v (run with -update to create it)", err)
 	}
-	if got != string(want) {
+	if want := p(string(data)); got != want {
 		t.Errorf("view differs from %s (run with -update to accept):\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
 	}
 }

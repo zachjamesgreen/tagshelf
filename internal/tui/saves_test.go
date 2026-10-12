@@ -166,6 +166,9 @@ func TestReleaseMatchSaveWritesEachFileItsOwnTrack(t *testing.T) {
 	mp3 := copyFixture(t, dir, "untagged.mp3", "02 track.mp3")
 	src := matchSource()
 	src.snap.Untagged[0].Path, src.snap.Untagged[1].Path = flac, mp3 // files 101 and 102
+	// The third file of the rip is beside them, so that the three come in the
+	// order of their names wherever the temp folder is.
+	src.snap.Untagged[5].Path = filepath.Join(dir, "zz.flac")
 	src.tags = map[string]tagwrite.Values{flac: readTags(t, flac), mp3: readTags(t, mp3), src.snap.Untagged[5].Path: {}}
 	m, f := newUntaggedModel(t, src)
 	m.mb = geogaddi()

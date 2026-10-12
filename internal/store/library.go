@@ -219,11 +219,20 @@ func newLibraryID() (string, error) {
 // DefaultPath is where the database of the library with the given ID lives
 // unless configured otherwise: always on a local disk, never among the music.
 func DefaultPath(libraryID string) (string, error) {
+	dir, err := DataFolder()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "libraries", libraryID, "tagshelf.db"), nil
+}
+
+// DataFolder is the folder tagshelf keeps the libraries' databases under.
+func DataFolder() (string, error) {
 	dir, err := dataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tagshelf", "libraries", libraryID, "tagshelf.db"), nil
+	return filepath.Join(dir, "tagshelf"), nil
 }
 
 // dataDir is the per-user folder for application data that is not roaming:

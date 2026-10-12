@@ -17,9 +17,9 @@ import (
 func dupSource() *fakeSource {
 	file := func(id int64, kind store.RootKind, rel string, f store.File) store.File {
 		f.ID, f.RootKind, f.RelPath = id, kind, filepath.FromSlash(rel)
-		root := `D:\Music`
+		root := p(`D:\Music`)
 		if kind == store.RootUntagged {
-			root = `D:\Music\_Untagged`
+			root = p(`D:\Music\_Untagged`)
 		}
 		f.Path = filepath.Join(root, f.RelPath)
 		return f
@@ -197,7 +197,7 @@ func TestResolveFailureShowsToast(t *testing.T) {
 		t.Errorf("toast = %q (ok %t), want the errors pointed at the Runs tab", m.toast, m.toastOK)
 	}
 
-	f.err = &store.LockedError{Path: `D:\db.lock`, Holder: store.LockHolder{PID: 4242, Started: started}}
+	f.err = &store.LockedError{Path: p(`D:\db.lock`), Holder: store.LockHolder{PID: 4242, Started: started}}
 	press(t, m, "b")
 	if m.toastOK || !strings.Contains(m.toast, "4242") {
 		t.Errorf("toast = %q (ok %t), want the lock error", m.toast, m.toastOK)

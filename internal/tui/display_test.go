@@ -94,17 +94,18 @@ func TestTooSmallMessageShowsTheSizeNeeded(t *testing.T) {
 
 func TestShortPath(t *testing.T) {
 	m := New(&fakeSource{}, header)
-	for path, want := range map[string]string{
-		`D:\Music\A\b.mp3`: `A\b.mp3`,
+	for _, tt := range []struct{ path, want string }{
+		{`D:\Music\A\b.mp3`, `A\b.mp3`},
 		// A folder of the library whose name starts with dots is inside it.
-		`D:\Music\...And You Will Know Us by the Trail of Dead\01.mp3`: `...And You Will Know Us by the Trail of Dead\01.mp3`,
-		`D:\Music\..hidden.mp3`:   `..hidden.mp3`,
-		`D:\Music\..\Other\b.mp3`: `D:\Music\..\Other\b.mp3`,
-		`D:\Other\b.mp3`:          `D:\Other\b.mp3`,
-		`D:\Music`:                `D:\Music`,
-		`D:\`:                     `D:\`,
-		`E:\x.mp3`:                `E:\x.mp3`,
+		{`D:\Music\...And You Will Know Us by the Trail of Dead\01.mp3`, `...And You Will Know Us by the Trail of Dead\01.mp3`},
+		{`D:\Music\..hidden.mp3`, `..hidden.mp3`},
+		{`D:\Music\..\Other\b.mp3`, `D:\Music\..\Other\b.mp3`},
+		{`D:\Other\b.mp3`, `D:\Other\b.mp3`},
+		{`D:\Music`, `D:\Music`},
+		{`D:\`, `D:\`},
+		{`E:\x.mp3`, `E:\x.mp3`},
 	} {
+		path, want := p(tt.path), p(tt.want)
 		if got := m.shortPath(path); got != want {
 			t.Errorf("shortPath(%q) = %q, want %q", path, got, want)
 		}
@@ -232,7 +233,7 @@ func TestWhatFilesHoldIsShownClean(t *testing.T) {
 	hit(t, lm, "enter")
 	checkClean(t, lm, "the Library tab")
 	hsrc := historySource()
-	hsrc.details[5] = RunDetail{Errors: []store.RunError{{Path: `E:\Incoming\bad.flac`, Message: dirty}}}
+	hsrc.details[5] = RunDetail{Errors: []store.RunError{{Path: p(`E:\Incoming\bad.flac`), Message: dirty}}}
 	hm := newModel(t, hsrc, 120, 32)
 	hit(t, hm, "5", "down", "down", "enter")
 	checkClean(t, hm, "a run's detail")
@@ -242,7 +243,7 @@ func TestWhatFilesHoldIsShownClean(t *testing.T) {
 	press(t, rm, "o")
 	waitStart(t, fr)
 	fr.send(t, engine.PhaseStarted{Phase: engine.PhaseAudio, Files: 4})
-	fr.send(t, engine.FileError{Path: `E:\Incoming\bad.mp3`, Op: engine.OpOpen, Err: errors.New(dirty)})
+	fr.send(t, engine.FileError{Path: p(`E:\Incoming\bad.mp3`), Op: engine.OpOpen, Err: errors.New(dirty)})
 	checkClean(t, rm, "a run going on")
 	fr.end(t, engine.RunFinished{})
 	runEnded(t, rm)
@@ -264,8 +265,8 @@ func TestListsFormatOnlyTheRowsShown(t *testing.T) {
 	for i := range many {
 		f := src.snap.Untagged[0]
 		f.ID = int64(1000 + i)
-		f.Path = filepath.Join(`D:\Music\_Untagged`, fmt.Sprintf("rip %03d", i/40), fmt.Sprintf("track %05d.flac", i))
-		f.From = filepath.Join(`E:\Rips`, fmt.Sprintf("rip %03d", i/40), fmt.Sprintf("track %05d.flac", i))
+		f.Path = filepath.Join(p(`D:\Music\_Untagged`), fmt.Sprintf("rip %03d", i/40), fmt.Sprintf("track %05d.flac", i))
+		f.From = filepath.Join(p(`E:\Rips`), fmt.Sprintf("rip %03d", i/40), fmt.Sprintf("track %05d.flac", i))
 		src.snap.Untagged = append(src.snap.Untagged, f)
 	}
 	m, _ := newUntaggedModel(t, src)
@@ -278,7 +279,7 @@ func TestListsFormatOnlyTheRowsShown(t *testing.T) {
 	hsrc := historySource()
 	var moves []store.Move
 	for i := range many {
-		moves = append(moves, store.Move{From: fmt.Sprintf(`E:\in\%05d.mp3`, i), To: fmt.Sprintf(`D:\Music\_Untagged\%05d.mp3`, i), Reason: store.ReasonUntagged})
+		moves = append(moves, store.Move{From: fmt.Sprintf(p(`E:\in\%05d.mp3`), i), To: fmt.Sprintf(p(`D:\Music\_Untagged\%05d.mp3`), i), Reason: store.ReasonUntagged})
 	}
 	hsrc.details[5] = RunDetail{Moves: moves}
 	hm := newModel(t, hsrc, 120, 32)
@@ -302,9 +303,9 @@ func TestUntaggedWindowFollowsTheCursor(t *testing.T) {
 	for i := range 70 {
 		f := src.snap.Untagged[i%5]
 		f.ID = int64(1000 + i)
-		f.Path = filepath.Join(`D:\Music\_Untagged`, fmt.Sprintf("more %02d.flac", i))
+		f.Path = filepath.Join(p(`D:\Music\_Untagged`), fmt.Sprintf("more %02d.flac", i))
 		if i%3 == 0 {
-			f.From = fmt.Sprintf(`E:\Folder %d\more %02d.flac`, i/9, i)
+			f.From = fmt.Sprintf(p(`E:\Folder %d\more %02d.flac`), i/9, i)
 		}
 		src.snap.Untagged = append(src.snap.Untagged, f)
 	}
@@ -469,17 +470,17 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 	press(t, m, "o")
 	waitStart(t, f)
 	f.send(t, engine.PhaseStarted{Phase: engine.PhaseWalk})
-	f.send(t, engine.Warning{Kind: engine.WarnStaleCopy, Path: `D:\Music\A\.song.mp3.tagshelf-1.tmp`})
-	f.send(t, engine.Warning{Kind: engine.WarnLinkSkipped, Path: `E:\Incoming\Linked`})
-	f.send(t, engine.Warning{Kind: engine.WarnStaleCopy, Path: `D:\Music\A\.other.mp3.tagshelf-2.tmp`, Err: errors.New("access denied")})
-	f.send(t, engine.FileError{Path: `E:\Incoming`, Op: engine.OpWalkRoot, Err: errors.New("the folder cannot be read")})
+	f.send(t, engine.Warning{Kind: engine.WarnStaleCopy, Path: p(`D:\Music\A\.song.mp3.tagshelf-1.tmp`)})
+	f.send(t, engine.Warning{Kind: engine.WarnLinkSkipped, Path: p(`E:\Incoming\Linked`)})
+	f.send(t, engine.Warning{Kind: engine.WarnStaleCopy, Path: p(`D:\Music\A\.other.mp3.tagshelf-2.tmp`), Err: errors.New("access denied")})
+	f.send(t, engine.FileError{Path: p(`E:\Incoming`), Op: engine.OpWalkRoot, Err: errors.New("the folder cannot be read")})
 	f.send(t, engine.Progress{Phase: engine.PhaseWalk, Files: 3, Counters: engine.Counters{Errors: 1}})
 	got := screen(m)
 	for _, want := range []string{
-		"removed    A\\.song.mp3.tagshelf-1.tmp: a temporary copy a crash left",
-		`warning    E:\Incoming\Linked: left where it is: a link or junction to a folder`,
-		"warning    A\\.other.mp3.tagshelf-2.tmp: the temporary copy a crash left could not be removed: access denied",
-		`error      E:\Incoming: the folder cannot be read`,
+		p("removed    A\\.song.mp3.tagshelf-1.tmp: a temporary copy a crash left"),
+		p(`warning    E:\Incoming\Linked: left where it is: a link or junction to a folder`),
+		p("warning    A\\.other.mp3.tagshelf-2.tmp: the temporary copy a crash left could not be removed: access denied"),
+		p(`error      E:\Incoming: the folder cannot be read`),
 		"Errors 1  Warnings 2",
 	} {
 		if !strings.Contains(got, want) {
@@ -488,10 +489,10 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 	}
 
 	f.end(t, engine.RunFinished{RunID: 9, State: engine.StateErrors, Counters: engine.Counters{Errors: 1}})
-	run := store.Run{ID: 9, Started: started, Kind: store.KindOrganize, Source: `E:\Incoming`, Destination: `D:\Music`,
+	run := store.Run{ID: 9, Started: started, Kind: store.KindOrganize, Source: p(`E:\Incoming`), Destination: p(`D:\Music`),
 		State: store.StateErrors, Counters: store.Counters{Errors: 1}}
 	src.snap.Runs = []store.Run{run, {ID: 8, Started: started, Kind: store.KindIndex, State: store.StateOK}}
-	src.details = map[int64]RunDetail{9: {Errors: []store.RunError{{Path: `E:\Incoming`, Message: "walk-root: the folder cannot be read"}}}}
+	src.details = map[int64]RunDetail{9: {Errors: []store.RunError{{Path: p(`E:\Incoming`), Message: "walk-root: the folder cannot be read"}}}}
 	do(t, m, runEnded(t, m))
 	got = screen(m)
 	for _, want := range []string{"Organize finished with errors", "1 error ", "2 warnings", "5 Runs"} {
@@ -502,8 +503,8 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 	hit(t, m, "5", "enter")
 	got = screen(m)
 	for _, want := range []string{
-		"Errors (1)", `E:\Incoming: walk-root: the folder cannot be read`,
-		"Warnings (2)", `E:\Incoming\Linked: left where it is`, "could not be removed: access denied", "Moves (0)",
+		"Errors (1)", p(`E:\Incoming: walk-root: the folder cannot be read`),
+		"Warnings (2)", p(`E:\Incoming\Linked: left where it is`), "could not be removed: access denied", "Moves (0)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the run's detail lacks %q:\n%s", want, got)
@@ -518,7 +519,7 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 	// More warnings than are kept are still counted.
 	live := &liveRun{}
 	for i := range keptWarnings + 5 {
-		live.sink(engine.Warning{Kind: engine.WarnLinkSkipped, Path: fmt.Sprintf(`E:\in\%d`, i)})
+		live.sink(engine.Warning{Kind: engine.WarnLinkSkipped, Path: fmt.Sprintf(p(`E:\in\%d`), i)})
 	}
 	if live.warned != keptWarnings+5 || len(live.warnings) != keptWarnings {
 		t.Errorf("%d warnings counted and %d kept, want %d and %d", live.warned, len(live.warnings), keptWarnings+5, keptWarnings)
@@ -527,16 +528,16 @@ func TestRunShowsWarningsAndTheErrorOfAWholeRoot(t *testing.T) {
 
 // An action's toast says what its run warned of: nothing else will.
 func TestActionToastsTellOfWarnings(t *testing.T) {
-	cue := engine.Warning{Kind: engine.WarnCueNotBeside, Path: `D:\Music\A\B\album.cue`, Name: "01.flac"}
-	link := engine.Warning{Kind: engine.WarnLinkSkipped, Path: `D:\Music\A\Link`}
-	cleared := engine.Warning{Kind: engine.WarnStaleCopy, Path: `D:\Music\A\x.tmp`}
-	placed := engine.FilePlaced{Destination: `D:\Music\A\B\01 - C.mp3`, Outcome: engine.Organized}
+	cue := engine.Warning{Kind: engine.WarnCueNotBeside, Path: p(`D:\Music\A\B\album.cue`), Name: "01.flac"}
+	link := engine.Warning{Kind: engine.WarnLinkSkipped, Path: p(`D:\Music\A\Link`)}
+	cleared := engine.Warning{Kind: engine.WarnStaleCopy, Path: p(`D:\Music\A\x.tmp`)}
+	placed := engine.FilePlaced{Destination: p(`D:\Music\A\B\01 - C.mp3`), Outcome: engine.Organized}
 
 	m, f := newUntaggedModel(t, untaggedSource())
 	f.saveEvents = []engine.Event{placed, cue, cleared, link}
 	f.saveFinish = engine.RunFinished{State: engine.StateOK, Counters: engine.Counters{Organized: 1}}
 	press(t, m, "a")
-	want := `2 warnings, the first: D:\Music\A\B\album.cue: cue sheet not rewritten: "01.flac" is not next to it after the move`
+	want := p(`2 warnings, the first: D:\Music\A\B\album.cue: cue sheet not rewritten: "01.flac" is not next to it after the move`)
 	if !m.toastOK || !strings.Contains(m.toast, "Moved to") || !strings.Contains(m.toast, want) {
 		t.Errorf("the toast of an accept that warned = %q (ok %t), want %q in it", m.toast, m.toastOK, want)
 	}
@@ -545,7 +546,7 @@ func TestActionToastsTellOfWarnings(t *testing.T) {
 	typeText(t, m, "!")
 	f.saveEvents = []engine.Event{link}
 	hit(t, m, "ctrl+s")
-	if want := `1 warning: D:\Music\A\Link: left where it is`; !strings.HasPrefix(m.toast, "Saved") || !strings.Contains(m.toast, want) {
+	if want := p(`1 warning: D:\Music\A\Link: left where it is`); !strings.HasPrefix(m.toast, "Saved") || !strings.Contains(m.toast, want) {
 		t.Errorf("the toast of a save that warned = %q, want %q in it", m.toast, want)
 	}
 
@@ -625,7 +626,7 @@ func TestUndoNotMarkedUndoneSaysSo(t *testing.T) {
 func TestUndoPreflightMarksWhatCanBeUndoneLater(t *testing.T) {
 	src := undoSource()
 	plan := src.plans[5]
-	plan.Skipped = append(plan.Skipped, engine.UndoSkip{Path: `D:\Music\Singer\Album (2001)\album.cue`, Reason: "it has been edited since"})
+	plan.Skipped = append(plan.Skipped, engine.UndoSkip{Path: p(`D:\Music\Singer\Album (2001)\album.cue`), Reason: "it has been edited since"})
 	src.plans[5] = plan
 	m := newModel(t, src, 120, 32)
 	m.runner = newFakeRunner()
@@ -633,8 +634,8 @@ func TestUndoPreflightMarksWhatCanBeUndoneLater(t *testing.T) {
 	got := screen(m)
 	for _, want := range []string{
 		"Left as they are (3):",
-		"  Singer\\Album (2001)\\01 - One.flac  it has changed since it was indexed",
-		"* _Untagged\\loose.mp3  something else is at its old path now",
+		p("  Singer\\Album (2001)\\01 - One.flac  it has changed since it was indexed"),
+		p("* _Untagged\\loose.mp3  something else is at its old path now"),
 		"What is marked * can be undone later, once what is in the way is gone; the run stays to be undone again.",
 		"A cue sheet left as it is keeps its text; the original kept beside it (.orig) still moves back with it.",
 	} {
