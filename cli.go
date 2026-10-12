@@ -200,7 +200,11 @@ func (s *cliSink) warning(e engine.Warning) {
 	case engine.WarnCueEncoding:
 		s.lg.Printf("Warning: not rewriting cue sheet %q: it is not UTF-8 and %q is not plain ASCII\n", e.Path, e.Name)
 	case engine.WarnLinkSkipped:
-		s.lg.Printf("Warning: leaving %q where it is: it is a link or junction to a folder, or to something that cannot be read\n", e.Path)
+		s.lg.Printf("Warning: leaving %q where it is: it is a link or junction, which is neither followed nor moved\n", e.Path)
+	case engine.WarnSpecialSkipped:
+		s.lg.Printf("Warning: leaving %q where it is: it is not a file but a pipe, socket or device\n", e.Path)
+	case engine.WarnDetailsUnread:
+		s.lg.Printf("Warning: could not read the audio details of %q: %v\n", e.Path, e.Err)
 	case engine.WarnStaleCopy:
 		if e.Err != nil {
 			s.lg.Printf("Warning: could not remove the temporary copy a crash left at %q: %v\n", e.Path, e.Err)

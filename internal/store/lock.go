@@ -80,7 +80,7 @@ func AcquireLibraryLock(destination string) (*Lock, error) {
 // process fails too.
 func AcquireLock(dbPath string) (*Lock, error) {
 	path := LockPath(dbPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("creating the database folder: %w", err)
 	}
 	return acquireLock(path)

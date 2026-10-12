@@ -132,7 +132,11 @@ func warningText(e engine.Warning) string {
 	case engine.WarnCueEncoding:
 		return fmt.Sprintf("cue sheet not rewritten: it is not UTF-8 and %q is not plain ASCII", e.Name)
 	case engine.WarnLinkSkipped:
-		return "left where it is: a link or junction to a folder, or to something that cannot be read"
+		return "left where it is: a link or junction, which is neither followed nor moved"
+	case engine.WarnSpecialSkipped:
+		return "left where it is: not a file but a pipe, socket or device"
+	case engine.WarnDetailsUnread:
+		return fmt.Sprintf("its audio details could not be read: %v", e.Err)
 	case engine.WarnStaleCopy:
 		if e.Err == nil {
 			return ""

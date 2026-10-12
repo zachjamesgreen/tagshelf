@@ -276,9 +276,9 @@ func TestTUIRunUsesTheUntaggedFolderTyped(t *testing.T) {
 func tuiRunnerFor(t *testing.T, tmp, source string) (tuiRunner, string) {
 	t.Helper()
 	lib := filepath.Join(tmp, "lib")
-	cfg, err := absolutePaths(config.Config{Source: source, Destination: lib, Database: filepath.Join(tmp, "tagshelf.db")}.WithDefaults())
-	if err != nil {
-		t.Fatal(err)
+	cfg, _, problem := usablePaths(config.Config{Source: source, Destination: lib, Database: filepath.Join(tmp, "tagshelf.db")}, pathOrigin{})
+	if problem != nil {
+		t.Fatal(problem)
 	}
 	return tuiRunner{cfg: cfg}, lib
 }

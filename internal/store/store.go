@@ -65,7 +65,9 @@ func OpenMemory() (*Store, error) {
 }
 
 func open(path string, ms []migration) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// The database folder is the user's alone, as the XDG specification
+	// asks of a data folder a program makes.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("creating the database folder: %w", err)
 	}
 	_, statErr := os.Stat(path)

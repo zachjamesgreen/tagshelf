@@ -59,6 +59,10 @@ func TestHelpScreen(t *testing.T) {
 			"  -source <folder>  ", "  -compilations <name>  ", "  -workers <n>  ", "  -dry-run  ", "  -config <file>  ",
 			"  -h  ", "\nConfig file:\n  None: no -config was given, and this folder has no config.yaml.\n  Your own config file would be " +
 				filepath.Join(os.Getenv("APPDATA"), "tagshelf", "config.yaml") + "\n",
+			// The examples and the defaults are written as this system
+			// writes a path.
+			here(`-dest D:\Music`), here(`<dest>\_Untagged).`),
+			filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db") + ").",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: the help lacks %q:\n%s", name, want, got)
@@ -71,7 +75,7 @@ func TestHelpScreen(t *testing.T) {
 		flagsPart, _, _ := strings.Cut(got, "\nConfig file:\n")
 		for _, line := range strings.Split(flagsPart, "\n") {
 			// The default database path is one word, longer than a line.
-			if len(line) > helpWidth && !strings.Contains(line, "%LOCALAPPDATA%") {
+			if len(line) > helpWidth && !strings.Contains(line, "<library-id>") {
 				t.Errorf("%s: a line of help is %d wide, want at most %d: %q", name, len(line), helpWidth, line)
 			}
 		}
@@ -170,7 +174,7 @@ func TestHelpGoesWhereItWasAskedFor(t *testing.T) {
 			mistakes = append(mistakes, struct {
 				args []string
 				last string
-			}{[]string{"-config", config, "-source", t.TempDir()}, "tagshelf cannot start: no library folder is set.\n" + noDestinationTodo + "\n"})
+			}{[]string{"-config", config, "-source", t.TempDir()}, "tagshelf cannot start: no library folder is set.\n" + here(noDestinationTodo) + "\n"})
 		}
 		for _, m := range mistakes {
 			out.Reset()

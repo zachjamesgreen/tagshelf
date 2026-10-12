@@ -103,10 +103,16 @@ const (
 	WarnModTime                         // a copied file lost its modification time
 	WarnCueNotBeside                    // a cue's FILE Name is not next to it after the move
 	WarnCueEncoding                     // a non-UTF-8 cue would need the non-ASCII Name
-	WarnLinkSkipped                     // a link or junction to a folder was left where it is
+	WarnLinkSkipped                     // a link or junction was left where it is
 	// A temporary copy a crashed tag save or move left behind was removed,
 	// or with Err set could not be.
 	WarnStaleCopy
+	// Something that is not a file was left where it is: a named pipe, a
+	// socket or a device.
+	WarnSpecialSkipped
+	// The length, bit rate and other audio details of a file could not be
+	// read into the index; Err says why. Its tags and its hash may have been.
+	WarnDetailsUnread
 )
 
 // Warning reports something that went less than right without failing the
@@ -115,7 +121,7 @@ type Warning struct {
 	Kind WarningKind
 	Path string
 	Name string // cue warnings: the FILE name concerned
-	Err  error  // copy and stale copy warnings: the underlying error
+	Err  error  // copy, stale copy and details warnings: the underlying error
 }
 
 // Rename is one FILE line of a cue sheet pointed at a new name.

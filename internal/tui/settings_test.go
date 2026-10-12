@@ -662,3 +662,92 @@ func TestLineInput(t *testing.T) {
 }
 
 func ansiStrip(s string) string { return ansi.Strip(s) }
+
+// TestSettingsMarksWhatTheFileGetsWrong checks the settings a config file
+// has that cannot be used as they are written: they are marked from the
+// start, before any save, and stay marked when other changes are dropped.
+// Changing one takes its mark away.
+func TestSettingsMarksWhatTheFileGetsWrong(t *testing.T) {
+	const mark = "✗ is a Windows path, which this system cannot use"
+	bad := savedSettings
+	bad.Destination = `D:\Music`
+	f := &fakeSettings{file: SettingsFile{Path: p(`C:\c.yaml`), Config: bad, Problems: map[string]string{"destination": "is a Windows path, which this system cannot use"}}}
+	m := settingsModel(t, f)
+	if got := screen(m); !strings.Contains(got, `Library folder       D:\Music  `+mark) {
+		t.Fatalf("the setting is not marked when the tab opens:\n%s", got)
+	}
+	to(t, m, "destination")
+	if got := screen(m); !strings.Contains(got, "Library folder is a Windows path, which this system cannot use.") {
+		t.Errorf("the line under the settings does not say what is wrong with the one the cursor is on:\n%s", got)
+	}
+
+	// Another setting changed and dropped: the mark is the file's, and stays.
+	to(t, m, "dry_run")
+	press(t, m, "enter")
+	press(t, m, "esc")
+	if got := screen(m); !strings.Contains(got, mark) || !strings.Contains(m.toast, "Changes dropped") {
+		t.Errorf("after dropping a change the setting is no longer marked:\n%s", got)
+	}
+
+	// Typing another folder takes the mark away, and dropping that brings it back.
+	to(t, m, "destination")
+	press(t, m, "enter")
+	press(t, m, "ctrl+u")
+	typeText(t, m, p(`E:\Music`))
+	press(t, m, "enter")
+	if got := screen(m); strings.Contains(got, mark) {
+		t.Errorf("the setting is marked still, after it was changed:\n%s", got)
+	}
+	press(t, m, "esc")
+	if got := screen(m); !strings.Contains(got, mark) {
+		t.Errorf("after dropping the change the setting is not marked again:\n%s", got)
+	}
+}
+
+// TestPathsFromHome checks ~ in a path being typed: the note under the field
+// is about the folder in the home folder, and tab completes a name there
+// while leaving the ~ as it was typed.
+func TestPathsFromHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, d := range []string{"Music", "Incoming"} {
+		if err := os.Mkdir(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sep := string(filepath.Separator)
+	for _, h := range []struct {
+		path, want string
+	}{
+		{"~", "This folder exists."},
+		{"~/Music", "This folder exists."},
+		{"~/Nope", "This folder does not exist yet."},
+		{"~bob/Music", "Only ~ alone, your own home folder, is known."},
+	} {
+		if got := pathHint(h.path, true); got != h.want {
+			t.Errorf("pathHint(%q) = %q, want %q", h.path, got, h.want)
+		}
+	}
+	for _, c := range []struct {
+		typed, want string
+	}{
+		{"~/inc", "~/Incoming" + sep},
+		{"~/Mu", "~/Music" + sep},
+		{"~/zzz", "~/zzz"},
+		{"~bob/x", "~bob/x"},
+	} {
+		if got := completePath(c.typed, true); got != c.want {
+			t.Errorf("completePath(%q) = %q, want %q", c.typed, got, c.want)
+		}
+	}
+
+	// A Windows path is told apart where it is no path.
+	got := pathHint(`D:\Music`, true)
+	if want := "This is a Windows path, which this system cannot use."; filepath.Separator == '/' && got != want {
+		t.Errorf(`pathHint("D:\Music") = %q, want %q`, got, want)
+	}
+	if filepath.Separator != '/' && strings.Contains(got, "Windows path") {
+		t.Errorf(`pathHint("D:\Music") on Windows = %q`, got)
+	}
+}
