@@ -203,6 +203,8 @@ func (s *cliSink) warning(e engine.Warning) {
 		s.lg.Printf("Warning: leaving %q where it is: it is a link or junction, which is neither followed nor moved\n", e.Path)
 	case engine.WarnSpecialSkipped:
 		s.lg.Printf("Warning: leaving %q where it is: it is not a file but a pipe, socket or device\n", e.Path)
+	case engine.WarnCaseTwins:
+		s.lg.Printf("Warning: %q and %q beside it differ only in letter case: the first is used, and a reorganize moves what is in the other into it\n", e.Path, e.Name)
 	case engine.WarnDetailsUnread:
 		s.lg.Printf("Warning: could not read the audio details of %q: %v\n", e.Path, e.Err)
 	case engine.WarnStaleCopy:

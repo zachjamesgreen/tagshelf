@@ -65,7 +65,7 @@ func TestReorganizeCaseOnlyRename(t *testing.T) {
 // folder alone, so that reorganizing never flips it back and forth.
 func TestReorganizeCaseConflictLeavesFolder(t *testing.T) {
 	lib := t.TempDir()
-	if caseSensitive(t, lib) {
+	if caseSensitive(t, lib) && !ownFolding {
 		t.Skip("abba and ABBA are separate folders on a case-sensitive file system")
 	}
 	writeTaggedMP3(t, filepath.Join(lib, "abba", "Gold", "01 - One.mp3"), id3Tags{albumArtist: "ABBA", album: "Gold", title: "One", track: "1"}, "one")

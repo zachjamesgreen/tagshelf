@@ -119,6 +119,8 @@ Tags that a CD ripper or a download came with do not qualify on their own, howev
 - The album artist tag is used for the folder, or the track artist when there is none.
 - `(Year)` is left out when the file has no year.
 - Characters Windows does not allow in names (`< > : " / \ | ? *`) are replaced with `_`.
+- A name that would start with a full stop starts with `_` instead: `.38 Special` is filed as `_38 Special`. A name with a full stop first is hidden on Linux.
+- Letter case never makes a second folder or file. `the beatles` goes into the `The Beatles` that is there, and a file whose name is taken in another case counts as taken.
 - If the name is taken by a different file, the new one gets ` (1)`, ` (2)` and so on. tagshelf never writes over a file.
 
 ### The other folders
