@@ -1,0 +1,64 @@
+name: Fingerprint module
+
+# Builds internal/fingerprint/fp.wasm again from its sources, and fails when
+# the file in the repository is not what the build gives: the module tagshelf
+# carries is then known to be FFmpeg and Chromaprint as build.sh builds them,
+# and nothing else. It runs when the module or what builds it changes, and
+# can be started by hand.
+on:
+  pull_request:
+    paths:
+      - internal/fingerprint/fp.wasm
+      - internal/fingerprint/module/**
+      - .github/workflows/fingerprint-module.yml
+  push:
+    branches: [main]
+    paths:
+      - internal/fingerprint/fp.wasm
+      - internal/fingerprint/module/**
+      - .github/workflows/fingerprint-module.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fingerprint-module-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the module and compare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        run: bash internal/fingerprint/module/build.sh "$RUNNER_TEMP/fp" "$RUNNER_TEMP/fp/fp.wasm"
+
+      # The sources go with the module built from them.
+      - name: Gather the module and its sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$RUNNER_TEMP/fp/fp.wasm" "$RUNNER_TEMP/fp/dl/ffmpeg.tar.xz" "$RUNNER_TEMP/fp/dl/chromaprint.tar.gz" "$RUNNER_TEMP/out/"
+          cp internal/fingerprint/module/build.sh internal/fingerprint/module/fp.cc "$RUNNER_TEMP/out/"
+          (cd "$RUNNER_TEMP/out" && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fingerprint-module
+          path: ${{ runner.temp }}/out
+          if-no-files-found: error
+
+      - name: The module in the repository is the one built
+        run: |
+          built=$(sha256sum "$RUNNER_TEMP/fp/fp.wasm" | cut -d' ' -f1)
+          kept=$(sha256sum internal/fingerprint/fp.wasm | cut -d' ' -f1)
+          echo "built: $built"
+          echo "kept:  $kept"
+          if [ "$built" != "$kept" ]; then
+            echo "internal/fingerprint/fp.wasm is not what build.sh builds."
+            echo "Take fp.wasm from this run's fingerprint-module artifact, or run build.sh, and commit it."
+            exit 1
+          fi

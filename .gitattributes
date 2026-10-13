@@ -19,3 +19,7 @@ internal/tagwrite/testdata/* binary
 # The TUI's golden screens are compared byte for byte: LF, whatever
 # core.autocrlf says.
 internal/tui/testdata/*.golden text eol=lf
+
+# The fingerprint module and its test audio are bytes, not text.
+internal/fingerprint/fp.wasm binary
+internal/fingerprint/testdata/tune* binary
