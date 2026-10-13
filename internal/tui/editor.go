@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image"
 	"maps"
 	"path/filepath"
 	"strconv"
@@ -52,6 +53,14 @@ type editor struct {
 	// folder then holds: whether to write a field to them all.
 	counting bool
 	folder   *folderAsk
+
+	// pic is the picture the file holds, nil when it has none to show.
+	// picLines are its lines as blocks, picCols cells wide, and beside the
+	// text next to it on the lines an image is redrawn for (see picPlace).
+	pic      image.Image
+	picLines []string
+	picCols  int
+	beside   string
 }
 
 // editorTagsMsg is the tags of the file the editor opened on.
@@ -138,10 +147,16 @@ func (m *Model) openEditor(f store.File) tea.Cmd {
 	}
 	m.edit = &editor{file: f, from: m.tab}
 	src := m.src
-	return func() tea.Msg {
+	tags := func() tea.Msg {
 		v, err := src.Tags(f.Path)
 		return editorTagsMsg{id: f.ID, values: v, err: err}
 	}
+	// A picture that cannot be read is one the editor does not show.
+	picture := func() tea.Msg {
+		img, _ := src.Picture(f.Path)
+		return editorPicMsg{id: f.ID, img: img}
+	}
+	return tea.Batch(tags, picture)
 }
 
 // editorLoaded puts the tags read from the file into a form.
@@ -256,8 +271,14 @@ func (m *Model) editorHeight() int {
 	return max(min(m.bodyHeight()-around, fields), 3)
 }
 
+// editorWidth is how wide a flow's form is: the editor's leaves room for the
+// picture beside it.
 func (m *Model) editorWidth() int {
-	return max(min(m.width-4, 100), 30)
+	w := m.width - 4
+	if cols, _, _, _, ok := m.picBox(); ok {
+		w -= cols + picGap
+	}
+	return max(min(w, 100), 30)
 }
 
 // changes are the fields whose values differ from the file's, as a save
@@ -586,5 +607,5 @@ func (m *Model) editorBody() string {
 	case e.leaving:
 		b.WriteString("\n  " + accentStyle.Render("Unsaved changes: esc again discards them, ctrl+s saves") + "\n")
 	}
-	return b.String()
+	return m.withPicture(b.String())
 }

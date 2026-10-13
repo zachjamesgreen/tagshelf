@@ -129,6 +129,9 @@ type Model struct {
 	// ended, nil when none is.
 	busy         chan struct{}
 	cancelAction func()
+
+	// pics is how the terminal draws the picture the tag editor shows.
+	pics pictures
 }
 
 // New returns a model reading from src.
@@ -206,6 +209,9 @@ func tick() tea.Cmd {
 // Update handles a message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.update(msg)
+	if draw := m.picSync(msg); draw != nil {
+		cmd = tea.Batch(cmd, draw)
+	}
 	// Asked to quit while a run or an action was going: now that they have
 	// ended.
 	if m.quitting && m.run == nil && m.busy == nil {
@@ -218,15 +224,14 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		if m.edit != nil && m.edit.form != nil {
-			m.edit.form.WithWidth(m.editorWidth()).WithHeight(m.editorHeight())
-		}
+		m.editorResized()
 		if m.look != nil && m.look.form != nil {
 			m.look.form.WithWidth(m.editorWidth())
 		}
 		if m.match != nil && m.match.form != nil {
 			m.match.form.WithWidth(m.editorWidth())
 		}
+		return m.picProbe()
 	case tickMsg:
 		return m.poll(false, true)
 	case refreshMsg:
@@ -259,6 +264,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.untaggedDone(msg)
 	case editorTagsMsg:
 		return m.editorLoaded(msg)
+	case editorPicMsg:
+		m.editorPicLoaded(msg)
+	case picDrawMsg:
+		return m.picDrawn(msg)
 	case editorDoneMsg:
 		return m.editorDone(msg)
 	case editorFolderMsg:
@@ -337,6 +346,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		return m.key(msg.String())
 	default:
+		if m.picAnswer(msg) {
+			return nil
+		}
 		return m.toFlowForm(msg)
 	}
 	return nil
