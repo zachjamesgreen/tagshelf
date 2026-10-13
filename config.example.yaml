@@ -9,12 +9,14 @@ destination: "D:\\Music"               # organized library
 #untagged: "D:\\Music\\_Untagged"      # audio without usable tags (default: <destination>/_Untagged)
 #other: "D:\\Music\\_Other"            # non-audio files that don't belong to a tagged album (default: <destination>/_Other)
 #duplicates: "D:\\Music\\_Duplicates"  # copies set aside as duplicates; tagshelf never deletes them (default: <destination>/_Duplicates)
+#playlists: "D:\\Music\\_Playlists"    # playlists that name files of several folders (default: <destination>/_Playlists)
 auto_resolve_exact: true               # runs keep the best of identical copies they bring in and set the rest aside
 compilations: "Various Artists"        # artist folder for Various Artists compilations
 workers: 0                             # 0 = number of CPUs
 dry_run: true                          # preview only; set to false to move files
 verbose: false
 cue_rewrite: true                      # fix FILE lines in moved .cue files (keeps album.cue.orig)
+playlist_rewrite: true                 # point the entries of .m3u and .m3u8 playlists at the files they name when those move
 #musicbrainz_contact: "you@example.com" # email or URL MusicBrainz can reach you at; lookups are disabled until set
 genre_from_musicbrainz: fill           # the genre of a MusicBrainz match: fill a file that has none, replace it always, or off
 cover_art_file: false                  # write a cover file into an album folder that has no cover (after a match, and by tagshelf art)

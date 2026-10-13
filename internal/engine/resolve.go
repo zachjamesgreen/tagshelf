@@ -97,6 +97,9 @@ func (o *organizer) endAction(ctx context.Context) RunFinished {
 	if !interrupted {
 		o.startPhase(PhaseCompanions, 0, 0)
 		o.followAudio()
+	}
+	o.rewritePlaylists()
+	if !interrupted {
 		o.startPhase(PhaseCleanup, 0, 0)
 		// A copy left by a crash would keep its folder from being removed.
 		var emptied []string
@@ -154,12 +157,20 @@ func (o *organizer) resolve(r Resolution) {
 
 	resolved := true
 	settled := make(map[string]bool)
+	kept := ""
+	for _, f := range files {
+		if f.ID == r.Keeper {
+			kept = f.Path
+		}
+	}
 	for _, f := range files {
 		if f.ID == r.Keeper {
 			continue
 		}
 		if !o.toDuplicates(dupCopy{File: f}, settled) {
 			resolved = false
+		} else {
+			o.keptFor.Store(rules.PathKey(f.Path), kept)
 		}
 		o.phase.advance(f.Size)
 	}

@@ -41,16 +41,16 @@ type UndoPlan struct {
 	Run store.Run
 	// Refusal says why the run cannot be undone at all, "" when it can.
 	Refusal string
-	// How many moves, tag saves, cue sheet rewrites, covers written and
-	// pictures put into files would be undone.
-	Moves, TagSaves, Cues, Covers, Pictures int
+	// How many moves, tag saves, cue sheet rewrites, covers written,
+	// pictures put into files and playlist rewrites would be undone.
+	Moves, TagSaves, Cues, Covers, Pictures, Playlists int
 	// Skipped lists what would be left as it is.
 	Skipped []UndoSkip
 }
 
 // Nothing reports whether the plan undoes nothing.
 func (p UndoPlan) Nothing() bool {
-	return p.Refusal != "" || p.Moves+p.TagSaves+p.Cues+p.Covers+p.Pictures == 0
+	return p.Refusal != "" || p.Moves+p.TagSaves+p.Cues+p.Covers+p.Pictures+p.Playlists == 0
 }
 
 // undoOp is one thing a run did, to be undone: a move, among them a cue
@@ -86,6 +86,10 @@ type undoer struct {
 	// undone because the sheet was edited, the original the run kept beside
 	// it: it goes back with the sheet.
 	origOf map[string]string
+
+	// first holds, by the path key of where the undo has put a file, the
+	// key of where the file was when the undo began.
+	first map[string]string
 }
 
 // newUndoer reads what the run did.
@@ -94,7 +98,7 @@ func newUndoer(st *store.Store, runID int64, check TagCheck) (*undoer, error) {
 	if err != nil {
 		return nil, err
 	}
-	u := &undoer{st: st, check: check, run: run, moved: map[string]string{}, gone: map[string]bool{}, origOf: map[string]string{}}
+	u := &undoer{st: st, check: check, run: run, moved: map[string]string{}, gone: map[string]bool{}, origOf: map[string]string{}, first: map[string]string{}}
 	moves, err := st.Moves(runID)
 	if err != nil {
 		return nil, err
@@ -241,6 +245,8 @@ func (u *undoer) step(op undoOp) (do func(o *organizer) error, plan func(), skip
 		return u.coverStep(op)
 	case op.move.Reason == store.ReasonPicture:
 		return u.pictureStep(op)
+	case op.move.Reason == store.ReasonPlaylistRewrite:
+		return u.playlistStep(op)
 	}
 
 	m := op.move
@@ -281,6 +287,7 @@ func (u *undoer) step(op undoOp) (do func(o *organizer) error, plan func(), skip
 				return err
 			}
 			o.recordMove(real, m.From, store.ReasonRenamed)
+			u.movedBack(o, real, m.From)
 			o.touched.Store(filepath.Dir(real), struct{}{})
 			o.stats.OtherMoved.Add(1)
 			o.emit(FilePlaced{Path: real, Destination: m.From, Outcome: Renamed})
@@ -501,6 +508,8 @@ func PlanUndo(st *store.Store, runID int64, check TagCheck) (UndoPlan, error) {
 			plan.Covers++
 		case op.move.Reason == store.ReasonPicture:
 			plan.Pictures++
+		case op.move.Reason == store.ReasonPlaylistRewrite:
+			plan.Playlists++
 		default:
 			plan.Moves++
 		}

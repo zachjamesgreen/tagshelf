@@ -40,12 +40,14 @@ destination: "C:\\MusicDest"
 untagged: "C:\\MusicUntagged"
 other: "C:\\MusicOther"
 duplicates: "C:\\MusicDuplicates"
+playlists: "C:\\MusicPlaylists"
 auto_resolve_exact: false
 compilations: "Compilations"
 workers: 4
 dry_run: true
 verbose: true
 cue_rewrite: false
+playlist_rewrite: false
 musicbrainz_contact: "me@example.com"
 genre_from_musicbrainz: replace
 cover_art_file: true
@@ -58,7 +60,7 @@ func wantEveryKey() Config {
 	off := false
 	return Config{
 		Source: `C:\MusicSource`, Destination: `C:\MusicDest`, Untagged: `C:\MusicUntagged`, Other: `C:\MusicOther`,
-		Duplicates: `C:\MusicDuplicates`, AutoResolveExact: &off, Compilations: "Compilations", Workers: 4,
+		Duplicates: `C:\MusicDuplicates`, Playlists: `C:\MusicPlaylists`, PlaylistRewrite: &off, AutoResolveExact: &off, Compilations: "Compilations", Workers: 4,
 		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "replace", CoverArtFile: true, CoverArtEmbed: true, CoverArtReplace: "smaller", Database: `C:\Data\music.db`,
 	}
 }
@@ -73,8 +75,9 @@ func TestLoadConfigEveryKey(t *testing.T) {
 	if want := wantEveryKey(); !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v\nwant   %+v", cfg, want)
 	}
-	if cfg.RewriteCues() || cfg.AutoResolvesExact() {
-		t.Errorf("cue_rewrite and auto_resolve_exact are off in the file, got %t and %t", cfg.RewriteCues(), cfg.AutoResolvesExact())
+	if cfg.RewriteCues() || cfg.AutoResolvesExact() || cfg.RewritePlaylists() {
+		t.Errorf("cue_rewrite, auto_resolve_exact and playlist_rewrite are off in the file, got %t, %t and %t",
+			cfg.RewriteCues(), cfg.AutoResolvesExact(), cfg.RewritePlaylists())
 	}
 	for _, key := range knownKeys() {
 		if !strings.Contains(everyKey, "\n"+key+":") {
@@ -92,8 +95,8 @@ func TestLoadConfigEveryKey(t *testing.T) {
 // TestLoadConfigEveryOverride checks each override replaces the file's value.
 func TestLoadConfigEveryOverride(t *testing.T) {
 	on, off := true, false
-	ov := Overrides{Source: "s", Destination: "d", Untagged: "u", Other: "o", Duplicates: "dup", Compilations: "VA",
-		Workers: 16, DryRun: &off, Verbose: &off, CueRewrite: &on, Database: "db"}
+	ov := Overrides{Source: "s", Destination: "d", Untagged: "u", Other: "o", Duplicates: "dup", Playlists: "lists", Compilations: "VA",
+		Workers: 16, DryRun: &off, Verbose: &off, CueRewrite: &on, PlaylistRewrite: &on, Database: "db"}
 	cfg, err := Load(writeConfig(t, "all.yaml", everyKey), ov)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -101,11 +104,12 @@ func TestLoadConfigEveryOverride(t *testing.T) {
 	want := wantEveryKey()
 	want.Source, want.Destination, want.Untagged, want.Other, want.Duplicates = "s", "d", "u", "o", "dup"
 	want.Compilations, want.Workers, want.DryRun, want.Verbose, want.CueRewrite, want.Database = "VA", 16, false, false, &on, "db"
+	want.Playlists, want.PlaylistRewrite = "lists", &on
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v\nwant   %+v", cfg, want)
 	}
-	if !cfg.RewriteCues() {
-		t.Error("the cue rewrite override did not turn rewriting back on")
+	if !cfg.RewriteCues() || !cfg.RewritePlaylists() {
+		t.Error("the cue and playlist rewrite overrides did not turn rewriting back on")
 	}
 	v := reflect.ValueOf(ov)
 	for i := range v.NumField() {
@@ -122,6 +126,9 @@ func TestLoadConfigCueRewriteDefaultsOn(t *testing.T) {
 	}
 	if !cfg.RewriteCues() {
 		t.Error("cue_rewrite must default to on")
+	}
+	if !cfg.RewritePlaylists() {
+		t.Error("playlist_rewrite must default to on")
 	}
 	off := false
 	if cfg, err = Load(writeConfig(t, "empty.yaml", ""), Overrides{CueRewrite: &off}); err != nil || cfg.RewriteCues() {

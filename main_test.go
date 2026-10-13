@@ -345,8 +345,8 @@ func TestExitCode(t *testing.T) {
 func TestEngineOptions(t *testing.T) {
 	on, off := true, false
 	cfg := config.Config{
-		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates",
-		AutoResolveExact: &off, Compilations: "comps", Workers: 7, DryRun: true, Verbose: true, CueRewrite: &off,
+		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates", Playlists: "playlists",
+		AutoResolveExact: &off, Compilations: "comps", Workers: 7, DryRun: true, Verbose: true, CueRewrite: &off, PlaylistRewrite: &off,
 		MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "off", CoverArtFile: true, CoverArtEmbed: true, CoverArtReplace: "always", Database: "db",
 	}
 	v := reflect.ValueOf(cfg)
@@ -356,8 +356,8 @@ func TestEngineOptions(t *testing.T) {
 		}
 	}
 	want := engine.Options{
-		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates",
-		Compilations: "comps", Workers: 7, DryRun: true, NoCueRewrite: true, NoAutoResolve: true,
+		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates", Playlists: "playlists",
+		Compilations: "comps", Workers: 7, DryRun: true, NoCueRewrite: true, NoPlaylistRewrite: true, NoAutoResolve: true,
 	}
 	got := engineOptions(cfg)
 	// A function compares equal to nothing: that the run is given the one

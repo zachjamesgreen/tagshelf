@@ -54,6 +54,8 @@ type libraryFlags struct {
 	help helpScreen
 
 	config, source, dest, untagged, other, duplicates, compilations, db *string
+	playlists                                                           *string
+	noPlaylistRewrite                                                   *bool
 	workers                                                             *int
 	dryRun, noCueRewrite                                                *bool
 
@@ -71,19 +73,21 @@ func addLibraryFlags(set *flag.FlagSet, help helpScreen, sourceUsage, destUsage,
 	set.SetOutput(io.Discard)
 	set.Usage = func() {}
 	return &libraryFlags{
-		set:          set,
-		help:         help,
-		config:       set.String("config", "", "Take the settings from this config `file`. Flags override what it says."),
-		source:       set.String("source", "", sourceUsage),
-		dest:         set.String("dest", "", destUsage),
-		untagged:     set.String("untagged", "", here("The `folder` for audio files without usable tags (default: <dest>\\_Untagged).")),
-		other:        set.String("other", "", here("The `folder` for files that are not audio and do not belong to a tagged album (default: <dest>\\_Other).")),
-		duplicates:   set.String("duplicates", "", here("The `folder` for the copies set aside as duplicates (default: <dest>\\_Duplicates).")),
-		compilations: set.String("compilations", "", "The artist folder `name` for Various Artists albums (default: \""+rules.DefaultCompilations+"\")."),
-		workers:      set.Int("workers", 0, "Work on `n` files at once (default: the number of CPUs)."),
-		dryRun:       set.Bool("dry-run", false, dryRunUsage),
-		noCueRewrite: set.Bool("no-cue-rewrite", false, "Do not fix the FILE lines of the cue sheets that move."),
-		db:           set.String("db", "", "The library's database `file` (default: "+filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db")+")."),
+		set:               set,
+		help:              help,
+		config:            set.String("config", "", "Take the settings from this config `file`. Flags override what it says."),
+		source:            set.String("source", "", sourceUsage),
+		dest:              set.String("dest", "", destUsage),
+		untagged:          set.String("untagged", "", here("The `folder` for audio files without usable tags (default: <dest>\\_Untagged).")),
+		other:             set.String("other", "", here("The `folder` for files that are not audio and do not belong to a tagged album (default: <dest>\\_Other).")),
+		duplicates:        set.String("duplicates", "", here("The `folder` for the copies set aside as duplicates (default: <dest>\\_Duplicates).")),
+		compilations:      set.String("compilations", "", "The artist folder `name` for Various Artists albums (default: \""+rules.DefaultCompilations+"\")."),
+		workers:           set.Int("workers", 0, "Work on `n` files at once (default: the number of CPUs)."),
+		dryRun:            set.Bool("dry-run", false, dryRunUsage),
+		noCueRewrite:      set.Bool("no-cue-rewrite", false, "Do not fix the FILE lines of the cue sheets that move."),
+		playlists:         set.String("playlists", "", here("The `folder` for playlists that name files of several folders (default: <dest>\\_Playlists).")),
+		noPlaylistRewrite: set.Bool("no-playlist-rewrite", false, "Leave the entries of playlists alone when the files they name move."),
+		db:                set.String("db", "", "The library's database `file` (default: "+filepath.Join(dataFolderName(), "libraries", "<library-id>", "tagshelf.db")+")."),
 	}
 }
 
@@ -127,6 +131,7 @@ func (f *libraryFlags) overrides() config.Overrides {
 		Untagged:     *f.untagged,
 		Other:        *f.other,
 		Duplicates:   *f.duplicates,
+		Playlists:    *f.playlists,
 		Compilations: *f.compilations,
 		Database:     *f.db,
 	}
@@ -135,6 +140,9 @@ func (f *libraryFlags) overrides() config.Overrides {
 		case "no-cue-rewrite":
 			rewrite := !*f.noCueRewrite
 			ov.CueRewrite = &rewrite
+		case "no-playlist-rewrite":
+			rewrite := !*f.noPlaylistRewrite
+			ov.PlaylistRewrite = &rewrite
 		case "workers":
 			ov.Workers = *f.workers
 		case "dry-run":
@@ -254,11 +262,13 @@ func run(ctx context.Context, args []string) int {
 	log.Printf("Untagged:     %s\n", cfg.Untagged)
 	log.Printf("Other:        %s\n", cfg.Other)
 	log.Printf("Duplicates:   %s\n", cfg.Duplicates)
+	log.Printf("Playlists:    %s\n", cfg.Playlists)
 	log.Printf("Compilations: %s\n", cfg.Compilations)
 	log.Printf("Workers:      %d\n", cfg.Workers)
 	log.Printf("Dry-Run:      %t\n", cfg.DryRun)
 	log.Printf("Verbose:      %t\n", cfg.Verbose)
 	log.Printf("Cue rewrite:  %t\n", cfg.RewriteCues())
+	log.Printf("Playlists follow: %t\n", cfg.RewritePlaylists())
 	log.Printf("Auto-resolve: %t\n", cfg.AutoResolvesExact())
 	log.Printf("Database:     %s\n", database)
 	log.Println("==================================================")
@@ -296,16 +306,18 @@ func organizeFlags(set *flag.FlagSet) *libraryFlags {
 // sink, store or index-only choices.
 func engineOptions(cfg config.Config) engine.Options {
 	return engine.Options{
-		Source:        cfg.Source,
-		Destination:   cfg.Destination,
-		Untagged:      cfg.Untagged,
-		Other:         cfg.Other,
-		Duplicates:    cfg.Duplicates,
-		Compilations:  cfg.Compilations,
-		Workers:       cfg.Workers,
-		DryRun:        cfg.DryRun,
-		NoCueRewrite:  !cfg.RewriteCues(),
-		NoAutoResolve: !cfg.AutoResolvesExact(),
+		Source:            cfg.Source,
+		Destination:       cfg.Destination,
+		Untagged:          cfg.Untagged,
+		Other:             cfg.Other,
+		Duplicates:        cfg.Duplicates,
+		Playlists:         cfg.Playlists,
+		Compilations:      cfg.Compilations,
+		Workers:           cfg.Workers,
+		DryRun:            cfg.DryRun,
+		NoCueRewrite:      !cfg.RewriteCues(),
+		NoPlaylistRewrite: !cfg.RewritePlaylists(),
+		NoAutoResolve:     !cfg.AutoResolvesExact(),
 		// The temporary copies of a tag save that crashed, which only
 		// tagwrite can tell from a save going on now.
 		RemoveStaleCopies: func(dir string) ([]string, error) {

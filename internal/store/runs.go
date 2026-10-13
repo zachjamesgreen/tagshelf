@@ -42,12 +42,14 @@ const (
 	ReasonCueRewrite MoveReason = "cue-rewrite" // a cue sheet's original kept as .cue.orig
 	ReasonCover      MoveReason = "cover"       // a cover file written into an album's folder
 	ReasonPicture    MoveReason = "picture"     // a picture put into an audio file
+	// ReasonPlaylistRewrite is a playlist whose entries were rewritten.
+	ReasonPlaylistRewrite MoveReason = "playlist-rewrite"
 )
 
 // movesNothing reports whether a row of the moves table with this reason
 // records something a run wrote, not a file it moved.
 func (r MoveReason) movesNothing() bool {
-	return r == ReasonCueRewrite || r == ReasonCover || r == ReasonPicture
+	return r == ReasonCueRewrite || r == ReasonCover || r == ReasonPicture || r == ReasonPlaylistRewrite
 }
 
 // Counters are a run's totals, as the engine counts them.
@@ -65,6 +67,7 @@ type Counters struct {
 	CueRewritten int64
 	Covers       int64 // cover files written
 	Pictures     int64 // audio files a picture was put into
+	Playlists    int64 // playlists whose entries were rewritten
 	Indexed      int64 // files read into the index
 }
 
@@ -143,11 +146,11 @@ func (s *Store) markCrashed() error {
 func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) error {
 	res, err := s.db.Exec(`UPDATE runs SET ended_at = ?, state = ?,
 		total_found = ?, organized = ?, untagged = ?, duplicates = ?, in_place = ?, errors = ?,
-		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?, covers = ?, pictures = ?
+		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?, covers = ?, pictures = ?, playlists = ?
 		WHERE id = ?`,
 		formatTime(at), string(state),
 		c.TotalFound, c.Organized, c.Untagged, c.Duplicates, c.InPlace, c.Errors,
-		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed, c.Covers, c.Pictures,
+		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed, c.Covers, c.Pictures, c.Playlists,
 		id)
 	if err != nil {
 		return fmt.Errorf("recording the end of run %d: %w", id, err)
@@ -266,7 +269,7 @@ func (s *Store) RecordError(runID int64, path, message string) error {
 func (s *Store) Runs() ([]Run, error) {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
 		total_found, organized, untagged, duplicates, in_place, errors,
-		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, covers, pictures, state, COALESCE(undone_by, 0)
+		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, covers, pictures, playlists, state, COALESCE(undone_by, 0)
 		FROM runs ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -280,7 +283,7 @@ func (s *Store) Runs() ([]Run, error) {
 		c := &r.Counters
 		if err := rows.Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
 			&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
-			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &c.Covers, &c.Pictures, &state, &r.UndoneBy); err != nil {
+			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &c.Covers, &c.Pictures, &c.Playlists, &state, &r.UndoneBy); err != nil {
 			return nil, err
 		}
 		if r.Started, err = parseTime(started); err != nil {
@@ -364,8 +367,8 @@ func (s *Store) MarkUndone(id, by int64) error {
 // ID, by any run, in the order they were made. Cue sheet rewrites and
 // covers written, which move nothing, are left out.
 func (s *Store) MovesAfter(moveID int64) ([]Move, error) {
-	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason FROM moves WHERE id > ? AND reason NOT IN (?, ?, ?) ORDER BY id`,
-		moveID, string(ReasonCueRewrite), string(ReasonCover), string(ReasonPicture))
+	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason FROM moves WHERE id > ? AND reason NOT IN (?, ?, ?, ?) ORDER BY id`,
+		moveID, string(ReasonCueRewrite), string(ReasonCover), string(ReasonPicture), string(ReasonPlaylistRewrite))
 	if err != nil {
 		return nil, err
 	}

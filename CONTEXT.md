@@ -36,6 +36,14 @@ _Avoid_: artwork, album art, thumbnail
 An action that gives album folders the cover they lack, and their audio files the picture they lack, from what the album already has or else from the Cover Art Archive: after a match, by `c` on an album, or by `tagshelf art`.
 _Avoid_: art fetch, art sync
 
+**Playlist**:
+A `.m3u` or `.m3u8` file whose entries name audio files. An album's playlist names only files beside it and travels with the album; any other belongs in the playlists folder, `_Playlists`.
+_Avoid_: tracklist, queue
+
+**Playlist rewrite**:
+Pointing a playlist's entries at where their files are now, after a run or an action moved them. Recorded with the text before and after, so that undo can put the earlier text back.
+_Avoid_: playlist sync, playlist repair
+
 **Files tab**:
 The TUI tab that shows any folder of the computer and tags the audio in it. A file outside the library is tagged where it is and never moved; one inside the library's folders is the index's own and is filed as on the other tabs.
 _Avoid_: browser, file manager, explorer

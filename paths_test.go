@@ -55,7 +55,7 @@ func TestUsablePaths(t *testing.T) {
 	}
 	want := config.Config{
 		Source: filepath.Join(home, "In"), Destination: home, Untagged: filepath.Join(home, "_Untagged"),
-		Other: filepath.Join(work, "rel", "other"), Duplicates: filepath.Join(home, "_Duplicates"),
+		Other: filepath.Join(work, "rel", "other"), Duplicates: filepath.Join(home, "_Duplicates"), Playlists: filepath.Join(home, "_Playlists"),
 		Database: filepath.Join(home, "db", "music.db"), Compilations: cfg.Compilations, Workers: cfg.Workers,
 	}
 	if cfg != want {

@@ -57,7 +57,7 @@ func TestUpdateTheExampleFile(t *testing.T) {
 	}
 	on := true
 	wantCfg := Config{Source: `D:\Incoming`, Destination: `E:\My Music`, Untagged: `E:\Loose "stuff"`, AutoResolveExact: &on,
-		Compilations: "Various Artists", Workers: 4, CueRewrite: &on, MusicBrainzContact: "me@example.org", GenreFromMusicBrainz: "fill", CoverArtReplace: "never"}
+		Compilations: "Various Artists", Workers: 4, CueRewrite: &on, PlaylistRewrite: &on, MusicBrainzContact: "me@example.org", GenreFromMusicBrainz: "fill", CoverArtReplace: "never"}
 	if !reflect.DeepEqual(cfg, wantCfg) {
 		t.Errorf("the file reads back as %+v\nwant              %+v", cfg, wantCfg)
 	}

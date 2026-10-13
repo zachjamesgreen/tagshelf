@@ -138,6 +138,10 @@ func warningText(e engine.Warning) string {
 		return fmt.Sprintf("cue sheet not rewritten: %q is not next to it after the move", e.Name)
 	case engine.WarnCueEncoding:
 		return fmt.Sprintf("cue sheet not rewritten: it is not UTF-8 and %q is not plain ASCII", e.Name)
+	case engine.WarnPlaylistEntries:
+		return fmt.Sprintf("playlist: %d of its entries were left as they are: not files, or files that are not there", e.Count)
+	case engine.WarnPlaylistEncoding:
+		return "playlist not rewritten: it is in Windows-1252, which cannot hold a new name"
 	case engine.WarnLinkSkipped:
 		return "left where it is: a link or junction, which is neither followed nor moved"
 	case engine.WarnSpecialSkipped:

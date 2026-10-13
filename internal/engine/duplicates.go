@@ -124,8 +124,13 @@ func (o *organizer) resolveGroup(g []store.File, walked, settled map[string]bool
 	}
 	resolved := true
 	for i, m := range members {
-		if i != keeper && !o.toDuplicates(m, settled) {
+		if i == keeper {
+			continue
+		}
+		if !o.toDuplicates(m, settled) {
 			resolved = false
+		} else {
+			o.keptFor.Store(rules.PathKey(m.Path), kept.Path)
 		}
 	}
 	if kept.incoming {

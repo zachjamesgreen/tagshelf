@@ -35,7 +35,7 @@ func sessionFor(t *testing.T, args ...string) *tuiSession {
 // explains each of them.
 func TestNewConfigFileStartsFromTheTemplate(t *testing.T) {
 	on := true
-	want := config.Config{AutoResolveExact: &on, Compilations: "Various Artists", DryRun: true, CueRewrite: &on,
+	want := config.Config{AutoResolveExact: &on, Compilations: "Various Artists", DryRun: true, CueRewrite: &on, PlaylistRewrite: &on,
 		GenreFromMusicBrainz: "fill", CoverArtReplace: "never"}
 	if got := newFileConfig(); !reflect.DeepEqual(got, want) {
 		t.Errorf("a new file starts as %+v\nwant              %+v", got, want)

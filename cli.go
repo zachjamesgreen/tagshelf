@@ -83,6 +83,14 @@ func (s *cliSink) handle(e engine.Event) {
 			}
 			s.lg.Printf("%s %q: %s\n", prefix, e.Path, strings.Join(renames, ", "))
 		}
+	case engine.PlaylistRewritten:
+		if s.verbose {
+			prefix := "[PLAYLIST]"
+			if s.dryRun {
+				prefix = "[DRY-RUN] [PLAYLIST]"
+			}
+			s.lg.Printf("%s %q: %d of its entries follow their files\n", prefix, e.Path, e.Entries)
+		}
 	case engine.DirRemoved:
 		s.lg.Printf("[CLEANUP] Removed empty directory %q\n", e.Path)
 	case engine.Progress:
@@ -180,6 +188,10 @@ func (s *cliSink) fileError(e engine.FileError) {
 		s.lg.Printf("Error saving original of cue sheet %q: %v\n", e.Path, e.Err)
 	case engine.OpRewriteCue:
 		s.lg.Printf("Error rewriting cue sheet %q: %v\n", e.Path, e.Err)
+	case engine.OpReadPlaylist:
+		s.lg.Printf("Error reading playlist %q: %v\n", e.Path, e.Err)
+	case engine.OpRewritePlaylist:
+		s.lg.Printf("Error rewriting playlist %q: %v\n", e.Path, e.Err)
 	case engine.OpRecord:
 		s.lg.Printf("Error recording %q in the database: %v\n", e.Path, e.Err)
 	case engine.OpIndex:
@@ -199,6 +211,10 @@ func (s *cliSink) warning(e engine.Warning) {
 		s.lg.Printf("Warning: not rewriting cue sheet %q: %q is not next to it after the move\n", e.Path, e.Name)
 	case engine.WarnCueEncoding:
 		s.lg.Printf("Warning: not rewriting cue sheet %q: it is not UTF-8 and %q is not plain ASCII\n", e.Path, e.Name)
+	case engine.WarnPlaylistEntries:
+		s.lg.Printf("Warning: playlist %q: %d of its entries were left as they are: they are not files, or name files that are not there\n", e.Path, e.Count)
+	case engine.WarnPlaylistEncoding:
+		s.lg.Printf("Warning: not rewriting playlist %q: it is in Windows-1252, which cannot hold a new name\n", e.Path)
 	case engine.WarnLinkSkipped:
 		s.lg.Printf("Warning: leaving %q where it is: it is a link or junction, which is neither followed nor moved\n", e.Path)
 	case engine.WarnSpecialSkipped:
@@ -256,6 +272,7 @@ func (s *cliSink) summary(c engine.Counters) {
 		s.lg.Printf("Moved to clean name:      %d\n", c.Retried)
 	}
 	s.lg.Printf("Cue sheets rewritten:     %d\n", c.CueRewritten)
+	s.lg.Printf("Playlists rewritten:      %d\n", c.Playlists)
 	s.lg.Printf("Errors encountered:       %d\n", c.Errors)
 	s.lg.Println("==================================================")
 }

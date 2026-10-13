@@ -30,6 +30,8 @@ type Config struct {
 	Other       string `yaml:"other"`
 	// Duplicates is where the losing copies of duplicates go.
 	Duplicates string `yaml:"duplicates"`
+	// Playlists is where playlists that name files of several folders go.
+	Playlists string `yaml:"playlists"`
 	// AutoResolveExact lets runs resolve exact duplicate groups they added a
 	// file to. Nil means the default, which is on.
 	AutoResolveExact *bool `yaml:"auto_resolve_exact"`
@@ -41,6 +43,9 @@ type Config struct {
 	// CueRewrite fixes the FILE lines of moved cue sheets. Nil means the
 	// default, which is on.
 	CueRewrite *bool `yaml:"cue_rewrite"`
+	// PlaylistRewrite keeps the entries of playlists pointing at files that
+	// move. Nil means the default, which is on.
+	PlaylistRewrite *bool `yaml:"playlist_rewrite"`
 	// MusicBrainzContact is the email address or URL sent in the MusicBrainz
 	// User-Agent. MusicBrainz lookups are disabled while it is empty.
 	MusicBrainzContact string `yaml:"musicbrainz_contact"`
@@ -95,6 +100,12 @@ func (c Config) RewriteCues() bool {
 	return c.CueRewrite == nil || *c.CueRewrite
 }
 
+// RewritePlaylists reports whether playlists are kept pointing at the files
+// that move.
+func (c Config) RewritePlaylists() bool {
+	return c.PlaylistRewrite == nil || *c.PlaylistRewrite
+}
+
 // AutoResolvesExact reports whether runs resolve exact duplicate groups on
 // their own.
 func (c Config) AutoResolvesExact() bool {
@@ -108,7 +119,7 @@ func (c Config) Reorganizing() bool {
 }
 
 // WithDefaults fills in the values a run needs but the caller may have left at
-// zero: the untagged, other and duplicates folders, the compilations name and
+// zero: the untagged, other, duplicates and playlists folders, the compilations name and
 // the worker count. The engine's options own those defaults, so the settings
 // the CLI prints are the ones the run uses. It is idempotent.
 func (c Config) WithDefaults() Config {
@@ -117,10 +128,11 @@ func (c Config) WithDefaults() Config {
 		Untagged:     c.Untagged,
 		Other:        c.Other,
 		Duplicates:   c.Duplicates,
+		Playlists:    c.Playlists,
 		Compilations: c.Compilations,
 		Workers:      c.Workers,
 	}.WithDefaults()
-	c.Untagged, c.Other, c.Duplicates = o.Untagged, o.Other, o.Duplicates
+	c.Untagged, c.Other, c.Duplicates, c.Playlists = o.Untagged, o.Other, o.Duplicates, o.Playlists
 	c.Compilations, c.Workers = o.Compilations, o.Workers
 	return c
 }
@@ -178,12 +190,15 @@ type Overrides struct {
 	Untagged     string
 	Other        string
 	Duplicates   string
+	Playlists    string
 	Compilations string
 	Workers      int
 	DryRun       *bool
 	Verbose      *bool
 	CueRewrite   *bool
-	Database     string
+	// PlaylistRewrite is set by -no-playlist-rewrite.
+	PlaylistRewrite *bool
+	Database        string
 }
 
 // Find reports the config file Load reads when given configPath: that file,
@@ -360,6 +375,9 @@ func (c Config) With(ov Overrides) Config {
 	if ov.Duplicates != "" {
 		cfg.Duplicates = ov.Duplicates
 	}
+	if ov.Playlists != "" {
+		cfg.Playlists = ov.Playlists
+	}
 	if ov.Compilations != "" {
 		cfg.Compilations = ov.Compilations
 	}
@@ -374,6 +392,9 @@ func (c Config) With(ov Overrides) Config {
 	}
 	if ov.CueRewrite != nil {
 		cfg.CueRewrite = ov.CueRewrite
+	}
+	if ov.PlaylistRewrite != nil {
+		cfg.PlaylistRewrite = ov.PlaylistRewrite
 	}
 	if ov.Database != "" {
 		cfg.Database = ov.Database
