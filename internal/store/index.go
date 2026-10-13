@@ -268,6 +268,13 @@ func (s *Store) Files() ([]File, error) {
 	return s.queryFiles(`SELECT ` + fileColumns + ` FROM files f JOIN roots r ON r.id = f.root_id ORDER BY f.id`)
 }
 
+// LibraryFiles lists the indexed files of the library folder, in path order,
+// without the whole of their tags.
+func (s *Store) LibraryFiles() ([]File, error) {
+	return s.queryFiles(`SELECT `+briefColumns+` FROM files f JOIN roots r ON r.id = f.root_id
+		WHERE r.kind = ? ORDER BY f.path_key`, string(RootLibrary))
+}
+
 // FilesWithSum lists the indexed files whose audio hashes to sum.
 func (s *Store) FilesWithSum(sum string) ([]File, error) {
 	return s.queryFiles(`SELECT `+fileColumns+` FROM files f JOIN roots r ON r.id = f.root_id WHERE f.audio_sum = ? ORDER BY f.id`, sum)

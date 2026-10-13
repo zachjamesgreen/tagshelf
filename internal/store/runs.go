@@ -40,7 +40,14 @@ const (
 	ReasonCompanion  MoveReason = "companion"   // non-audio next to its album
 	ReasonRenamed    MoveReason = "renamed"     // onto its clean name or spelling
 	ReasonCueRewrite MoveReason = "cue-rewrite" // a cue sheet's original kept as .cue.orig
+	ReasonCover      MoveReason = "cover"       // a cover file written into an album's folder
 )
+
+// movesNothing reports whether a row of the moves table with this reason
+// records something a run wrote, not a file it moved.
+func (r MoveReason) movesNothing() bool {
+	return r == ReasonCueRewrite || r == ReasonCover
+}
 
 // Counters are a run's totals, as the engine counts them.
 type Counters struct {
@@ -55,6 +62,7 @@ type Counters struct {
 	LeftInPlace  int64
 	Retried      int64
 	CueRewritten int64
+	Covers       int64 // cover files written
 	Indexed      int64 // files read into the index
 }
 
@@ -133,11 +141,11 @@ func (s *Store) markCrashed() error {
 func (s *Store) FinishRun(id int64, c Counters, state RunState, at time.Time) error {
 	res, err := s.db.Exec(`UPDATE runs SET ended_at = ?, state = ?,
 		total_found = ?, organized = ?, untagged = ?, duplicates = ?, in_place = ?, errors = ?,
-		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?
+		other_found = ?, other_moved = ?, left_in_place = ?, retried = ?, cue_rewritten = ?, indexed = ?, covers = ?
 		WHERE id = ?`,
 		formatTime(at), string(state),
 		c.TotalFound, c.Organized, c.Untagged, c.Duplicates, c.InPlace, c.Errors,
-		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed,
+		c.OtherFound, c.OtherMoved, c.LeftInPlace, c.Retried, c.CueRewritten, c.Indexed, c.Covers,
 		id)
 	if err != nil {
 		return fmt.Errorf("recording the end of run %d: %w", id, err)
@@ -172,6 +180,16 @@ func (s *Store) RecordCueRewrite(runID int64, cue, orig string, before, after []
 	return s.recordMove(runID, cue, orig, ReasonCueRewrite, append([]byte{}, before...), append([]byte{}, after...))
 }
 
+// RecordCover records that a run wrote the cover file at cover, in the place
+// of the image file at replaced, which is cover itself when the folder had
+// none or it had that name. before is the picture that was replaced, whole,
+// which undoing the run puts back, nil when there was none; sum is the
+// SHA-256 of the picture written, by which undo knows the file is still the
+// run's own.
+func (s *Store) RecordCover(runID int64, replaced, cover string, before, sum []byte) error {
+	return s.recordMove(runID, replaced, cover, ReasonCover, before, append([]byte{}, sum...))
+}
+
 func (s *Store) recordMove(runID int64, from, to string, reason MoveReason, cueBefore, cueAfter []byte) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -183,7 +201,7 @@ func (s *Store) recordMove(runID int64, from, to string, reason MoveReason, cueB
 		runID, from, to, string(reason), formatTime(time.Now()), cueBefore, cueAfter, runID, runID); err != nil {
 		return fmt.Errorf("recording the move of %q: %w", from, err)
 	}
-	if reason != ReasonCueRewrite {
+	if !reason.movesNothing() {
 		if err := moveFileRow(tx, from, to); err != nil {
 			return fmt.Errorf("moving %q in the index: %w", from, err)
 		}
@@ -222,7 +240,7 @@ func (s *Store) RecordError(runID int64, path, message string) error {
 func (s *Store) Runs() ([]Run, error) {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
 		total_found, organized, untagged, duplicates, in_place, errors,
-		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, state, COALESCE(undone_by, 0)
+		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, covers, state, COALESCE(undone_by, 0)
 		FROM runs ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -236,7 +254,7 @@ func (s *Store) Runs() ([]Run, error) {
 		c := &r.Counters
 		if err := rows.Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
 			&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
-			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &state, &r.UndoneBy); err != nil {
+			&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &c.Covers, &state, &r.UndoneBy); err != nil {
 			return nil, err
 		}
 		if r.Started, err = parseTime(started); err != nil {
@@ -317,11 +335,11 @@ func (s *Store) MarkUndone(id, by int64) error {
 }
 
 // MovesAfter lists the moves of files recorded after the move with the given
-// ID, by any run, in the order they were made. Cue sheet rewrites, which
-// move nothing, are left out.
+// ID, by any run, in the order they were made. Cue sheet rewrites and
+// covers written, which move nothing, are left out.
 func (s *Store) MovesAfter(moveID int64) ([]Move, error) {
-	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason FROM moves WHERE id > ? AND reason <> ? ORDER BY id`,
-		moveID, string(ReasonCueRewrite))
+	rows, err := s.db.Query(`SELECT id, from_path, to_path, reason FROM moves WHERE id > ? AND reason NOT IN (?, ?) ORDER BY id`,
+		moveID, string(ReasonCueRewrite), string(ReasonCover))
 	if err != nil {
 		return nil, err
 	}
