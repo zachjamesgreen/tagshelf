@@ -576,7 +576,19 @@ func (m *Model) settingsBody(h int) string {
 	values, saved := s.values.Values(), s.file.Config.Values()
 	const labelWidth = 20
 	valueWidth := max(w-4-labelWidth-1, 10)
+	// On a short terminal the list scrolls with the cursor, so that what the
+	// setting under it is about stays in view: the title and a blank line are
+	// above the list, and a blank line, what it is about and a line of what
+	// is wrong with it below.
+	room := max(h-6, 3)
+	first := 0
+	if len(settingRows) > room {
+		first = window(s.cursor, room)
+	}
 	for i, r := range settingRows {
+		if i < first || i >= first+room {
+			continue
+		}
 		mark := "  "
 		if i == s.cursor {
 			mark = accentStyle.Render("› ")

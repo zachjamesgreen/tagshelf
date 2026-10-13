@@ -14,7 +14,7 @@ Keys
   e      edit the file's tags (Untagged, Library); ctrl+f writes to the folder
   l      look the file up on MusicBrainz (Untagged, Library)
   L      match the selection, group or album to a release (Untagged, Library)
-  /      search the library (Library)
+  /      search the library; c gives the album the cover it lacks (Library)
   u      undo the run (Runs), or what was just done
   k      choose which copy to keep (Duplicates)
   enter  resolve the group (Duplicates), open the run (Runs) or folder (Files)

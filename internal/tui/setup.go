@@ -97,6 +97,7 @@ func (m *Model) open(opts Options, first bool) {
 	// be, or no longer be, a file of the library.
 	m.files.stale = m.files.loaded
 	m.genreMode = opts.GenreFromMusicBrainz
+	m.coverFile = opts.CoverFile
 	m.mb = nil
 	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
 		m.mb = client

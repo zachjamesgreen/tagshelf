@@ -39,10 +39,16 @@ type fakeRunner struct {
 	// What the Untagged tab asked to save tags to, the events SaveTags then
 	// reports, and what it answers.
 	saved      [][]int64
-	savedFiles [][]store.File   // the files of each save of files outside the index
-	saves      []engine.TagSave // the save given with each, to run on real files
-	saveEvents []engine.Event
-	saveFinish engine.RunFinished
+	savedFiles [][]store.File // the files of each save of files outside the index
+
+	// The folders each cover art run was asked to see to, the events it then
+	// reports, and what it answers.
+	covered     [][]string
+	coverEvents []engine.Event
+	coverFinish engine.RunFinished
+	saves       []engine.TagSave // the save given with each, to run on real files
+	saveEvents  []engine.Event
+	saveFinish  engine.RunFinished
 
 	// The runs asked to be undone, and what Undo answers.
 	undone     []int64
@@ -72,6 +78,21 @@ func (f *fakeRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagS
 		sink(e)
 	}
 	return f.saveFinish, nil
+}
+
+// CoverArt notes the folders asked for and reports the events it was given.
+func (f *fakeRunner) CoverArt(ctx context.Context, folders []string, sink engine.Sink) (engine.RunFinished, error) {
+	if f.err != nil {
+		return engine.RunFinished{}, f.err
+	}
+	f.covered = append(f.covered, folders)
+	if f.gate.wait(ctx) != nil {
+		return f.interrupted(), nil
+	}
+	for _, e := range f.coverEvents {
+		sink(e)
+	}
+	return f.coverFinish, nil
 }
 
 // SaveFiles notes the files as SaveTags notes its IDs, and the files
