@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,9 +17,12 @@ import (
 )
 
 // fakeSound is an AcoustID that answers every file with heard, or with err.
+// A file whose name is in by or errs is answered with that.
 type fakeSound struct {
 	heard Heard
 	err   error
+	by    map[string]Heard
+	errs  map[string]error
 	gate  *gate
 
 	files []string
@@ -29,6 +33,13 @@ func (f *fakeSound) Identify(ctx context.Context, file store.File, again bool) (
 	f.files, f.again = append(f.files, file.Path), append(f.again, again)
 	if err := f.gate.wait(ctx); err != nil {
 		return Heard{}, err
+	}
+	name := filepath.Base(file.Path)
+	if err := f.errs[name]; err != nil {
+		return Heard{}, err
+	}
+	if heard, ok := f.by[name]; ok {
+		return heard, nil
 	}
 	return f.heard, f.err
 }

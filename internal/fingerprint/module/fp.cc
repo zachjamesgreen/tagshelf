@@ -155,6 +155,10 @@ int main(int argc, char **argv) {
 	}
 	if (fed == 0) return fail("the file holds no audio to listen to", 0);
 	if (!chromaprint_finish(ctx)) return fail("could not finish the fingerprint", 0);
+	// A few seconds of audio make a fingerprint of nothing, which AcoustID
+	// would only refuse.
+	int items = 0;
+	if (!chromaprint_get_raw_fingerprint_size(ctx, &items) || items == 0) return fail("the audio is too short to be told by its sound", 0);
 
 	double duration = (double)fed / rate;
 	if (stream->duration != AV_NOPTS_VALUE) {

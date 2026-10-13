@@ -277,6 +277,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.lookupDone(msg)
 	case matchFoundMsg:
 		m.matchFound(msg)
+	case matchHeardMsg:
+		m.matchHeard(msg)
 	case matchLoadedMsg:
 		m.matchLoaded(msg)
 	case matchDoneMsg:

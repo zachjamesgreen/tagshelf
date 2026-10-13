@@ -44,6 +44,18 @@ _Avoid_: tracklist, queue
 Pointing a playlist's entries at where their files are now, after a run or an action moved them. Recorded with the text before and after, so that undo can put the earlier text back.
 _Avoid_: playlist sync, playlist repair
 
+**Fingerprint**:
+What a file sounds like, as AcoustID reads it: a text computed from the first two minutes of its audio. Kept in the library's database by the hash of the audio.
+_Avoid_: audio hash (that is the index's own hash of the audio bytes), signature
+
+**Identify by sound**:
+Asking AcoustID which recordings a file's fingerprint belongs to, by a key in a lookup or a release match. Its matches join the list; a person picks.
+_Avoid_: auto-tag, scan, recognise
+
+**Fingerprint module**:
+The WebAssembly file `fp.wasm` that computes fingerprints: Chromaprint and FFmpeg's audio decoders, carried inside tagshelf.
+_Avoid_: fpcalc (that is AcoustID's own tool, which tagshelf does not use), plugin
+
 **Files tab**:
 The TUI tab that shows any folder of the computer and tags the audio in it. A file outside the library is tagged where it is and never moved; one inside the library's folders is the index's own and is filed as on the other tabs.
 _Avoid_: browser, file manager, explorer

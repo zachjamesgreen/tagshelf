@@ -134,3 +134,34 @@ func TestParse(t *testing.T) {
 		}
 	}
 }
+
+// Every kind of audio file tagshelf takes is one the module reads: the
+// fixtures of the whole project, each a second or so of audio in one
+// format, are opened and decoded, and are then too short to be told by
+// their sound, or just long enough.
+func TestEveryFormatIsRead(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "testdata", "audio", "*.*"))
+	if err != nil || len(files) < 20 {
+		t.Fatalf("the fixtures: %d files, %v", len(files), err)
+	}
+	formats := map[string]bool{}
+	for _, path := range files {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".md" {
+			continue
+		}
+		formats[ext] = true
+		got, err := Of(context.Background(), path)
+		switch {
+		case err == nil && got.Fingerprint != "":
+		case err != nil && strings.Contains(err.Error(), "too short to be told by its sound"):
+		default:
+			t.Errorf("%s: %+v, %v; want it read, and a fingerprint or word that it is too short", filepath.Base(path), got, err)
+		}
+	}
+	for _, ext := range []string{".mp3", ".flac", ".m4a", ".m4b", ".ogg", ".wav", ".wma", ".aac", ".ape", ".mpc"} {
+		if !formats[ext] {
+			t.Errorf("no fixture of the format %s was tried", ext)
+		}
+	}
+}
