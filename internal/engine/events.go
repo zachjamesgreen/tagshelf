@@ -152,6 +152,23 @@ type CoverWritten struct {
 // and why.
 type CoverSkipped struct {
 	Dir, Why string
+	// Embedding is set when it is the folder's audio files that were left
+	// without a picture, not the folder without a cover file.
+	Embedding bool
+}
+
+// CoverEmbedded reports a picture put into the audio file at Path, or in a
+// dry run one that would be.
+type CoverEmbedded struct {
+	Path string
+	// From says where the picture came from: CoverFromFolder or
+	// CoverFromRelease.
+	From string
+	// Replaced is set when the file held a picture, which gave way.
+	Replaced bool
+	// Asked is set in a dry run for a picture the Cover Art Archive would be
+	// asked for: whether it has one is not known.
+	Asked bool
 }
 
 // CueRewritten reports a cue sheet whose FILE lines were pointed at the new
@@ -245,14 +262,15 @@ type RunFinished struct {
 	NotUndone string
 }
 
-func (RunStarted) event()   {}
-func (FilePlaced) event()   {}
-func (FileError) event()    {}
-func (Warning) event()      {}
-func (CueRewritten) event() {}
-func (CoverWritten) event() {}
-func (CoverSkipped) event() {}
-func (DirRemoved) event()   {}
-func (PhaseStarted) event() {}
-func (Progress) event()     {}
-func (RunFinished) event()  {}
+func (RunStarted) event()    {}
+func (FilePlaced) event()    {}
+func (FileError) event()     {}
+func (Warning) event()       {}
+func (CueRewritten) event()  {}
+func (CoverWritten) event()  {}
+func (CoverSkipped) event()  {}
+func (CoverEmbedded) event() {}
+func (DirRemoved) event()    {}
+func (PhaseStarted) event()  {}
+func (Progress) event()      {}
+func (RunFinished) event()   {}

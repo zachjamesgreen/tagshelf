@@ -67,10 +67,10 @@ func (s *Store) run(id int64) (*Run, error) {
 	c := &r.Counters
 	err := s.db.QueryRow(`SELECT id, started_at, ended_at, kind, dry_run, source, destination,
 		total_found, organized, untagged, duplicates, in_place, errors,
-		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, covers, state, COALESCE(undone_by, 0)
+		other_found, other_moved, left_in_place, retried, cue_rewritten, indexed, covers, pictures, state, COALESCE(undone_by, 0)
 		FROM runs WHERE id = ?`, id).Scan(&r.ID, &started, &ended, &kind, &r.DryRun, &r.Source, &r.Destination,
 		&c.TotalFound, &c.Organized, &c.Untagged, &c.Duplicates, &c.InPlace, &c.Errors,
-		&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &c.Covers, &state, &r.UndoneBy)
+		&c.OtherFound, &c.OtherMoved, &c.LeftInPlace, &c.Retried, &c.CueRewritten, &c.Indexed, &c.Covers, &c.Pictures, &state, &r.UndoneBy)
 	if err != nil {
 		return nil, fmt.Errorf("reading run %d: %w", id, err)
 	}

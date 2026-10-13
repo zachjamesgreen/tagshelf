@@ -297,3 +297,64 @@ func TestEmbedded(t *testing.T) {
 		}
 	}
 }
+
+// TestForEmbedding checks what goes into an audio file: a picture of a
+// modest number of bytes as it is, and a larger one made smaller, as a JPEG
+// of 500 pixels on its longer side with its shape kept.
+func TestForEmbedding(t *testing.T) {
+	small, err := Describe(picture(t, "png", 900, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ForEmbedding(small); err != nil || !bytes.Equal(got.Data, small.Data) {
+		t.Errorf("a picture of %d bytes was changed (%v)", len(small.Data), err)
+	}
+
+	// Noise does not pack: a picture of well over the limit.
+	img := image.NewRGBA(image.Rect(0, 0, 1600, 800))
+	seed := uint32(1)
+	for i := range img.Pix {
+		seed = seed*1664525 + 1013904223
+		img.Pix[i] = byte(seed >> 24)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	large, err := Describe(buf.Bytes())
+	if err != nil || len(large.Data) <= EmbedLimit {
+		t.Fatalf("the large picture is %d bytes (%v)", len(large.Data), err)
+	}
+	got, err := ForEmbedding(large)
+	if err != nil || got.Ext != ".jpg" || got.Width != 500 || got.Height != 250 || len(got.Data) >= len(large.Data) {
+		t.Errorf("made smaller: %dx%d %s, %d bytes, %v", got.Width, got.Height, got.Ext, len(got.Data), err)
+	}
+	if !bytes.Equal(large.Data, buf.Bytes()) {
+		t.Error("the picture given was changed")
+	}
+
+	// A picture that is one colour all over stays that colour.
+	red := image.NewRGBA(image.Rect(0, 0, 40, 40))
+	for i := 0; i < len(red.Pix); i += 4 {
+		red.Pix[i], red.Pix[i+3] = 200, 255
+	}
+	buf.Reset()
+	if err := png.Encode(&buf, red); err != nil {
+		t.Fatal(err)
+	}
+	pic, _ := Describe(buf.Bytes())
+	out, err := Shrink(pic, 10)
+	if err != nil || out.Width != 10 || out.Height != 10 {
+		t.Fatalf("Shrink = %dx%d, %v", out.Width, out.Height, err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(out.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, g, b, _ := decoded.At(5, 5).RGBA(); r>>8 < 190 || r>>8 > 210 || g>>8 > 12 || b>>8 > 12 {
+		t.Errorf("the middle of the red picture is (%d, %d, %d)", r>>8, g>>8, b>>8)
+	}
+	if _, err := Shrink(Picture{Data: []byte("x"), Width: 100000, Height: 100000}, 500); err == nil {
+		t.Error("a picture of ten thousand megapixels was taken on")
+	}
+}
