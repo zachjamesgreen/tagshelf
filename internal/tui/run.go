@@ -50,6 +50,9 @@ type Runner interface {
 	// they stay where they are, and the run is recorded in the library's
 	// history all the same.
 	SaveFiles(ctx context.Context, files []store.File, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error)
+	// CoverArt gives the album folders named the cover they lack, as one
+	// run, by the cover art settings.
+	CoverArt(ctx context.Context, folders []string, sink engine.Sink) (engine.RunFinished, error)
 	// Undo undoes the run with the given ID as a run of its own; check and
 	// restore see to the tag saves the run made.
 	Undo(ctx context.Context, runID int64, check engine.TagCheck, restore engine.TagRestore, sink engine.Sink) (engine.RunFinished, error)

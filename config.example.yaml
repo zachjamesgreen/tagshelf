@@ -17,4 +17,6 @@ verbose: false
 cue_rewrite: true                      # fix FILE lines in moved .cue files (keeps album.cue.orig)
 #musicbrainz_contact: "you@example.com" # email or URL MusicBrainz can reach you at; lookups are disabled until set
 genre_from_musicbrainz: fill           # the genre of a MusicBrainz match: fill a file that has none, replace it always, or off
+cover_art_file: false                  # write a cover file into an album folder that has no cover (after a match, and by tagshelf art)
+cover_art_replace: never               # a cover an album has is replaced by the Cover Art Archive's: never, when it is smaller, or always
 #database: "C:\\tagshelf\\music.db"     # run history database (default: %LOCALAPPDATA%\tagshelf\libraries\<library-id>\tagshelf.db)

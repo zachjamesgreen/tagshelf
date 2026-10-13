@@ -34,6 +34,9 @@ type Options struct {
 	// GenreFromMusicBrainz is what a match does with the genre: config's
 	// GenreOff, GenreFill or GenreReplace.
 	GenreFromMusicBrainz string
+	// CoverFile is the cover art setting: an album folder without a cover is
+	// given a cover file, by c on an album and after a match.
+	CoverFile bool
 	// Runner does the runs started from Home; nil disables them.
 	Runner Runner
 	// NoLibrary says why Store is nil.

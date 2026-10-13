@@ -347,7 +347,7 @@ func TestEngineOptions(t *testing.T) {
 	cfg := config.Config{
 		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates",
 		AutoResolveExact: &off, Compilations: "comps", Workers: 7, DryRun: true, Verbose: true, CueRewrite: &off,
-		MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "off", Database: "db",
+		MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "off", CoverArtFile: true, CoverArtReplace: "always", Database: "db",
 	}
 	v := reflect.ValueOf(cfg)
 	for i := range v.NumField() {

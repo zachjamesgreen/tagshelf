@@ -28,6 +28,14 @@ _Avoid_: hand-tagged (when a MusicBrainz pick is meant too), user-tagged
 A tag that decides where a file belongs: one its path in the library is made from (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID. A save that changes one makes the file manually tagged; a save of its genre, composer, comment or other tags alone does not.
 _Avoid_: core tag, main tag
 
+**Cover**:
+The front picture of an album, which is one folder of the library: an image file in it named cover, folder or front. tagshelf writes one named cover into a folder that has none.
+_Avoid_: artwork, album art, thumbnail
+
+**Cover art run**:
+An action that gives album folders the cover they lack, from the pictures in their files or else from the Cover Art Archive: after a match, by `c` on an album, or by `tagshelf art`.
+_Avoid_: art fetch, art sync
+
 **Files tab**:
 The TUI tab that shows any folder of the computer and tags the audio in it. A file outside the library is tagged where it is and never moved; one inside the library's folders is the index's own and is filed as on the other tabs.
 _Avoid_: browser, file manager, explorer

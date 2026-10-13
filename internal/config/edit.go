@@ -16,6 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
 
@@ -331,6 +332,11 @@ func Check(c Config) map[string]string {
 	case GenreOff, GenreFill, GenreReplace:
 	default:
 		problems["genre_from_musicbrainz"] = "must be off, fill or replace"
+	}
+	switch c.CoverReplace() {
+	case engine.CoverNever, engine.CoverSmaller, engine.CoverAlways:
+	default:
+		problems["cover_art_replace"] = "must be never, smaller or always"
 	}
 
 	// A path this system cannot read as it is written, and the folders with

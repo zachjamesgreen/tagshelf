@@ -96,6 +96,8 @@ var settingRows = []settingRow{
 	{"verbose", "Verbose", kindToggle, "", "On: a run from the command line prints a line for every file."},
 	{"musicbrainz_contact", "MusicBrainz contact", kindText, "not set: lookups are off", "An email address or URL MusicBrainz can reach you at. It is sent with every lookup."},
 	{"genre_from_musicbrainz", "MusicBrainz genre", kindText, "fill", "What a match does with the genre: fill writes it to a file that has none, replace writes it always, off never."},
+	{"cover_art_file", "Cover file", kindToggle, "", "On: an album folder without a cover gets a file named cover, from the pictures in its files or else from the Cover Art Archive."},
+	{"cover_art_replace", "Replace a cover", kindText, "never", "When a cover an album has gives way to the Cover Art Archive's: never, smaller (when the archive's is larger) or always."},
 	{"database", "Database file", kindFile, "kept with tagshelf's own files, by the library's ID", "The file the library's index and run history are kept in."},
 }
 
@@ -574,7 +576,19 @@ func (m *Model) settingsBody(h int) string {
 	values, saved := s.values.Values(), s.file.Config.Values()
 	const labelWidth = 20
 	valueWidth := max(w-4-labelWidth-1, 10)
+	// On a short terminal the list scrolls with the cursor, so that what the
+	// setting under it is about stays in view: the title and a blank line are
+	// above the list, and a blank line, what it is about and a line of what
+	// is wrong with it below.
+	room := max(h-6, 3)
+	first := 0
+	if len(settingRows) > room {
+		first = window(s.cursor, room)
+	}
 	for i, r := range settingRows {
+		if i < first || i >= first+room {
+			continue
+		}
 		mark := "  "
 		if i == s.cursor {
 			mark = accentStyle.Render("› ")

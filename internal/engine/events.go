@@ -75,9 +75,10 @@ const (
 	OpReview                           // carrying out a person's decision on a duplicate group
 	OpSaveTags                         // saving tags a person chose to a file
 	OpUndo                             // undoing what a run did to a file
+	OpCover                            // finding or writing an album's cover
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags", "undo"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags", "undo", "cover"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {
@@ -132,6 +133,27 @@ type Rename struct {
 	From, To string
 }
 
+// CoverWritten reports a cover file written into the album folder Dir, or in
+// a dry run one that would be.
+type CoverWritten struct {
+	Dir, Path string
+	// From says where the picture came from: CoverFromFile or
+	// CoverFromRelease.
+	From string
+	// Replaced is the image file whose place it took, empty when the folder
+	// had no cover.
+	Replaced string
+	// Asked is set in a dry run for a cover the Cover Art Archive would be
+	// asked for: whether it has one is not known.
+	Asked bool
+}
+
+// CoverSkipped reports an album folder a cover art run left without a cover,
+// and why.
+type CoverSkipped struct {
+	Dir, Why string
+}
+
 // CueRewritten reports a cue sheet whose FILE lines were pointed at the new
 // names of its audio. Path is where the cue sheet now lives.
 type CueRewritten struct {
@@ -156,9 +178,10 @@ const (
 	PhaseRetrySuffixed              // reorganize only: moving " (n)" files onto clean names
 	PhaseCue                        // rewriting the FILE lines of moved cue sheets
 	PhaseCleanup                    // removing emptied directories
+	PhaseCovers                     // a cover art run: seeing to album folders
 )
 
-var phaseNames = [...]string{"walk", "index", "audio", "companions", "retry-suffixed", "cue", "cleanup"}
+var phaseNames = [...]string{"walk", "index", "audio", "companions", "retry-suffixed", "cue", "cleanup", "covers"}
 
 func (p Phase) String() string {
 	if p < 0 || int(p) >= len(phaseNames) {
@@ -227,6 +250,8 @@ func (FilePlaced) event()   {}
 func (FileError) event()    {}
 func (Warning) event()      {}
 func (CueRewritten) event() {}
+func (CoverWritten) event() {}
+func (CoverSkipped) event() {}
 func (DirRemoved) event()   {}
 func (PhaseStarted) event() {}
 func (Progress) event()     {}

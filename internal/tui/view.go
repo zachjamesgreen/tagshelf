@@ -424,7 +424,7 @@ func (m *Model) keyHelp() string {
 	case m.tab == TabLibrary && m.library.typing:
 		help = "type an artist, album or title  enter search  esc stop typing"
 	case m.tab == TabLibrary:
-		help = "/ search  ↑↓ move  e edit  l look up  L release match of the album   " + help
+		help = "/ search  ↑↓ move  e edit  l look up  L release match of the album  c cover   " + help
 	case m.tab == TabRuns && m.runs.detail != nil:
 		help = "esc back  ↑↓ scroll  g/G top/end  u undo   " + help
 	case m.tab == TabRuns:
@@ -470,7 +470,7 @@ func helpLines() []string {
 		{"e", "edit the file's tags (Untagged, Library); ctrl+f writes to the folder"},
 		{"l", "look the file up on MusicBrainz (Untagged, Library)"},
 		{"L", "match the selection, group or album to a release (Untagged, Library)"},
-		{"/", "search the library (Library)"},
+		{"/", "search the library; c gives the album the cover it lacks (Library)"},
 		{"u", "undo the run (Runs), or what was just done"},
 		{"k", "choose which copy to keep (Duplicates)"},
 		{"enter", "resolve the group (Duplicates), open the run (Runs) or folder (Files)"},

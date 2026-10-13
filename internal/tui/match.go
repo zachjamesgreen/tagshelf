@@ -355,10 +355,21 @@ func (m *Model) matchDone(msg matchDoneMsg) tea.Cmd {
 		m.setToast(false, "Cannot change the library: %v", msg.err)
 		return m.poll(true, false)
 	}
+	at := msg.moved
 	if x != nil {
+		if len(at) == 0 {
+			// Tagged where they are: the album is the folder they are in.
+			for _, f := range x.files {
+				at = append(at, f.Path)
+			}
+		}
 		m.closeMatch()
 	}
 	m.movedToast(msg.moved, msg.warnings, msg.finish)
+	if msg.finish.State == engine.StateOK && len(at) > 0 {
+		// The albums the files are on now may lack a cover.
+		return tea.Batch(m.poll(true, false), m.coverArt(albumFolders(at), true))
+	}
 	return m.poll(true, false)
 }
 

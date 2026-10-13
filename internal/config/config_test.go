@@ -48,6 +48,8 @@ verbose: true
 cue_rewrite: false
 musicbrainz_contact: "me@example.com"
 genre_from_musicbrainz: replace
+cover_art_file: true
+cover_art_replace: smaller
 database: "C:\\Data\\music.db"
 `
 
@@ -56,7 +58,7 @@ func wantEveryKey() Config {
 	return Config{
 		Source: `C:\MusicSource`, Destination: `C:\MusicDest`, Untagged: `C:\MusicUntagged`, Other: `C:\MusicOther`,
 		Duplicates: `C:\MusicDuplicates`, AutoResolveExact: &off, Compilations: "Compilations", Workers: 4,
-		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "replace", Database: `C:\Data\music.db`,
+		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "replace", CoverArtFile: true, CoverArtReplace: "smaller", Database: `C:\Data\music.db`,
 	}
 }
 

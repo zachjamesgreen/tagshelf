@@ -32,6 +32,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
 - [Config file](#config-file)
 - [The terminal UI](#the-terminal-ui)
 - [MusicBrainz lookups](#musicbrainz-lookups)
+- [Cover art](#cover-art)
 - [Undo](#undo)
 - [Where tagshelf keeps its data](#where-tagshelf-keeps-its-data)
 - [On Linux](#on-linux)
@@ -179,8 +180,9 @@ MP3, FLAC, Ogg Vorbis (`.ogg`, `.oga`), Opus, MP4 (`.m4a`, `.m4b`, `.m4p`, `.m4r
 tagshelf [flags]          one run, then exit
 tagshelf tui [flags]      the terminal UI
 tagshelf report [flags]   a list of the library's files, as CSV
+tagshelf art [flags]      give albums the cover they lack
 tagshelf -version
-tagshelf -h               the help; tagshelf tui -h and tagshelf report -h for theirs
+tagshelf -h               the help; tagshelf tui -h, report -h and art -h for theirs
 ```
 
 `tagshelf` with nothing after it prints the help and does nothing else. (Started by a double click, where the help would vanish with the window, it opens the terminal UI instead.) It takes at least one flag to start a run, even when a config file holds every setting: `tagshelf -config config.yaml`, or `tagshelf -dry-run` beside a `config.yaml`.
@@ -297,6 +299,8 @@ dry_run: true
 | `verbose` | `false` | Print a line for every file. |
 | `cue_rewrite` | `true` | Fix the `FILE` lines of moved cue sheets. |
 | `musicbrainz_contact` | none | An email address or URL for MusicBrainz. Lookups are off until it is set. |
+| `cover_art_file` | `false` | Write a cover file into an album folder that has no cover. See [Cover art](#cover-art). |
+| `cover_art_replace` | `never` | When a cover an album has gives way to the Cover Art Archive's: `never`, `smaller` (when the archive's is larger) or `always`. |
 | `genre_from_musicbrainz` | `fill` | What a MusicBrainz match does with the genre: `fill` writes it to a file that has none, `replace` writes it whenever MusicBrainz has one, `off` never writes it. |
 | `database` | see below | The database file. |
 
@@ -370,6 +374,7 @@ o organize  r reorganize  i index  d dry run   1-7 tabs  R reload  ? help  q qui
 | `A` | Resolve every exact group. |
 | **Library** | |
 | `/` | Search by artist, album or title. `e`, `l` and `L` work on a result. |
+| `c` | Give the album of the file under the cursor the cover it lacks. |
 | **Runs** | |
 | `enter` | Open the run to see what it moved. |
 | `u` | Undo the run. Right after any action, `u` undoes that action. |
@@ -440,6 +445,47 @@ The contact is sent to MusicBrainz in the `User-Agent` header of each request an
 - **Match a release (`L`)**: tags a whole album at once. tagshelf puts each file on a track by title, number and length; you can move files between tracks before confirming.
 
 A match also brings the **genre**, where MusicBrainz has one. The votes for each genre are added up over the recording, the release and its release group; of the five with the most votes, those with at least nine tenths of the leader's are written, each word with a capital, as [Picard](https://picard.musicbrainz.org/) picks them. By default a genre is only written to a file that has none. `genre_from_musicbrainz: replace` writes it over the file's own, and `off` leaves genres alone. A match that has no genre never takes one away. The composer and the comment are not looked up; they are yours to type.
+
+## Cover art
+
+tagshelf can give an album the cover it lacks. It is off until you turn it on:
+
+```yaml
+cover_art_file: true
+```
+
+An album is one folder of the library. A folder that has a cover keeps it: any image file named `cover`, `folder` or `front`, with the extension of a JPEG or a PNG. A folder without one gets a file named `cover.jpg` or `cover.png`:
+
+1. from the first picture its audio files hold, as it is;
+2. or else from the [Cover Art Archive](https://coverartarchive.org/): the front cover of the MusicBrainz release in the files' tags, or failing that of its release group.
+
+The archive is asked only when every file of the folder that names a release names the same one. Its cover is taken at 1200 pixels, or the next size below when it has no such size, never the original, which has no limit to its size.
+
+Covers are seen to at three moments, and never by a run:
+
+- **After a MusicBrainz match is saved**, for the album the files went to.
+- **`c` on the Library tab**, for the album of the file under the cursor. It says what it wrote and from where, or why it wrote nothing.
+- **`tagshelf art`**, for every album of the library at once:
+
+```powershell
+tagshelf art -dest "D:\Music" -file -dry-run
+tagshelf art -dest "D:\Music" -file
+```
+
+| Flag | Meaning |
+|---|---|
+| `-file` | Write cover files. The same as `cover_art_file: true`; without either there is nothing for it to do. |
+| `-replace WHEN` | `never`, `smaller` or `always`. The same as `cover_art_replace`. |
+| `-dry-run` | Say which folders would get a cover and from where. The archive is not asked, and nothing is written. |
+| `-dest DIR`, `-db FILE`, `-config FILE` | The library, as for a run. |
+
+It asks the archive for one album a second at most, so a large library takes a while. Stop it with Ctrl-C when you like: the next `tagshelf art` passes over the folders that have a cover by then.
+
+**Replacing a cover.** With `cover_art_replace: smaller` the archive is asked for the albums that have a cover too, and its cover takes the place of yours when it is larger in pixels; with `always`, whenever the archive has one. The picture that gave way is kept in the library's database, whole, so that undo can put it back under its own name.
+
+**Undo.** Each of the three is an action in the history: the Runs tab lists it, as a `tui-action`, with every cover it wrote, and `u` takes them back. A cover file is only removed while it is still the picture tagshelf wrote. After a match, `u` takes back the cover; the tags of the match are the action before it on the Runs tab.
+
+**What is sent.** A request to the archive names tagshelf, its version and its web address, and the MusicBrainz ID of the release. It carries no contact of yours: the archive asks for none, and `musicbrainz_contact` is not needed for cover art. The pictures themselves are served by the Internet Archive, which the request is passed on to.
 
 ## Undo
 

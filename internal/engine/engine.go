@@ -55,6 +55,8 @@ type Counters struct {
 	// Files moved onto their clean name after first landing on a " (n)" one.
 	Retried      int64
 	CueRewritten int64
+	// Cover files written into album folders, or taken out again by an undo.
+	Covers int64
 	// Audio files read into the index.
 	Indexed int64
 }
@@ -72,6 +74,7 @@ type stats struct {
 	LeftInPlace  atomic.Int64
 	Retried      atomic.Int64
 	CueRewritten atomic.Int64
+	Covers       atomic.Int64
 	Indexed      atomic.Int64
 }
 
@@ -88,6 +91,7 @@ func (s *stats) snapshot() Counters {
 		LeftInPlace:  s.LeftInPlace.Load(),
 		Retried:      s.Retried.Load(),
 		CueRewritten: s.CueRewritten.Load(),
+		Covers:       s.Covers.Load(),
 		Indexed:      s.Indexed.Load(),
 	}
 }

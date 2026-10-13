@@ -156,7 +156,7 @@ func (s *tuiSession) open() (tui.Options, error) {
 	s.closeStore()
 	cfg, none, err := s.settings()
 	opts := tui.Options{Destination: cfg.Destination, Source: cfg.Source, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
-		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(),
+		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(), CoverFile: cfg.CoverArtFile,
 		NoLibrary: none, Reopen: s.open, Settings: s}
 	if err != nil || none != nil {
 		opts.Destination = ""
@@ -289,6 +289,24 @@ func (r tuiRunner) SaveFiles(ctx context.Context, files []store.File, save engin
 	opts.Store = st
 	opts.Sink = sink
 	finish := engine.SaveFiles(ctx, opts, files, save)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
+}
+
+func (r tuiRunner) CoverArt(ctx context.Context, folders []string, sink engine.Sink) (engine.RunFinished, error) {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(r.cfg)
+	opts.DryRun = false
+	opts.Store = st
+	opts.Sink = sink
+	finish := engine.CoverArt(ctx, opts, engine.CoverOptions{File: r.cfg.CoverArtFile, Replace: r.cfg.CoverReplace(),
+		Fetch: coverFetch, Folders: folders})
 	if finish.State == engine.StateNotStarted {
 		return finish, finish.Err
 	}

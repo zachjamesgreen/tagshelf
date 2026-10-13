@@ -119,6 +119,8 @@ type Model struct {
 	// genreMode is what a MusicBrainz match does with the genre: config's
 	// GenreOff, GenreFill or GenreReplace. Empty is GenreFill.
 	genreMode string
+	// coverFile is the cover art setting: whether cover files are written.
+	coverFile bool
 
 	// busy is closed when the action a tab is carrying out on the library has
 	// ended, nil when none is.
@@ -260,6 +262,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.editorFolder(msg)
 	case editorFolderDoneMsg:
 		return m.editorFolderDone(msg)
+	case coverDoneMsg:
+		return m.coverDone(msg)
 	case lookupFoundMsg:
 		m.lookupFound(msg)
 	case lookupPickedMsg:

@@ -528,11 +528,19 @@ func (m *Model) lookupDone(msg lookupDoneMsg) tea.Cmd {
 	} else {
 		var where string
 		var lacking bool
+		at := msg.moved
 		if mine {
 			where, lacking = m.placed(l)
+			if at == "" {
+				at = l.file.Path
+			}
 			m.closeLookup()
 		}
 		m.savedToast(msg.saved, where, lacking)
+		if at != "" {
+			// The album the file is on now may lack a cover.
+			return tea.Batch(m.poll(true, false), m.coverArt(albumFolders([]string{at}), true))
+		}
 	}
 	return m.poll(true, false)
 }

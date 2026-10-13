@@ -41,15 +41,16 @@ type UndoPlan struct {
 	Run store.Run
 	// Refusal says why the run cannot be undone at all, "" when it can.
 	Refusal string
-	// How many moves, tag saves and cue sheet rewrites would be undone.
-	Moves, TagSaves, Cues int
+	// How many moves, tag saves, cue sheet rewrites and covers written would
+	// be undone.
+	Moves, TagSaves, Cues, Covers int
 	// Skipped lists what would be left as it is.
 	Skipped []UndoSkip
 }
 
 // Nothing reports whether the plan undoes nothing.
 func (p UndoPlan) Nothing() bool {
-	return p.Refusal != "" || p.Moves+p.TagSaves+p.Cues == 0
+	return p.Refusal != "" || p.Moves+p.TagSaves+p.Cues+p.Covers == 0
 }
 
 // undoOp is one thing a run did, to be undone: a move, among them a cue
@@ -236,6 +237,8 @@ func (u *undoer) step(op undoOp) (do func(o *organizer) error, plan func(), skip
 
 	case op.move.Reason == store.ReasonCueRewrite:
 		return u.cueStep(op)
+	case op.move.Reason == store.ReasonCover:
+		return u.coverStep(op)
 	}
 
 	m := op.move
@@ -492,6 +495,8 @@ func PlanUndo(st *store.Store, runID int64, check TagCheck) (UndoPlan, error) {
 			plan.TagSaves++
 		case op.move.Reason == store.ReasonCueRewrite:
 			plan.Cues++
+		case op.move.Reason == store.ReasonCover:
+			plan.Covers++
 		default:
 			plan.Moves++
 		}

@@ -190,6 +190,10 @@ func (m *Model) libraryKey(k string) (tea.Cmd, bool) {
 		if ok {
 			return m.openEditor(f), true
 		}
+	case "c":
+		if ok {
+			return m.coverArt(albumFolders([]string{f.Path}), false), true
+		}
 	case "l":
 		if ok {
 			return m.openLookup(f, ""), true
