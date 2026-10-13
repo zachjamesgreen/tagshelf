@@ -3,12 +3,12 @@ package engine
 import (
 	"bytes"
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/zachjamesgreen/tagshelf/internal/playlist"
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
@@ -156,7 +156,7 @@ func (o *organizer) nowAt(path string) (string, bool) {
 // rewritePlaylists keeps the playlists pointing at the files this run or
 // action moved: the playlists it met itself, and those of the library that
 // the index has naming a file it moved.
-func (o *organizer) rewritePlaylists(ctx context.Context) {
+func (o *organizer) rewritePlaylists() {
 	if o.cfg.NoPlaylistRewrite {
 		return
 	}
@@ -212,10 +212,9 @@ func (o *organizer) rewritePlaylists(ctx context.Context) {
 	}
 	slices.SortFunc(list, func(a, b job) int { return cmp.Compare(rules.PathKey(a.now), rules.PathKey(b.now)) })
 	o.startPhase(PhasePlaylists, int64(len(list)), 0)
+	// Also when the run was stopped: the files it did move are where they
+	// are, and nothing would look at their playlists again.
 	for _, j := range list {
-		if ctx.Err() != nil {
-			return
-		}
 		o.rewritePlaylist(j.was, j.now)
 		o.phase.advance(0)
 	}
@@ -262,7 +261,7 @@ func (o *organizer) rewritePlaylist(was, now string) {
 		style := playlist.StyleOf(e.Text)
 		target, moved := o.nowAt(old)
 		if !moved {
-			whole := style.Absolute && !(style.Rooted && filepath.VolumeName(wasDir) != filepath.VolumeName(nowDir))
+			whole := style.Absolute && !(style.Rooted && !strings.EqualFold(filepath.VolumeName(wasDir), filepath.VolumeName(nowDir)))
 			if stayed || whole {
 				continue // it reads right as it is
 			}

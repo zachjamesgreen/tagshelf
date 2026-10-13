@@ -97,7 +97,9 @@ func (o *organizer) endAction(ctx context.Context) RunFinished {
 	if !interrupted {
 		o.startPhase(PhaseCompanions, 0, 0)
 		o.followAudio()
-		o.rewritePlaylists(ctx)
+	}
+	o.rewritePlaylists()
+	if !interrupted {
 		o.startPhase(PhaseCleanup, 0, 0)
 		// A copy left by a crash would keep its folder from being removed.
 		var emptied []string

@@ -64,8 +64,8 @@ Examples:
       Review untagged files and duplicates in the terminal UI.
 `,
 	groups: []flagGroup{
-		{"Folders", []string{"source", "dest", "reorganize", "untagged", "other", "duplicates", "compilations", "db"}},
-		{"The run", []string{"dry-run", "index", "rescan", "no-cue-rewrite", "workers", "verbose"}},
+		{"Folders", []string{"source", "dest", "reorganize", "untagged", "other", "duplicates", "playlists", "compilations", "db"}},
+		{"The run", []string{"dry-run", "index", "rescan", "no-cue-rewrite", "no-playlist-rewrite", "workers", "verbose"}},
 		{"Other", []string{"config"}},
 	},
 	extra: [][2]string{{"-version", "Print the version."}, {"-h", "Show this help."}},
@@ -87,8 +87,8 @@ Examples:
       Take the settings from a config file.
 `,
 	groups: []flagGroup{
-		{"Folders", []string{"source", "dest", "untagged", "other", "duplicates", "compilations", "db"}},
-		{"Runs started from the terminal UI", []string{"dry-run", "no-cue-rewrite", "workers"}},
+		{"Folders", []string{"source", "dest", "untagged", "other", "duplicates", "playlists", "compilations", "db"}},
+		{"Runs started from the terminal UI", []string{"dry-run", "no-cue-rewrite", "no-playlist-rewrite", "workers"}},
 		{"Other", []string{"config"}},
 	},
 	extra: [][2]string{{"-h", "Show this help."}},

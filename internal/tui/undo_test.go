@@ -70,13 +70,14 @@ func TestUndoPreflightShowsWhatWouldBeDone(t *testing.T) {
 		t.Fatalf("undone before confirming: %v", f.undone)
 	}
 
-	f.undoFinish = engine.RunFinished{RunID: 8, State: engine.StateErrors, Counters: engine.Counters{OtherMoved: 46, CueRewritten: 1, Errors: 2}}
+	f.undoFinish = engine.RunFinished{RunID: 8, State: engine.StateErrors, Counters: engine.Counters{OtherMoved: 46, CueRewritten: 1, Pictures: 2, Playlists: 1, Errors: 2}}
 	loads := src.loads
 	hit(t, m, "enter")
 	if !reflect.DeepEqual(f.undone, []int64{5}) || m.undo != nil {
 		t.Fatalf("undone %v, preflight open %t", f.undone, m.undo != nil)
 	}
-	for _, want := range []string{"Run 5 undone: 46 files moved back", "1 cue sheet restored", "2 skipped or failed: see 5 Runs"} {
+	for _, want := range []string{"Run 5 undone: 46 files moved back", "1 cue sheet restored", "2 files have the picture of before",
+		"1 playlist rewritten", "2 skipped or failed: see 5 Runs"} {
 		if !strings.Contains(m.toast, want) {
 			t.Errorf("toast %q lacks %q", m.toast, want)
 		}

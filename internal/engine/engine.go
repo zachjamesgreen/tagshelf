@@ -1011,7 +1011,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			o.phase.advance(0)
 		}
 	}
-	o.rewritePlaylists(ctx)
+	o.rewritePlaylists()
 
 	interrupted := ctx.Err() != nil
 

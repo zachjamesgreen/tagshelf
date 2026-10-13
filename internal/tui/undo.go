@@ -181,6 +181,9 @@ func (m *Model) undoDone(msg undoDoneMsg) tea.Cmd {
 	if c.CueRewritten > 0 {
 		did = append(did, plural(c.CueRewritten, "cue sheet", "cue sheets")+" restored")
 	}
+	if c.Playlists > 0 {
+		did = append(did, plural(c.Playlists, "playlist", "playlists")+" rewritten")
+	}
 	if len(did) == 0 {
 		did = []string{"nothing could be put back"}
 	}
@@ -261,6 +264,9 @@ func (m *Model) undoBody(h int) string {
 	}
 	if p.Pictures > 0 {
 		can = append(can, plural(int64(p.Pictures), "file gets back the picture it had, or none", "files get back the picture they had, or none"))
+	}
+	if p.Playlists > 0 {
+		can = append(can, plural(int64(p.Playlists), "playlist gets its earlier entries back", "playlists get their earlier entries back"))
 	}
 	if p.Cues > 0 {
 		can = append(can, plural(int64(p.Cues), "cue sheet gets its original back", "cue sheets get their originals back"))

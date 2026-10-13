@@ -33,6 +33,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
 - [The terminal UI](#the-terminal-ui)
 - [MusicBrainz lookups](#musicbrainz-lookups)
 - [Cover art](#cover-art)
+- [Playlists](#playlists)
 - [Undo](#undo)
 - [Where tagshelf keeps its data](#where-tagshelf-keeps-its-data)
 - [On Linux](#on-linux)
@@ -146,12 +147,13 @@ Tags that a CD ripper or a download came with do not qualify on their own, howev
 | `_Untagged` | Audio that does not qualify yet. It keeps its place under the folder it came from. |
 | `_Duplicates` | Copies set aside in favour of a better one. tagshelf never deletes them; that is for you to do. |
 | `_Other` | Non-audio files that do not belong to an album, such as stray text files. |
+| `_Playlists` | Playlists that name files of several folders. See [Playlists](#playlists). |
 
 Each can be put somewhere else with a flag or a config key.
 
 ### Files that travel with the music
 
-Cover art, booklets, logs and cue sheets follow the audio of their folder into its album folder. When a cue sheet's audio is renamed, the `FILE` lines in the sheet are rewritten to match, and the original is kept beside it as `album.cue.orig`.
+Cover art, booklets, logs and cue sheets follow the audio of their folder into its album folder. When a cue sheet's audio is renamed, the `FILE` lines in the sheet are rewritten to match, and the original is kept beside it as `album.cue.orig`. A playlist's entries are kept pointing at their files too: see [Playlists](#playlists).
 
 ### What a run leaves where it is
 
@@ -207,6 +209,8 @@ Check the path given with -source, or as source in the config file.
 | `-duplicates DIR` | Where copies are set aside. Default `<dest>\_Duplicates`. |
 | `-compilations NAME` | The artist folder for Various Artists compilations. Default `Various Artists`. |
 | `-no-cue-rewrite` | Leave the `FILE` lines of moved cue sheets alone. |
+| `-playlists DIR` | Where playlists that name files of several folders go. Default `<dest>\_Playlists`. |
+| `-no-playlist-rewrite` | Leave the entries of playlists alone when the files they name move. |
 | `-workers N` | How many files to work on at once. Default: the number of CPUs. |
 | `-config FILE` | The config file to read. |
 | `-db FILE` | The database file, if not the default. |
@@ -298,6 +302,8 @@ dry_run: true
 | `dry_run` | `false` | Preview only. The example file sets it to `true`. |
 | `verbose` | `false` | Print a line for every file. |
 | `cue_rewrite` | `true` | Fix the `FILE` lines of moved cue sheets. |
+| `playlists` | `<destination>\_Playlists` | Where playlists that name files of several folders go. |
+| `playlist_rewrite` | `true` | Keep the entries of `.m3u` and `.m3u8` playlists pointing at files that move. See [Playlists](#playlists). |
 | `musicbrainz_contact` | none | An email address or URL for MusicBrainz. Lookups are off until it is set. |
 | `cover_art_file` | `false` | Write a cover file into an album folder that has no cover. See [Cover art](#cover-art). |
 | `cover_art_embed` | `false` | Put the album's cover into each of its audio files that holds no picture. See [Cover art](#cover-art). |
@@ -499,9 +505,30 @@ It asks the archive for one album a second at most, so a large library takes a w
 
 **What is sent.** A request to the archive names tagshelf, its version and its web address, and the MusicBrainz ID of the release. It carries no contact of yours: the archive asks for none, and `musicbrainz_contact` is not needed for cover art. The pictures themselves are served by the Internet Archive, which the request is passed on to.
 
+## Playlists
+
+tagshelf keeps `.m3u` and `.m3u8` playlists working. When a file a playlist names is moved or renamed, the playlist's entry for it is pointed at where the file is now.
+
+**Where a playlist goes.** A playlist whose files are all beside it is an album's own: it travels with the album, like its cover and its cue sheet. Any other playlist a run finds in the source folder goes to `_Playlists` at the top of the library, and its entries then read `../Artist/Album/01 - Title.flac`. What is in `_Playlists` is never moved. In a reorganize a playlist stays where it is, unless its folder's music moves away.
+
+**What is rewritten.** Every entry keeps pointing at the same file:
+
+- An entry keeps its style: a path from the playlist's folder stays one, a whole path stays whole, and `\` or `/` stays as written.
+- The entry for a copy set aside as a duplicate is pointed at the copy that was kept.
+- Entries that are not files, such as web addresses, and entries that name a file that is not there are left as they are. A warning counts them.
+- Comment lines, line endings and everything else are left as they are. Playlists that an earlier version already broke are not repaired.
+
+This happens whenever tagshelf moves a file: in a run, a reorganize, a tag save, a duplicate decision and an undo. The playlists of the library are found when the library is indexed, so one you added by hand is known from the next run or `tagshelf -index` on.
+
+**Encoding.** A `.m3u8` is UTF-8. A `.m3u` is read as UTF-8 when it is valid UTF-8, and otherwise as Windows-1252, and it is written back the same way. When a new name has a character Windows-1252 lacks, the playlist is left alone, with a warning.
+
+**Undo.** No copy of the original is kept beside a playlist. The run's history holds what the playlist held before and after, and undo puts the earlier text back, as long as the playlist still holds what the run left. A playlist you edited since keeps your text, and its entries follow the files the undo moves back.
+
+Turn it off with `playlist_rewrite: false` or `-no-playlist-rewrite`. A playlist is then moved like any other non-audio file and its entries are not touched.
+
 ## Undo
 
-Every run and every action in the terminal UI is recorded. Undo puts back what one of them did: files go back where they were, tags are restored to what they held, and rewritten cue sheets get their old text back.
+Every run and every action in the terminal UI is recorded. Undo puts back what one of them did: files go back where they were, tags are restored to what they held, and rewritten cue sheets and playlists get their old text back.
 
 Undo is careful rather than thorough. It skips a file when:
 
@@ -598,6 +625,8 @@ Useful to know:
 | `internal/tagwrite` | Writing tags, through [go-taglib](https://github.com/sentriz/go-taglib). |
 | `internal/marker` | The manual marker. |
 | `internal/musicbrainz` | The MusicBrainz client, ranking of results, and matching files to tracks. |
+| `internal/coverart` | The Cover Art Archive client, and the pictures in folders and files. |
+| `internal/playlist` | Reading `.m3u` and `.m3u8` playlists and writing them back with entries changed. |
 | `internal/tui` | The terminal UI. |
 | `internal/fixtures` | The test audio files. |
 

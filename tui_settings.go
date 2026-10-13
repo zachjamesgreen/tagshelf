@@ -16,10 +16,10 @@ import (
 
 // optionalKeys are the settings a new config file leaves commented out while
 // they are empty.
-var optionalKeys = map[string]bool{"untagged": true, "other": true, "duplicates": true, "musicbrainz_contact": true, "database": true}
+var optionalKeys = map[string]bool{"untagged": true, "other": true, "duplicates": true, "playlists": true, "musicbrainz_contact": true, "database": true}
 
 // pathKeys are the settings that name a folder or a file.
-var pathKeys = []string{"source", "destination", "untagged", "other", "duplicates", "database"}
+var pathKeys = []string{"source", "destination", "untagged", "other", "duplicates", "playlists", "database"}
 
 // newFileConfig is what the Settings tab shows before there is a config
 // file: the template's settings, without its made-up folders. Dry run is on
@@ -66,7 +66,7 @@ func (s *tuiSession) Load() tui.SettingsFile {
 // place of the config file's, as the Settings tab shows them.
 func (s *tuiSession) flagValues() map[string]string {
 	keys := map[string]string{"source": "source", "dest": "destination", "untagged": "untagged", "other": "other",
-		"duplicates": "duplicates", "compilations": "compilations", "workers": "workers", "db": "database"}
+		"duplicates": "duplicates", "playlists": "playlists", "compilations": "compilations", "workers": "workers", "db": "database"}
 	onOff := map[bool]string{true: "on", false: "off"}
 	out := map[string]string{}
 	s.flags.set.Visit(func(f *flag.Flag) {
@@ -75,6 +75,8 @@ func (s *tuiSession) flagValues() map[string]string {
 			out["dry_run"] = onOff[*s.flags.dryRun]
 		case "no-cue-rewrite":
 			out["cue_rewrite"] = onOff[!*s.flags.noCueRewrite]
+		case "no-playlist-rewrite":
+			out["playlist_rewrite"] = onOff[!*s.flags.noPlaylistRewrite]
 		default:
 			if key, ok := keys[f.Name]; ok && f.Value.String() != "" && f.Value.String() != "0" {
 				out[key] = f.Value.String()

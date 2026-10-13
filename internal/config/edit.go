@@ -369,7 +369,7 @@ func Check(c Config) map[string]string {
 	if c.Source != "" && !same(c.Source, c.Destination) && inside(filepath.Clean(c.Destination), filepath.Clean(c.Source)) {
 		problems["destination"] = "is inside the source folder; use the same folder to reorganize it in place, or one outside it"
 	}
-	sides := []struct{ key, path string }{{"untagged", d.Untagged}, {"other", d.Other}, {"duplicates", d.Duplicates}}
+	sides := []struct{ key, path string }{{"untagged", d.Untagged}, {"other", d.Other}, {"duplicates", d.Duplicates}, {"playlists", d.Playlists}}
 	for i, s := range sides {
 		if problems[s.key] != "" {
 			continue

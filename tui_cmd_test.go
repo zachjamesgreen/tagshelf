@@ -209,19 +209,22 @@ func TestTUIConfigTakesTheFolderFlags(t *testing.T) {
 	off := false
 
 	args := []string{"-config", configFile, "-source", path("src"), "-dest", path("lib"), "-untagged", path("untagged"), "-other", path("other"),
-		"-duplicates", path("dups"), "-compilations", "Mixed", "-workers", "3", "-no-cue-rewrite", "-dry-run", "-db", path("my.db")}
+		"-duplicates", path("dups"), "-playlists", path("lists"), "-compilations", "Mixed", "-workers", "3", "-no-cue-rewrite", "-no-playlist-rewrite",
+		"-dry-run", "-db", path("my.db")}
 	cfg, code, ok := tuiConfig(args)
 	if !ok {
 		t.Fatalf("tuiConfig(%q) refused with exit code %d\n%s", args, code, logs)
 	}
 	want := config.Config{Source: path("src"), Destination: path("lib"), Untagged: path("untagged"), Other: path("other"),
-		Duplicates: path("dups"), Compilations: "Mixed", Workers: 3, DryRun: true, CueRewrite: &off, Database: path("my.db")}
+		Duplicates: path("dups"), Playlists: path("lists"), Compilations: "Mixed", Workers: 3, DryRun: true, CueRewrite: &off, PlaylistRewrite: &off,
+		Database: path("my.db")}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("tuiConfig = %+v\nwant        %+v", cfg, want)
 	}
 	// The runs the TUI starts are given these.
 	opts := engineOptions(tuiRunner{cfg: cfg}.cfg)
 	if opts.Untagged != path("untagged") || opts.Other != path("other") || opts.Duplicates != path("dups") ||
+		opts.Playlists != path("lists") || !opts.NoPlaylistRewrite ||
 		opts.Compilations != "Mixed" || opts.Workers != 3 || !opts.NoCueRewrite {
 		t.Errorf("engine options = %+v, want the folders, compilations name, workers and cue setting typed", opts)
 	}

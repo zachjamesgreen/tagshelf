@@ -16,7 +16,7 @@ import (
 // a message.
 var pathNames = map[string]string{
 	"source": "source folder", "destination": "library folder", "untagged": "untagged folder",
-	"other": "other folder", "duplicates": "duplicates folder", "database": "database file",
+	"other": "other folder", "duplicates": "duplicates folder", "playlists": "playlists folder", "database": "database file",
 }
 
 // here gives a text of the help or of a message, written with the example
@@ -45,7 +45,7 @@ type pathOrigin struct {
 func (f *libraryFlags) typedPaths() map[string]string {
 	settings := map[string][]string{
 		"source": {"source"}, "dest": {"destination"}, "reorganize": {"source", "destination"},
-		"untagged": {"untagged"}, "other": {"other"}, "duplicates": {"duplicates"}, "db": {"database"},
+		"untagged": {"untagged"}, "other": {"other"}, "duplicates": {"duplicates"}, "playlists": {"playlists"}, "db": {"database"},
 	}
 	typed := map[string]string{}
 	f.set.Visit(func(fl *flag.Flag) {

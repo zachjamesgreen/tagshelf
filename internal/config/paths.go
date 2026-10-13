@@ -11,7 +11,7 @@ import (
 // PathKeys are the settings that name a folder or a file. Each call returns
 // a new slice.
 func PathKeys() []string {
-	return []string{"source", "destination", "untagged", "other", "duplicates", "database"}
+	return []string{"source", "destination", "untagged", "other", "duplicates", "playlists", "database"}
 }
 
 // WindowsPath reports whether path is written the Windows way: from a drive
