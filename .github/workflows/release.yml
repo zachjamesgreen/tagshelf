@@ -82,10 +82,19 @@ jobs:
           go vet ./...
           go test ./... -count=1 -timeout 10m
 
+      # The key of the tagshelf application at AcoustID, which identifying
+      # files by their sound asks with. It is a repository secret, so that the
+      # repository does not hold it; a download without it could not identify
+      # anything, so there is no release without it.
       - name: Build
         env:
           CGO_ENABLED: "0"
+          ACOUSTID_CLIENT_KEY: ${{ secrets.ACOUSTID_CLIENT_KEY }}
         run: |
+          if [ -z "$ACOUSTID_CLIENT_KEY" ]; then
+            echo "::error::The repository secret ACOUSTID_CLIENT_KEY is not set. Register an application at https://acoustid.org/new-application and add its API key under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
           exe=tagshelf
           if [ "$RUNNER_OS" = "Windows" ]; then exe=tagshelf.exe; fi
           if [ "$(go env GOOS)-$(go env GOARCH)" != "${{ matrix.target }}" ]; then
@@ -93,8 +102,12 @@ jobs:
             exit 1
           fi
           go build -trimpath \
-            -ldflags "-s -w -X github.com/zachjamesgreen/tagshelf/internal/version.release=$VERSION" \
+            -ldflags "-s -w -X github.com/zachjamesgreen/tagshelf/internal/version.release=$VERSION -X github.com/zachjamesgreen/tagshelf/internal/acoustid.releaseKey=$ACOUSTID_CLIENT_KEY" \
             -o "dist/$exe" .
+          if ! grep -qaF -- "$ACOUSTID_CLIENT_KEY" "dist/$exe"; then
+            echo "::error::The build does not carry the AcoustID key"
+            exit 1
+          fi
           got=$("./dist/$exe" -version)
           echo "$got"
           if [ "$got" != "tagshelf $VERSION" ]; then

@@ -49,6 +49,11 @@ type Config struct {
 	// MusicBrainzContact is the email address or URL sent in the MusicBrainz
 	// User-Agent. MusicBrainz lookups are disabled while it is empty.
 	MusicBrainzContact string `yaml:"musicbrainz_contact"`
+	// AcoustIDKey is the API key of an application registered at AcoustID,
+	// which identifying files by their sound asks with. It comes before the
+	// key a released tagshelf was built with; a build from source has no
+	// other.
+	AcoustIDKey string `yaml:"acoustid_key"`
 	// GenreFromMusicBrainz says what a MusicBrainz match does with the
 	// genre: GenreOff, GenreFill or GenreReplace. Empty means the default,
 	// GenreFill.

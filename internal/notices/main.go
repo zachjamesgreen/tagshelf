@@ -34,6 +34,16 @@ General Public License 2.1 or the Mozilla Public License 1.1; tagshelf uses it
 unmodified. To use tagshelf with another build of TagLib, replace the
 go.senan.xyz/taglib module and rebuild tagshelf from its source.
 
+FFmpeg (https://ffmpeg.org) and Chromaprint (https://acoustid.org/chromaprint)
+are included as the fingerprint module, internal/fingerprint/fp.wasm, which
+tagshelf carries compiled to WebAssembly and identifies audio by its sound
+with. Only parts of FFmpeg under the GNU Lesser General Public License 2.1 or
+later are in it, and both are used unmodified. Their sources, the settings
+they are built with and the script that builds the module are named in
+internal/fingerprint/module/README.md. To use tagshelf with another build of
+them, build a module of your own and name it in the environment variable
+TAGSHELF_FINGERPRINT_MODULE: no rebuild of tagshelf is needed.
+
 To regenerate this file: go run ./internal/notices
 `
 
@@ -46,6 +56,14 @@ func main() {
 
 	// The reader in internal/tag began as a copy of github.com/dhowden/tag.
 	add(&out, "github.com/dhowden/tag (carried in internal/tag, with changes)", filepath.Join("internal", "tag"))
+
+	// What the fingerprint module is built from. The licence texts are kept
+	// beside the script that builds it.
+	licenses := filepath.Join("internal", "fingerprint", "module", "licenses")
+	add(&out, "FFmpeg (in the fingerprint module)", filepath.Join(licenses, "ffmpeg"))
+	add(&out, "Chromaprint (in the fingerprint module)", filepath.Join(licenses, "chromaprint"))
+	add(&out, "wasi-libc (in the fingerprint module)", filepath.Join(licenses, "wasi-libc"))
+	add(&out, "LLVM libc++, libc++abi and compiler-rt (in the fingerprint module)", filepath.Join(licenses, "llvm"))
 
 	for _, m := range modules() {
 		add(&out, m.path, m.dir)

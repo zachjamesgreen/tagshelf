@@ -32,6 +32,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
 - [Config file](#config-file)
 - [The terminal UI](#the-terminal-ui)
 - [MusicBrainz lookups](#musicbrainz-lookups)
+- [Identify by sound](#identify-by-sound)
 - [Cover art](#cover-art)
 - [Playlists](#playlists)
 - [Undo](#undo)
@@ -305,6 +306,7 @@ dry_run: true
 | `playlists` | `<destination>\_Playlists` | Where playlists that name files of several folders go. |
 | `playlist_rewrite` | `true` | Keep the entries of `.m3u` and `.m3u8` playlists pointing at files that move. See [Playlists](#playlists). |
 | `musicbrainz_contact` | none | An email address or URL for MusicBrainz. Lookups are off until it is set. |
+| `acoustid_key` | none | The API key of an AcoustID application of your own. See [Identify by sound](#identify-by-sound). A download of tagshelf has a key built in. |
 | `cover_art_file` | `false` | Write a cover file into an album folder that has no cover. See [Cover art](#cover-art). |
 | `cover_art_embed` | `false` | Put the album's cover into each of its audio files that holds no picture. See [Cover art](#cover-art). |
 | `cover_art_replace` | `never` | When a cover an album has gives way to the Cover Art Archive's: `never`, `smaller` (when the archive's is larger) or `always`. |
@@ -371,8 +373,8 @@ o organize  r reorganize  i index  d dry run   1-7 tabs  R reload  ? help  q qui
 | `v` | Group by original folder, by album tag, or not at all. |
 | `a` | Accept the tags of the selected files as they are. |
 | `e` | Edit the file's tags. `ctrl+s` saves; `ctrl+n` adds a tag; `ctrl+f` writes the field under the cursor to every file in the folder. |
-| `l` | Look the file up on MusicBrainz. |
-| `L` | Match the selection or group to a MusicBrainz release, all at once. |
+| `l` | Look the file up on MusicBrainz. `ctrl+s` there identifies it by its sound. |
+| `L` | Match the selection or group to a MusicBrainz release, all at once. `ctrl+s` there identifies the files by their sound. |
 | **Duplicates** | |
 | `k` | Choose which copy to keep. |
 | `enter` | Resolve the group: keep that copy, set the others aside. |
@@ -452,6 +454,31 @@ The contact is sent to MusicBrainz in the `User-Agent` header of each request an
 - **Match a release (`L`)**: tags a whole album at once. tagshelf puts each file on a track by title, number and length; you can move files between tracks before confirming.
 
 A match also brings the **genre**, where MusicBrainz has one. The votes for each genre are added up over the recording, the release and its release group; of the five with the most votes, those with at least nine tenths of the leader's are written, each word with a capital, as [Picard](https://picard.musicbrainz.org/) picks them. By default a genre is only written to a file that has none. `genre_from_musicbrainz: replace` writes it over the file's own, and `off` leaves genres alone. A match that has no genre never takes one away. The composer and the comment are not looked up; they are yours to type.
+
+## Identify by sound
+
+A file with no tags and a name like `track07.flac` gives a search nothing to go on. tagshelf can identify it by what it sounds like instead, with [AcoustID](https://acoustid.org/).
+
+In a lookup (`l`) or a release match (`L`), press `ctrl+s`:
+
+- **One file.** tagshelf listens to the file and asks AcoustID which recordings it is. They join the list of matches, first, best first, each with AcoustID's score as a percentage in place of the search's score. You pick as before; nothing is picked for you.
+- **A release.** Every selected file is listened to. The releases that hold what AcoustID heard are listed first, the one that holds the most of your files at the top; the score is the share of the files it holds. On the release you pick, each file goes to the track AcoustID named for it, also a file whose name and tags say nothing.
+
+A match that came by sound is saved with the AcoustID of the audio in the tag `ACOUSTID_ID`, beside its MusicBrainz IDs. It works in the Files tab as elsewhere. It is never done without the key press, and never by a run.
+
+**Nothing to install.** The listening is done inside tagshelf, by [Chromaprint](https://acoustid.org/chromaprint) and the audio decoders of [FFmpeg](https://ffmpeg.org/): the same code as AcoustID's own tool, `fpcalc`, compiled into the program. It reads the first two minutes of a file, in about a second, and every audio format tagshelf handles.
+
+**What is sent.** A request to AcoustID carries the fingerprint of the audio, the length of the file in seconds and the key of the application. It carries no file name, no tags and no contact of yours. The recordings AcoustID names are then asked for at MusicBrainz, by their IDs, as any lookup is.
+
+**What is kept.** The fingerprint of a file is kept in the library's database for good, by the audio it was made from, so a file is listened to once whatever becomes of its tags and its name. AcoustID's answer is kept for thirty days and given again without asking; the list says how old it is, and a second `ctrl+s` asks AcoustID anew.
+
+**The key.** AcoustID asks every program for the API key of its application. A download of tagshelf has one built in. A tagshelf you build from source has none: [register an application](https://acoustid.org/new-application) of your own, which is free, and set its key, which also comes before the built-in one:
+
+```yaml
+acoustid_key: "your-api-key"
+```
+
+The module, what of FFmpeg is in it, how it is built and how to run tagshelf with a build of your own are described in [internal/fingerprint/module/README.md](internal/fingerprint/module/README.md).
 
 ## Cover art
 
@@ -562,7 +589,7 @@ The rest is the same on both:
 
 Only one tagshelf changes a library at a time. A second run on the same library is refused and told which process holds it; the terminal UI can stay open and watch.
 
-The index is only a record of the files. If the database is lost, `tagshelf -index -dest D:\Music` rebuilds it; the run history, and so the ability to undo earlier runs, is what would be gone.
+The index is only a record of the files. If the database is lost, `tagshelf -index -dest D:\Music` rebuilds it; the run history, and so the ability to undo earlier runs, is what would be gone, along with the fingerprints of the files identified by sound, which are made again when asked for.
 
 To stop using tagshelf, delete the database folder, your config file and the two `.tagshelf-` files in the library. Your music stays as it is. The only thing tagshelf leaves in the files is the manual marker, a tag named `TAGSHELF_MANUAL`.
 
@@ -625,6 +652,8 @@ Useful to know:
 | `internal/tagwrite` | Writing tags, through [go-taglib](https://github.com/sentriz/go-taglib). |
 | `internal/marker` | The manual marker. |
 | `internal/musicbrainz` | The MusicBrainz client, ranking of results, and matching files to tracks. |
+| `internal/fingerprint` | The AcoustID fingerprint of a file, by the WebAssembly module `fp.wasm` it carries. `module/` builds the module. |
+| `internal/acoustid` | The AcoustID client. |
 | `internal/coverart` | The Cover Art Archive client, and the pictures in folders and files. |
 | `internal/playlist` | Reading `.m3u` and `.m3u8` playlists and writing them back with entries changed. |
 | `internal/tui` | The terminal UI. |
@@ -645,5 +674,7 @@ It stands on:
 - [dhowden/tag](https://github.com/dhowden/tag) by David Howden, the tag reader that `internal/tag` grew from (BSD 2-Clause);
 - [TagLib](https://taglib.org/), through [go-taglib](https://github.com/sentriz/go-taglib) by Senan Kelly, for writing tags (LGPL 2.1);
 - [MusicBrainz](https://musicbrainz.org/), whose volunteers maintain the data the lookups use;
+- [AcoustID](https://acoustid.org/) and [Chromaprint](https://acoustid.org/chromaprint) by Lukáš Lalinský, for identifying audio by its sound (MIT, with parts under the LGPL 2.1);
+- [FFmpeg](https://ffmpeg.org/), whose audio decoders read the files for it (LGPL 2.1 or later);
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss) and [Huh](https://github.com/charmbracelet/huh) by Charm, for the terminal UI;
 - [modernc.org/sqlite](https://modernc.org/sqlite), SQLite without a C compiler.

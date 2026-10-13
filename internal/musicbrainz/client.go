@@ -202,3 +202,52 @@ func statusError(code int, body []byte) error {
 	}
 	return fmt.Errorf("HTTP %d %s", code, http.StatusText(code))
 }
+
+// MaxByID is the most recordings RecordingsByID asks for at once.
+const MaxByID = 100
+
+// RecordingsByID fetches the recordings with the given MusicBrainz IDs, each
+// with its releases as a search gives them, in the order of ids. IDs that
+// are not IDs, and those MusicBrainz does not know, are left out; no more
+// than MaxByID are asked for.
+func (c *Client) RecordingsByID(ctx context.Context, ids []string) ([]Recording, error) {
+	u, order := recordingsByIDURL(c.baseURL, ids)
+	if len(order) == 0 {
+		return nil, nil
+	}
+	var res RecordingSearch
+	if err := c.get(ctx, u, &res); err != nil {
+		return nil, fmt.Errorf("MusicBrainz recording lookup: %w", err)
+	}
+	by := make(map[string]Recording, len(res.Recordings))
+	for _, rec := range res.Recordings {
+		by[strings.ToLower(rec.ID)] = rec
+	}
+	out := make([]Recording, 0, len(order))
+	for _, id := range order {
+		if rec, ok := by[id]; ok {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+// recordingsByIDURL is the URL of a search for the recordings with the given
+// IDs, with the IDs it asks for, lower-cased and each once.
+func recordingsByIDURL(base string, ids []string) (string, []string) {
+	var order []string
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if !IsID(id) || seen[id] || len(order) == MaxByID {
+			continue
+		}
+		seen[id] = true
+		order = append(order, id)
+	}
+	params := url.Values{
+		"query": {"rid:(" + strings.Join(order, " OR ") + ")"},
+		"limit": {strconv.Itoa(len(order))},
+	}
+	return serviceURL(base, "recording", params), order
+}

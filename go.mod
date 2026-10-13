@@ -8,6 +8,7 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/tetratelabs/wazero v1.11.1-0.20260428013916-2bbd517b7633
 	go.senan.xyz/taglib v0.14.0
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -36,7 +37,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/tetratelabs/wazero v1.11.1-0.20260428013916-2bbd517b7633 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	modernc.org/libc v1.77.1 // indirect

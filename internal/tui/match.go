@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -33,6 +34,7 @@ const (
 	matchMap                        // reviewing which file is which track
 	matchConfirm                    // looking at what would be written
 	matchSaving                     // writing it
+	matchListening                  // listening to the files and asking AcoustID
 )
 
 // match is the full-screen release match of several indexed files: one
@@ -55,6 +57,17 @@ type match struct {
 
 	releases []musicbrainz.ReleaseCandidate
 	cursor   int // index into releases
+
+	// found are the releases the search found, and bySound those that hold
+	// recordings AcoustID named for the files: releases is the second and
+	// then the rest of the first. heard is, by file, what AcoustID says of
+	// each recording it named; nil until it has been asked. listened counts
+	// the files done while it listens, and back is the step that began at.
+	found    []musicbrainz.ReleaseCandidate
+	bySound  []musicbrainz.ReleaseCandidate
+	heard    map[int]map[string]soundHit
+	listened *atomic.Int32
+	back     matchStep
 
 	release *musicbrainz.Release // the release picked, looked up in full
 	mapping *musicbrainz.Mapping
@@ -188,7 +201,8 @@ func (m *Model) matchSearch() tea.Cmd {
 		x.problem = "Nothing to search for: type an album or an artist"
 		return nil
 	}
-	x.problem, x.releases, x.cursor = "", nil, 0
+	x.problem, x.found, x.cursor = "", nil, 0
+	x.merge()
 	x.step = matchSearching
 	ctx, seq := m.matchRequest()
 	// The files' own searches take the album and artist typed here into
@@ -213,10 +227,11 @@ func (m *Model) matchFound(msg matchFoundMsg) {
 	switch {
 	case msg.err != nil:
 		x.problem = msg.err.Error()
-	case len(msg.releases) == 0:
+	case len(msg.releases) == 0 && len(x.bySound) == 0:
 		x.problem = "MusicBrainz has no release like that: change the query and search again"
 	default:
-		x.releases = msg.releases
+		x.found = msg.releases
+		x.merge()
 		x.step = matchPick
 	}
 }
@@ -269,6 +284,7 @@ func (m *Model) matchLoaded(msg matchLoadedMsg) {
 		return
 	}
 	x.release, x.orig, x.mapping = msg.release, msg.orig, msg.mapping
+	x.applySound()
 	x.row, x.grabbed, x.scroll = 0, -1, 0
 	x.step = matchMap
 }
@@ -306,7 +322,7 @@ func (x *match) rows() []mapRow {
 // values are the tags the file of assignment a would get, as a save takes
 // them.
 func (x *match) values(a musicbrainz.Assignment) tagwrite.Values {
-	return lookupValues(musicbrainz.TagsFor(x.release, a.Track), x.files[a.File].Path)
+	return x.withAcoustID(lookupValues(musicbrainz.TagsFor(x.release, a.Track), x.files[a.File].Path), a)
 }
 
 // confirmMatch writes every mapped file's tags off the UI goroutine, as one
@@ -393,6 +409,8 @@ func (m *Model) matchKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.closeMatch()
 		case "enter":
 			return m.matchSearch()
+		case "ctrl+s":
+			return m.matchListen()
 		default:
 			// The form never gets the key that would complete it: a
 			// completed form cannot be edited again.
@@ -406,6 +424,11 @@ func (m *Model) matchKey(msg tea.KeyPressMsg) tea.Cmd {
 		if k == "esc" {
 			x.stop()
 			x.step = matchQuery
+		}
+	case matchListening:
+		if k == "esc" {
+			x.stop()
+			x.step = x.back
 		}
 	case matchPick:
 		x.problem = ""
@@ -422,6 +445,8 @@ func (m *Model) matchKey(msg tea.KeyPressMsg) tea.Cmd {
 			x.cursor = min(x.cursor+page, len(x.releases)-1)
 		case "enter":
 			return m.matchLoad()
+		case "ctrl+s":
+			return m.matchListen()
 		}
 	case matchLoading:
 		if k == "esc" {
@@ -506,7 +531,11 @@ func (m *Model) matchCrumb() string {
 	x := m.match
 	crumb := " " + dimStyle.Render(x.from.String()+" › ") + boldStyle.Render("Release match") +
 		dimStyle.Render(" › ") + plural(int64(len(x.files)), "file", "files")
-	switch x.step {
+	step := x.step
+	if step == matchListening {
+		step = x.back
+	}
+	switch step {
 	case matchPick, matchLoading:
 		crumb += dimStyle.Render(" › ") + "Releases"
 	case matchMap:
@@ -524,11 +553,11 @@ func (m *Model) matchHelp() string {
 	case matchDisabled:
 		return "esc back"
 	case matchQuery:
-		return "↑↓/tab field  enter search  esc back"
-	case matchSearching, matchLoading:
+		return "↑↓/tab field  enter search  ctrl+s by sound  esc back"
+	case matchSearching, matchLoading, matchListening:
 		return "esc stop waiting"
 	case matchPick:
-		return "↑↓ move  enter pick  / change the query  esc back"
+		return "↑↓ move  enter pick  / change the query  ctrl+s by sound  esc back"
 	case matchMap:
 		if x.grabbed >= 0 {
 			return "↑↓ move to a track  enter put the file there  esc leave it where it was"
@@ -548,6 +577,12 @@ func (m *Model) matchBody(h int) string {
 	case matchDisabled:
 		b.WriteString("\n")
 		lookupsOff(&b, "e edits a file's tags by hand")
+	case matchListening:
+		if x.back == matchPick {
+			m.releasesBody(&b, h)
+			break
+		}
+		fallthrough
 	case matchQuery, matchSearching:
 		b.WriteString("\n  " + boldStyle.Render("Search MusicBrainz for a release") +
 			dimStyle.Render(fmt.Sprintf("  to tag %s as", plural(int64(len(x.files)), "file", "files"))) + "\n\n")
@@ -555,8 +590,11 @@ func (m *Model) matchBody(h int) string {
 		if x.problem != "" {
 			b.WriteString("\n  " + badStyle.Render(clean(x.problem)) + "\n")
 		}
-		if x.step == matchSearching {
+		switch x.step {
+		case matchSearching:
 			b.WriteString("\n  " + dimStyle.Render("Searching MusicBrainz…") + "\n")
+		case matchListening:
+			b.WriteString("\n  " + dimStyle.Render(x.listeningLine()) + "\n")
 		}
 	case matchPick, matchLoading:
 		m.releasesBody(&b, h)
@@ -574,7 +612,11 @@ const releaseFixedWidth = 2 + 3 + 4 + 2 + 13 + 6 + 5 + 7*2
 // releasesBody draws the releases found in h lines.
 func (m *Model) releasesBody(b *strings.Builder, h int) {
 	x := m.match
-	b.WriteString("\n  " + boldStyle.Render("Releases") + dimStyle.Render("  "+plural(int64(len(x.releases)), "release", "releases")) + "\n")
+	count := plural(int64(len(x.releases)), "release", "releases")
+	if note := x.heardNote(); note != "" {
+		count += "; " + note
+	}
+	b.WriteString("\n  " + boldStyle.Render("Releases") + dimStyle.Render("  "+strings.TrimRight(cell(count, max(m.width-13, 20)), " ")) + "\n")
 	flex := max(m.width-releaseFixedWidth, 24)
 	titleW := flex * 55 / 100
 	artistW := flex - titleW
@@ -584,7 +626,7 @@ func (m *Model) releasesBody(b *strings.Builder, h int) {
 	}
 	b.WriteString(dimStyle.Render("  "+row("", "Release", "Artist", "Year", "", "Format", "Tracks", "Found")) + "\n")
 	rows := max(h-3, 1)
-	if x.problem != "" || x.step == matchLoading {
+	if x.problem != "" || x.step == matchLoading || x.step == matchListening {
 		rows = max(rows-2, 1)
 	}
 	first := window(x.cursor, rows)
@@ -613,8 +655,11 @@ func (m *Model) releasesBody(b *strings.Builder, h int) {
 	if x.problem != "" {
 		b.WriteString("\n  " + badStyle.Render(clean(x.problem)) + "\n")
 	}
-	if x.step == matchLoading {
+	switch x.step {
+	case matchLoading:
 		b.WriteString("\n  " + dimStyle.Render("Reading the release from MusicBrainz…") + "\n")
+	case matchListening:
+		b.WriteString("\n  " + dimStyle.Render(x.listeningLine()) + "\n")
 	}
 }
 

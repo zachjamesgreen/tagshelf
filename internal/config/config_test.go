@@ -49,6 +49,7 @@ verbose: true
 cue_rewrite: false
 playlist_rewrite: false
 musicbrainz_contact: "me@example.com"
+acoustid_key: "AbCdEf123"
 genre_from_musicbrainz: replace
 cover_art_file: true
 cover_art_embed: true
@@ -61,7 +62,7 @@ func wantEveryKey() Config {
 	return Config{
 		Source: `C:\MusicSource`, Destination: `C:\MusicDest`, Untagged: `C:\MusicUntagged`, Other: `C:\MusicOther`,
 		Duplicates: `C:\MusicDuplicates`, Playlists: `C:\MusicPlaylists`, PlaylistRewrite: &off, AutoResolveExact: &off, Compilations: "Compilations", Workers: 4,
-		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "replace", CoverArtFile: true, CoverArtEmbed: true, CoverArtReplace: "smaller", Database: `C:\Data\music.db`,
+		DryRun: true, Verbose: true, CueRewrite: &off, MusicBrainzContact: "me@example.com", AcoustIDKey: "AbCdEf123", GenreFromMusicBrainz: "replace", CoverArtFile: true, CoverArtEmbed: true, CoverArtReplace: "smaller", Database: `C:\Data\music.db`,
 	}
 }
 

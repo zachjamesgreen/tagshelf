@@ -16,7 +16,7 @@ import (
 
 // optionalKeys are the settings a new config file leaves commented out while
 // they are empty.
-var optionalKeys = map[string]bool{"untagged": true, "other": true, "duplicates": true, "playlists": true, "musicbrainz_contact": true, "database": true}
+var optionalKeys = map[string]bool{"untagged": true, "other": true, "duplicates": true, "playlists": true, "musicbrainz_contact": true, "acoustid_key": true, "database": true}
 
 // pathKeys are the settings that name a folder or a file.
 var pathKeys = []string{"source", "destination", "untagged", "other", "duplicates", "playlists", "database"}

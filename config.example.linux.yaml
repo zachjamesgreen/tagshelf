@@ -18,6 +18,7 @@ verbose: false
 cue_rewrite: true                      # fix FILE lines in moved .cue files (keeps album.cue.orig)
 playlist_rewrite: true                 # point the entries of .m3u and .m3u8 playlists at the files they name when those move
 #musicbrainz_contact: "you@example.com" # email or URL MusicBrainz can reach you at; lookups are disabled until set
+#acoustid_key: "your-api-key"           # an AcoustID application key of your own, to identify files by sound; a download of tagshelf has one built in
 genre_from_musicbrainz: fill           # the genre of a MusicBrainz match: fill a file that has none, replace it always, or off
 cover_art_file: false                  # write a cover file into an album folder that has no cover (after a match, and by tagshelf art)
 cover_art_embed: false                 # put the album's cover into each of its audio files that holds no picture

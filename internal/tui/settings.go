@@ -97,6 +97,7 @@ var settingRows = []settingRow{
 	{"workers", "Files at once", kindNumber, "", "How many files a run works on at once. 0 means one for each CPU."},
 	{"verbose", "Verbose", kindToggle, "", "On: a run from the command line prints a line for every file."},
 	{"musicbrainz_contact", "MusicBrainz contact", kindText, "not set: lookups are off", "An email address or URL MusicBrainz can reach you at. It is sent with every lookup."},
+	{"acoustid_key", "AcoustID key", kindText, "not set: the one tagshelf was built with", "The API key of an application of your own at acoustid.org, to identify files by their sound with. A download of tagshelf has one built in."},
 	{"genre_from_musicbrainz", "MusicBrainz genre", kindText, "fill", "What a match does with the genre: fill writes it to a file that has none, replace writes it always, off never."},
 	{"cover_art_file", "Cover file", kindToggle, "", "On: an album folder without a cover gets a file named cover, from the pictures in its files or else from the Cover Art Archive."},
 	{"cover_art_embed", "Cover in the files", kindToggle, "", "On: the album's cover is put into each of its audio files that holds no picture: the cover of its folder, or else the Cover Art Archive's."},
