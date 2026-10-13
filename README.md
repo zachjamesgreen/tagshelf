@@ -358,7 +358,7 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | `space`, `g` | Select the file, or its whole group. |
 | `v` | Group by original folder, by album tag, or not at all. |
 | `a` | Accept the tags of the selected files as they are. |
-| `e` | Edit the file's tags. `ctrl+s` saves; `ctrl+f` writes the field under the cursor to every file in the folder. |
+| `e` | Edit the file's tags. `ctrl+s` saves; `ctrl+n` adds a tag; `ctrl+f` writes the field under the cursor to every file in the folder. |
 | `l` | Look the file up on MusicBrainz. |
 | `L` | Match the selection or group to a MusicBrainz release, all at once. |
 | **Duplicates** | |
@@ -382,12 +382,17 @@ Once a file's tags qualify, saving them also moves it into the library. Every sa
 
 ### The tag editor
 
-`e` on a file opens its tags: title, artist, album artist, album, year, track, disc, genre, composer, comment, and whether it is a compilation.
+`e` on a file opens every tag it has that is text. First come the title, artist, album artist, album, year, track, disc, genre, composer, comment, and whether it is a compilation. Under them are the file's other tags, each by its name, then its MusicBrainz IDs and AcoustID ID, and last the manual marker.
 
-- **Several genres or composers** are written with a semicolon between them, as in `Rock; Jazz`, and saved as separate values.
-- **A comment of several lines** is shown by its first line and left as it is.
-- **What marks a file.** Changing a tag the file is filed under (title, artist, album artist, album, year, track, disc, compilation) marks it as tagged by hand, and so does saving the form without a change, which vouches for the tags as they are. Changing only the genre, the composer or the comment does not: it says nothing of whether the other tags are right, so a ripper's file stays in `_Untagged`. The editor says which it will be before you save.
-- **The whole folder at once.** `ctrl+f` on the album artist, album, year, genre, composer or comment asks, with the number of files, and then writes that field to every file in the same folder. An emptied field takes the tag off them all. It is one action, which `u` undoes whole. The editor closes afterwards, so save or take back any other change first.
+- **Several genres or composers** are written with a semicolon between them, as in `Rock; Jazz`, and saved as separate values. So is any other tag that holds several values in the file.
+- **Other tags** go by the same name in every kind of file, such as `MOOD`, `LABEL` or `ISRC`; tagshelf stores each the way the file's format wants. `ctrl+n` adds one: type its name, then its value. A name may hold letters, digits, spaces and `_`, and is written in capitals. A tag left empty is taken off the file. If the format has no place for a tag of that name, the save is refused and the file is left as it was.
+- **Text of several lines**, such as a long comment or lyrics, is edited in a box where `enter` starts a new line and `tab` moves on.
+- **The IDs** must have the form of an ID. They come from a lookup, so there is seldom a reason to type one.
+- **The marker** can be taken off, or set to `hand` or `musicbrainz` with a day, as in `hand 2026-10-12`. What you type there is what the file gets, whatever else the save changes. It cannot be taken off a WMA file.
+- **What is not text**, such as a picture, is named under the form and kept by every save.
+- **What marks a file.** Changing a tag the file is filed under (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID marks it as tagged by hand, and so does saving the form without a change, which vouches for the tags as they are. Changing only the genre, the composer, the comment or the other tags does not: it says nothing of whether the rest is right, so a ripper's file stays in `_Untagged`. The editor says which it will be before you save.
+- **The whole folder at once.** `ctrl+f` on the album artist, album, year, genre, composer, comment or one of the other tags asks, with the number of files, and then writes that field to every file in the same folder. An emptied field takes the tag off them all. It is one action, which `u` undoes whole. The editor closes afterwards, so save or take back any other change first.
+- **What the file has stays as it is until you change it.** A value is shown with a space in place of anything that is not a printable character. A field you leave alone is not written, whatever the file holds there.
 
 ### Settings
 

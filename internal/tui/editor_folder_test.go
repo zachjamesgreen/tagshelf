@@ -117,7 +117,7 @@ func TestEditorFolderWriteCanBeDeclined(t *testing.T) {
 func TestEditorFolderWriteRefusals(t *testing.T) {
 	m, f, _ := folderEditor(t)
 	hit(t, m, "ctrl+f") // on the title
-	if !strings.Contains(m.toast, "Only the album artist, album, year, genre, composer and comment") {
+	if !strings.Contains(m.toast, "Only the album artist, album, year, genre, composer, comment and the other tags") {
 		t.Errorf("on the title: toast %q", m.toast)
 	}
 	typeText(t, m, "!")

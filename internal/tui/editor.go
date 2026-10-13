@@ -2,13 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -33,14 +32,18 @@ type editor struct {
 	title, artist, albumArtist, album, date, track, disc string
 	genre, composer, comment                             string
 	compilation                                          bool
-	// longComment is set for a comment of several lines, which the form's
-	// one line would run together: it is shown, and left as it is.
-	longComment bool
-
-	// shownFields are the form's text fields and shownIDs what each edits:
-	// editorFields, without the comment when it is a long one.
-	shownFields []huh.Field
-	shownIDs    []tagwrite.Field
+	// base is what each of those fields held when the tags were read, made
+	// fit to show (see formText). A field that still holds it is left as
+	// the file has it, whatever the file has.
+	base []string
+	// rows are the tags listed under the fixed fields: those without a field
+	// of their own, then, from firstID on, the IDs and the marker.
+	rows    []*editorRow
+	firstID int
+	// entries are the form's text fields, in order, with what each edits.
+	entries []formEntry
+	// naming holds the name being typed for a new tag, nil when none is.
+	naming *lineInput
 
 	last    huh.Field // the form's last field, where enter saves
 	saving  bool      // a save is being carried out
@@ -150,6 +153,7 @@ func (m *Model) editorLoaded(msg editorTagsMsg) tea.Cmd {
 	if msg.again {
 		if msg.err == nil && msg.values != nil {
 			e.orig = msg.values
+			e.rebase()
 		}
 		return nil
 	}
@@ -165,49 +169,13 @@ func (m *Model) editorLoaded(msg editorTagsMsg) tea.Cmd {
 	if e.orig == nil {
 		e.orig = tagwrite.Values{}
 	}
+	e.rebase()
 	for i, p := range e.inputs() {
-		*p = shown(editorFields[i], e.orig[editorFields[i]])
+		*p = e.base[i]
 	}
-	e.longComment = strings.ContainsAny(e.comment, "\r\n")
 	e.compilation = firstValue(e.orig[tagwrite.Compilation]) == "1"
-
-	keys := huh.NewDefaultKeyMap()
-	keys.Quit.SetEnabled(false) // ctrl+c is the TUI's
-	keys.Input.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
-	keys.Input.Next = key.NewBinding(key.WithKeys("enter", "tab", "down"))
-	keys.Confirm.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
-	// A y or n typed on the flag sets nothing: only the arrows and space do.
-	keys.Confirm.Toggle = key.NewBinding(key.WithKeys("left", "right", "space"))
-	keys.Confirm.Accept.SetEnabled(false)
-	keys.Confirm.Reject.SetEnabled(false)
-	input := func(title string, field tagwrite.Field, value *string) *huh.Input {
-		return huh.NewInput().Title(fmt.Sprintf("%-13s", title)).Value(value).Inline(true).
-			Validate(func(s string) error { return e.check(field, s) })
-	}
-	fields := []huh.Field{
-		input("Title", tagwrite.Title, &e.title),
-		input("Artist", tagwrite.Artist, &e.artist),
-		input("Album artist", tagwrite.AlbumArtist, &e.albumArtist),
-		input("Album", tagwrite.Album, &e.album),
-		input("Year", tagwrite.Date, &e.date).Placeholder("YYYY or YYYY-MM-DD"),
-		input("Track", tagwrite.Track, &e.track).Placeholder("N or N/total"),
-		input("Disc", tagwrite.Disc, &e.disc).Placeholder("N or N/total"),
-		input("Genre", tagwrite.Genre, &e.genre).Placeholder("several are written Rock; Jazz"),
-		input("Composer", tagwrite.Composer, &e.composer),
-	}
-	e.shownIDs = editorFields[:len(fields)]
-	if !e.longComment {
-		fields = append(fields, input("Comment", tagwrite.Comment, &e.comment))
-		e.shownIDs = editorFields
-	}
-	e.shownFields = slices.Clone(fields)
-	if tagwrite.HasCompilation(e.file.Path) {
-		fields = append(fields, huh.NewConfirm().Title("Compilation").Value(&e.compilation).Inline(true))
-	}
-	e.last = fields[len(fields)-1]
-	e.form = huh.NewForm(huh.NewGroup(fields...)).WithTheme(closeSet).
-		WithKeyMap(keys).WithShowHelp(false).WithWidth(m.editorWidth()).WithHeight(m.editorHeight())
-	return e.form.Init()
+	e.makeRows()
+	return m.buildForm(0)
 }
 
 // closeSet is the form's usual look with its fields a line apart, not two:
@@ -266,7 +234,7 @@ func typed(field tagwrite.Field, s string) string {
 // check reports what is wrong with s as the value of field. A value the file
 // already has is never wrong: it is not written.
 func (e *editor) check(field tagwrite.Field, s string) error {
-	if s = typed(field, s); s == "" || s == shown(field, e.orig[field]) || tagwrite.MultiValued(field) {
+	if s = typed(field, s); s == "" || e.asRead(field, s) || tagwrite.MultiValued(field) {
 		return nil
 	}
 	return tagwrite.Check(field, s)
@@ -277,10 +245,13 @@ func (e *editor) check(field tagwrite.Field, s string) error {
 func (m *Model) editorHeight() int {
 	// Around it: the path and a blank line above; a blank line, the marker,
 	// the place, a blank line and what the editor is doing below.
-	const fields = 11
 	around := 7
-	if m.edit != nil && m.edit.longComment {
-		around++
+	fields := len(editorFields) + 1
+	if m.edit != nil {
+		fields = m.edit.formLines()
+		if len(m.edit.orig[tagwrite.NotText]) > 0 {
+			around++ // a line more below the form
+		}
 	}
 	return max(min(m.bodyHeight()-around, fields), 3)
 }
@@ -295,11 +266,8 @@ func (e *editor) changes() tagwrite.Values {
 	v := tagwrite.Values{}
 	for i, p := range e.inputs() {
 		field := editorFields[i]
-		if field == tagwrite.Comment && e.longComment {
-			continue
-		}
 		now := typed(field, *p)
-		if now == shown(field, e.orig[field]) {
+		if e.asRead(field, now) {
 			continue
 		}
 		v[field] = []string{now}
@@ -307,6 +275,7 @@ func (e *editor) changes() tagwrite.Values {
 			v[field] = listed(now)
 		}
 	}
+	maps.Copy(v, e.rowChanges())
 	if tagwrite.HasCompilation(e.file.Path) && e.compilation != (firstValue(e.orig[tagwrite.Compilation]) == "1") {
 		v[tagwrite.Compilation] = []string{}
 		if e.compilation {
@@ -320,6 +289,11 @@ func (e *editor) changes() tagwrite.Values {
 func (e *editor) invalid() error {
 	for i, p := range e.inputs() {
 		if err := e.check(editorFields[i], *p); err != nil {
+			return err
+		}
+	}
+	for _, r := range e.rows {
+		if err := e.checkRow(r); err != nil {
 			return err
 		}
 	}
@@ -354,7 +328,7 @@ func numberOf(s string) (n, total int) {
 // lacking is set when it would stay for want of tags.
 func (m *Model) willGoTo(e *editor) (line string, lacking bool) {
 	if !e.qualifiesOnceSaved() {
-		return "Will stay " + whereItIs(e.file) + ": it is not marked as tagged by hand, and its genre, composer or comment does not make it so", true
+		return "Will stay " + whereItIs(e.file) + ": it is not marked as tagged by hand, and this save would not mark it", true
 	}
 	return m.placeLine(e.file, e.tags())
 }
@@ -363,12 +337,23 @@ func (m *Model) willGoTo(e *editor) (line string, lacking bool) {
 // once the form is saved, given the tags to file it under: it has MusicBrainz
 // IDs or the marker already, or the save would mark it.
 func (e *editor) qualifiesOnceSaved() bool {
-	for _, field := range []tagwrite.Field{tagwrite.Marker, tagwrite.RecordingID, tagwrite.ReleaseTrackID, tagwrite.AlbumID} {
-		if firstValue(e.orig[field]) != "" {
+	changes := e.changes()
+	after := func(field tagwrite.Field) []string {
+		if vs, ok := changes[field]; ok {
+			return vs
+		}
+		return e.orig[field]
+	}
+	for _, field := range []tagwrite.Field{tagwrite.RecordingID, tagwrite.ReleaseTrackID, tagwrite.AlbumID} {
+		if len(after(field)) > 0 {
 			return true
 		}
 	}
-	return marks(e.changes())
+	// A marker set by hand is the marker the file will have.
+	if set, ok := changes[tagwrite.SetMarker]; ok {
+		return len(set) > 0
+	}
+	return firstValue(e.orig[tagwrite.Marker]) != "" || marks(changes)
 }
 
 // marks reports whether a save of values from the editor marks the file as
@@ -417,6 +402,9 @@ func (m *Model) editorKey(msg tea.KeyPressMsg) tea.Cmd {
 	if e.saving || e.counting {
 		return nil
 	}
+	if e.naming != nil {
+		return m.namingKey(msg)
+	}
 	if ask := e.folder; ask != nil {
 		e.folder = nil
 		if k == "y" {
@@ -429,6 +417,9 @@ func (m *Model) editorKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch k {
 	case "ctrl+f":
 		return m.askFolder()
+	case "ctrl+n":
+		m.nameTag()
+		return nil
 	case "esc":
 		if e.form != nil && len(e.changes()) > 0 && !leaving {
 			e.leaving = true
@@ -464,7 +455,8 @@ func (m *Model) formUpdate(msg tea.Msg) tea.Cmd {
 // editSave is the tag save of the editor: the changed fields, with the manual
 // marker, saying a person typed the tags, when the save marks the file.
 func editSave(values tagwrite.Values, now time.Time) engine.TagSave {
-	if marks(values) {
+	// A marker set by hand goes in as it was typed: the save adds none.
+	if _, set := values[tagwrite.SetMarker]; !set && marks(values) {
 		return tagSave(values, marker.Hand, now)
 	}
 	return func(st *store.Store, runID int64, f store.File) error {
@@ -570,20 +562,10 @@ func (m *Model) editorBody() string {
 	}
 	b.WriteString(strings.TrimRight(e.form.View(), "\n") + "\n\n")
 
-	if e.longComment {
-		first, _, _ := strings.Cut(strings.ReplaceAll(e.comment, "\r", "\n"), "\n")
-		lines := len(strings.Split(strings.ReplaceAll(strings.ReplaceAll(e.comment, "\r\n", "\n"), "\r", "\n"), "\n"))
-		b.WriteString("  " + dimStyle.Render("Comment:       ") + clean(first) + dimStyle.Render(fmt.Sprintf(" … (%d lines; left as it is)", lines)) + "\n")
+	if names := e.orig[tagwrite.NotText]; len(names) > 0 {
+		b.WriteString("  " + dimStyle.Render("Not text:      "+clean(strings.Join(names, ", "))+", kept as it is") + "\n")
 	}
-	const unless = ", but not for genre, composer or comment alone"
-	mark := "none; saving marks it as tagged by hand" + unless
-	if cur := firstValue(e.orig[tagwrite.Marker]); cur != "" {
-		mark = clean(cur)
-		if parsed, ok := marker.Parse(cur); ok && parsed.Method != marker.Hand {
-			mark += "; saving a change marks it as tagged by hand" + unless
-		}
-	}
-	b.WriteString("  " + dimStyle.Render("Marker:        ") + mark + "\n")
+	b.WriteString("  " + dimStyle.Render("Saving marks it tagged by hand; genre, composer, comment and other tags don't") + "\n")
 	line, lacking := m.willGoTo(e)
 	if lacking {
 		line = accentStyle.Render(line)
@@ -594,6 +576,8 @@ func (m *Model) editorBody() string {
 		b.WriteString("\n  " + dimStyle.Render("Saving…") + "\n")
 	case e.counting:
 		b.WriteString("\n  " + dimStyle.Render("Reading the folder…") + "\n")
+	case e.naming != nil:
+		b.WriteString("\n  " + accentStyle.Render("Name of the new tag: ") + e.naming.view(30) + dimStyle.Render("   enter adds it, esc does not") + "\n")
 	case e.folder != nil:
 		b.WriteString("\n  " + accentStyle.Render(wrap(e.folder.question(), max(m.width-4, 20))) + "\n")
 	case e.leaving:

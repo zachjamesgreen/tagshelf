@@ -33,6 +33,7 @@ var apeKeys = map[Field][]string{
 	ReleaseGroupID: {"Musicbrainz_Releasegroupid"},
 	ArtistIDs:      {"Musicbrainz_Artistid"},
 	AlbumArtistIDs: {"Musicbrainz_Albumartistid"},
+	AcoustID:       {"Acoustid_Id"},
 	Marker:         {marker.Key},
 }
 
@@ -119,7 +120,14 @@ func apeUpToDate(path string, want Values) bool {
 			return false
 		}
 	}
-	return equalExcept(fromAPE(md.Raw(), slices.Collect(maps.Keys(want))), want, Marker)
+	// Only the fields the APEv2 tag carries: the others are the ID3v2 tag's.
+	mirrored := Values{}
+	for field, vs := range want {
+		if apeKeys[field] != nil {
+			mirrored[field] = vs
+		}
+	}
+	return equalExcept(fromAPE(md.Raw(), slices.Collect(maps.Keys(mirrored))), mirrored, Marker)
 }
 
 // verifyAPE reads the APEv2 tag of the written copy back: it must hold

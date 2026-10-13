@@ -397,7 +397,8 @@ func TestLookupSaveWritesTheMatch(t *testing.T) {
 		tagwrite.Compilation: {}, tagwrite.Genre: {}, tagwrite.Composer: {}, tagwrite.Comment: {},
 		tagwrite.RecordingID: {"rec-1"}, tagwrite.ReleaseTrackID: {"track-5"},
 		tagwrite.AlbumID: {"rel-album"}, tagwrite.ReleaseGroupID: {"rg-1"},
-		tagwrite.ArtistIDs: {"artist-1"}, tagwrite.AlbumArtistIDs: {"artist-1"}, tagwrite.Marker: {"musicbrainz 2026-10-08"},
+		tagwrite.ArtistIDs: {"artist-1"}, tagwrite.AlbumArtistIDs: {"artist-1"}, tagwrite.AcoustID: {},
+		tagwrite.Marker: {"musicbrainz 2026-10-08"},
 	}
 	if !reflect.DeepEqual(after, want) {
 		t.Errorf("tags after the save:\n got %v\nwant %v", after, want)

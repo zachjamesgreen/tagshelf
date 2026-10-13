@@ -210,6 +210,10 @@ func releaseSearchURL(base string, q ReleaseQuery, offset int) (string, error) {
 // mbidPattern matches a MusicBrainz ID.
 var mbidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// IsID reports whether s has the form of a MusicBrainz ID, which is also the
+// form of an AcoustID ID.
+func IsID(s string) bool { return mbidPattern.MatchString(s) }
+
 // LookupRelease fetches a release with its media, tracks, recordings, artist
 // credits and release group: everything its tags come from.
 func (c *Client) LookupRelease(ctx context.Context, id string) (*Release, error) {

@@ -388,7 +388,7 @@ func (m *Model) toastLine() string {
 func (m *Model) keyHelp() string {
 	help := "1-6 tabs  R reload  ? help  q quit"
 	if m.edit != nil {
-		return "↑↓/tab field  ←→ compilation  ctrl+s save  ctrl+f to whole folder  esc back"
+		return "↑↓/tab field  ctrl+s save  ctrl+n new tag  ctrl+f to whole folder  esc back"
 	}
 	if m.look != nil {
 		return m.lookupHelp()
