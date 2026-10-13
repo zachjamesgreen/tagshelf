@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -173,6 +174,7 @@ func (m *Model) editorLoaded(msg editorTagsMsg) tea.Cmd {
 	for i, p := range e.inputs() {
 		*p = e.base[i]
 	}
+	e.longComment = strings.ContainsAny(e.comment, "\r\n")
 	e.compilation = firstValue(e.orig[tagwrite.Compilation]) == "1"
 	e.makeRows()
 	return m.buildForm(0)
@@ -266,6 +268,9 @@ func (e *editor) changes() tagwrite.Values {
 	v := tagwrite.Values{}
 	for i, p := range e.inputs() {
 		field := editorFields[i]
+		if field == tagwrite.Comment && e.longComment {
+			continue
+		}
 		now := typed(field, *p)
 		if e.asRead(field, now) {
 			continue
