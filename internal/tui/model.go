@@ -112,6 +112,9 @@ type Model struct {
 	lookSeq int // the last sequence number given to a lookup's request
 
 	compilations string // the folder name compilations are filed under
+	// genreMode is what a MusicBrainz match does with the genre: config's
+	// GenreOff, GenreFill or GenreReplace. Empty is GenreFill.
+	genreMode string
 
 	// busy is closed when the action a tab is carrying out on the library has
 	// ended, nil when none is.
@@ -243,6 +246,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.editorLoaded(msg)
 	case editorDoneMsg:
 		return m.editorDone(msg)
+	case editorFolderMsg:
+		m.editorFolder(msg)
+	case editorFolderDoneMsg:
+		return m.editorFolderDone(msg)
 	case lookupFoundMsg:
 		m.lookupFound(msg)
 	case lookupPickedMsg:

@@ -68,11 +68,13 @@ func TestFileIDsMigrationKeepsEveryRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// PutFiles and Files are today's, and write and read the has_art column
-	// of a later migration; the rebuild leaves it out, as it names its
-	// columns, and that migration adds it again.
-	if _, err := old.db.Exec(`ALTER TABLE files ADD COLUMN has_art INTEGER`); err != nil {
-		t.Fatal(err)
+	// PutFiles and Files are today's, and write and read the columns of
+	// later migrations; the rebuild leaves them out, as it names its
+	// columns, and those migrations add them again.
+	for _, column := range []string{"has_art INTEGER", "genre TEXT", "composer TEXT"} {
+		if _, err := old.db.Exec(`ALTER TABLE files ADD COLUMN ` + column); err != nil {
+			t.Fatal(err)
+		}
 	}
 	lib := setRoot(t, old, RootLibrary, filepath.FromSlash("/m"))
 	untagged := setRoot(t, old, RootUntagged, filepath.FromSlash("/m/_Untagged"))

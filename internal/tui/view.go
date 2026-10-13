@@ -388,7 +388,7 @@ func (m *Model) toastLine() string {
 func (m *Model) keyHelp() string {
 	help := "1-6 tabs  R reload  ? help  q quit"
 	if m.edit != nil {
-		return "↑↓/tab field  ←→ compilation  ctrl+s save  esc back"
+		return "↑↓/tab field  ←→ compilation  ctrl+s save  ctrl+f to whole folder  esc back"
 	}
 	if m.look != nil {
 		return m.lookupHelp()
@@ -462,7 +462,7 @@ func helpLines() []string {
 		{"space", "select the file, g its whole group (Untagged)"},
 		{"v", "group by original folder, album tag or nothing (Untagged)"},
 		{"a", "accept the tags of the selected files as they are (Untagged)"},
-		{"e", "edit the file's tags (Untagged, Library); ctrl+s saves"},
+		{"e", "edit the file's tags (Untagged, Library); ctrl+f writes to the folder"},
 		{"l", "look the file up on MusicBrainz (Untagged, Library)"},
 		{"L", "match the selection, group or album to a release (Untagged, Library)"},
 		{"/", "search the library (Library)"},

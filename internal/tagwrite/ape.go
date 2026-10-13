@@ -24,6 +24,9 @@ var apeKeys = map[Field][]string{
 	Track:          {"Track"},
 	Disc:           {"Disc"},
 	Compilation:    {"Compilation"},
+	Genre:          {"Genre"},
+	Composer:       {"Composer"},
+	Comment:        {"Comment"},
 	RecordingID:    {"musicbrainz_trackid", "MUSICBRAINZ_RECORDINGID"}, // Picard's name for the recording
 	ReleaseTrackID: {"musicbrainz_releasetrackid"},
 	AlbumID:        {"Musicbrainz_Albumid"},
@@ -104,15 +107,17 @@ func writeAPE(path string, v Values) (err error) {
 	return file.Sync()
 }
 
-// apeUpToDate reports whether the APEv2 tag of the file at path has a marker
-// and every value of want but the marker.
+// apeUpToDate reports whether the APEv2 tag of the file at path has every
+// value of want but the marker, and a marker if want names one.
 func apeUpToDate(path string, want Values) bool {
 	md, err := readAPE(path)
 	if err != nil {
 		return false
 	}
-	if _, ok := marker.Read(md); !ok {
-		return false
+	if _, marking := want[Marker]; marking {
+		if _, ok := marker.Read(md); !ok {
+			return false
+		}
 	}
 	return equalExcept(fromAPE(md.Raw(), slices.Collect(maps.Keys(want))), want, Marker)
 }
@@ -133,8 +138,10 @@ func verifyAPE(path string, want Values) error {
 	if md.FileType() != tag.AAC {
 		return fmt.Errorf("%w: the APEv2 tag is on %s audio", ErrNotVerified, describe(md))
 	}
-	if err := checkMarker(md, want[Marker], "the APEv2 marker"); err != nil {
-		return err
+	if marked, ok := want[Marker]; ok {
+		if err := checkMarker(md, marked, "the APEv2 marker"); err != nil {
+			return err
+		}
 	}
 	got := fromAPE(md.Raw(), slices.Collect(maps.Keys(want)))
 	for field, vs := range want {

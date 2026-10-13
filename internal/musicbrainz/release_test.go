@@ -215,7 +215,7 @@ func TestReleaseLookupURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/ws/2/release/d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d?fmt=json&inc=artist-credits+recordings+release-groups+media"
+	want := "/ws/2/release/d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d?fmt=json&inc=artist-credits+recordings+release-groups+media+genres"
 	if got != want {
 		t.Errorf("url = %s, want %s", got, want)
 	}

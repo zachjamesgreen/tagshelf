@@ -57,6 +57,8 @@ type Release struct {
 	ArtistCredit []ArtistCredit `json:"artist-credit"`
 	ReleaseGroup ReleaseGroup   `json:"release-group"`
 	Media        []Medium       `json:"media"`
+	// Genres is only in lookups, as are a release group's and a recording's.
+	Genres []Genre `json:"genres"`
 }
 
 // ReleaseGroup is the release group a release belongs to.
@@ -66,7 +68,8 @@ type ReleaseGroup struct {
 	PrimaryType    string   `json:"primary-type"`
 	SecondaryTypes []string `json:"secondary-types"`
 	// FirstReleaseDate is only in lookups.
-	FirstReleaseDate string `json:"first-release-date"`
+	FirstReleaseDate string  `json:"first-release-date"`
+	Genres           []Genre `json:"genres"`
 }
 
 // Medium is one disc (or other medium) of a release. Search results list the
@@ -99,6 +102,7 @@ type TrackRecording struct {
 	Length           int            `json:"length"` // milliseconds
 	ArtistCredit     []ArtistCredit `json:"artist-credit"`
 	FirstReleaseDate string         `json:"first-release-date"`
+	Genres           []Genre        `json:"genres"`
 }
 
 // Credit joins an artist credit into its display string, as Picard does.

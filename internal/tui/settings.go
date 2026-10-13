@@ -95,6 +95,7 @@ var settingRows = []settingRow{
 	{"workers", "Files at once", kindNumber, "", "How many files a run works on at once. 0 means one for each CPU."},
 	{"verbose", "Verbose", kindToggle, "", "On: a run from the command line prints a line for every file."},
 	{"musicbrainz_contact", "MusicBrainz contact", kindText, "not set: lookups are off", "An email address or URL MusicBrainz can reach you at. It is sent with every lookup."},
+	{"genre_from_musicbrainz", "MusicBrainz genre", kindText, "fill", "What a match does with the genre: fill writes it to a file that has none, replace writes it always, off never."},
 	{"database", "Database file", kindFile, "kept with tagshelf's own files, by the library's ID", "The file the library's index and run history are kept in."},
 }
 

@@ -2,9 +2,10 @@
 // file, writes the tags to the copy with go-taglib, reads the copy back to
 // check the manual marker and every written field, and only then renames it
 // over the original, so a save that goes wrong leaves the original as it was.
-// Each save writes the manual marker, is skipped when it would change
-// nothing, and is recorded in the tag history with the written fields'
-// values before and after.
+// A save writes the manual marker too, unless it is one of tags that say
+// nothing of where a file belongs (SaveUnmarked). It is skipped when it would
+// change nothing, and is recorded in the tag history with the written
+// fields' values before and after.
 //
 // MP3, FLAC, OGG (.ogg, .oga and .opus), the MP4 family (.m4a, .m4b, .m4r,
 // .m4p), WAV, APE, MPC, WMA, DSF and .aac can be tagged: every format a run
@@ -56,7 +57,7 @@ var ErrNotVerified = errors.New("tags did not read back as written")
 type Field string
 
 // The fields a save can write. Every field holds a single value except the
-// two lists of artist IDs.
+// two lists of artist IDs, the genres and the composers.
 const (
 	Title          Field = "title"
 	Artist         Field = "artist"
@@ -66,6 +67,9 @@ const (
 	Track          Field = "track"       // N or N/M, M being the track total
 	Disc           Field = "disc"        // N or N/M, M being the disc total
 	Compilation    Field = "compilation" // "1" for a compilation
+	Genre          Field = "genre"
+	Composer       Field = "composer"
+	Comment        Field = "comment"
 	RecordingID    Field = "musicbrainz_recordingid"
 	ReleaseTrackID Field = "musicbrainz_releasetrackid"
 	AlbumID        Field = "musicbrainz_albumid" // the release
@@ -90,7 +94,30 @@ const (
 var storedForm = map[Field]Field{Track: TrackStored, Disc: DiscStored}
 
 // multiValued are the fields that may hold more than one value.
-var multiValued = map[Field]bool{ArtistIDs: true, AlbumArtistIDs: true}
+var multiValued = map[Field]bool{ArtistIDs: true, AlbumArtistIDs: true, Genre: true, Composer: true}
+
+// MultiValued reports whether field may hold more than one value.
+func MultiValued(field Field) bool { return multiValued[field] }
+
+// placing are the fields that decide where a file belongs: those its path in
+// the library is made from, and the MusicBrainz IDs, by which it qualifies.
+var placing = map[Field]bool{
+	Title: true, Artist: true, AlbumArtist: true, Album: true, Date: true, Track: true, Disc: true, Compilation: true,
+	RecordingID: true, ReleaseTrackID: true, AlbumID: true, ReleaseGroupID: true, ArtistIDs: true, AlbumArtistIDs: true,
+}
+
+// Places reports whether values name a field that decides where a file
+// belongs. A person who changes one of those has chosen the file's tags, and
+// the save marks it as manually tagged; a change to its genre, composer or
+// comment alone says nothing of the kind.
+func Places(values Values) bool {
+	for field := range values {
+		if placing[field] {
+			return true
+		}
+	}
+	return false
+}
 
 // simpleKeys are the go-taglib property names of the fields that map to one
 // key in every format.
@@ -101,6 +128,9 @@ var simpleKeys = map[Field]string{
 	Album:          taglib.Album,
 	Date:           taglib.Date,
 	Compilation:    taglib.Compilation,
+	Genre:          taglib.Genre,
+	Composer:       taglib.Composer,
+	Comment:        taglib.Comment,
 	RecordingID:    taglib.MusicBrainzTrackID, // Picard's name for the recording
 	ReleaseTrackID: taglib.MusicBrainzReleaseTrackID,
 	AlbumID:        taglib.MusicBrainzAlbumID,
@@ -177,7 +207,7 @@ func Supported(path string) bool {
 }
 
 // editable are the fields Read returns.
-var editable = []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc, Compilation,
+var editable = []Field{Title, Artist, AlbumArtist, Album, Date, Track, Disc, Compilation, Genre, Composer, Comment,
 	RecordingID, ReleaseTrackID, AlbumID, ReleaseGroupID, ArtistIDs, AlbumArtistIDs, Marker}
 
 // Read returns every field of the file at path that Save can write, in the
@@ -254,6 +284,19 @@ func HasCompilation(path string) bool {
 // file already has every value and a marker it is left alone and nothing is
 // recorded. Fields not named are left as they are.
 func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error) {
+	return w.save(path, fields, &m)
+}
+
+// SaveUnmarked is Save without the marker: the file keeps the one it has, or
+// stays without one. It is for fields that say nothing of where a file
+// belongs (see Places). When the file already has every value it is left
+// alone and nothing is recorded.
+func (w Writer) SaveUnmarked(path string, fields Values) (Result, error) {
+	return w.save(path, fields, nil)
+}
+
+// save writes fields, and the marker m unless it is nil.
+func (w Writer) save(path string, fields Values, m *marker.Marker) (Result, error) {
 	f, ok := formats[strings.ToLower(filepath.Ext(path))]
 	if !ok {
 		return Result{}, ErrUnsupported
@@ -271,13 +314,21 @@ func (w Writer) Save(path string, fields Values, m marker.Marker) (Result, error
 		delete(want, Compilation)
 	}
 
-	before, err := beforeWrite(f, path, append(slices.Collect(maps.Keys(want)), Marker))
+	named := slices.Collect(maps.Keys(want))
+	if m != nil {
+		named = append(named, Marker)
+	}
+	before, err := beforeWrite(f, path, named)
 	if err != nil {
 		return Result{}, fmt.Errorf("saving tags to %q: reading its tags: %w", path, err)
 	}
 	after := maps.Clone(want)
-	after[Marker] = []string{m.String()}
-	if len(before[Marker]) > 0 && equalExcept(before, after, Marker) && (!f.ape || apeUpToDate(path, after)) {
+	unchanged := equalExcept(before, after, "")
+	if m != nil {
+		after[Marker] = []string{m.String()}
+		unchanged = len(before[Marker]) > 0 && equalExcept(before, after, Marker)
+	}
+	if unchanged && (!f.ape || apeUpToDate(path, after)) {
 		return Result{Before: before, After: before}, nil
 	}
 	if err := w.apply(f, path, before, after); err != nil {
@@ -363,8 +414,9 @@ func (w Writer) Restore(path string, to, from Values) (Result, error) {
 	return Result{Changed: true, Before: before, After: after}, nil
 }
 
-// apply writes after, which names the marker, to the file at path through a
-// copy that must read back with it, and records the write with before.
+// apply writes after, with the marker if it names it, to the file at path
+// through a copy that must read back with it, and records the write with
+// before.
 func (w Writer) apply(f format, path string, before, after Values) error {
 	orig, err := os.Stat(path)
 	if err != nil {
@@ -829,15 +881,24 @@ func copyTemp(path string) (_ string, err error) {
 // the Extended Content Description and the rest to the Metadata Library,
 // which comes first in the file, so go-taglib reads the list back rotated.
 func asfBefore(path string, before Values) {
-	before[Marker] = []string{}
+	_, marked := before[Marker]
+	if marked {
+		before[Marker] = []string{}
+	}
 	md, err := readTags(path)
 	if err != nil {
 		return
 	}
 	for k, v := range md.Raw() {
-		if s, ok := v.(string); ok && strings.EqualFold(k, marker.Key) {
+		if s, ok := v.(string); ok && marked && strings.EqualFold(k, marker.Key) {
 			before[Marker] = clean(strings.Split(s, "\x00"))
 		}
+	}
+	if _, ok := before[Genre]; ok {
+		before[Genre] = clean(tag.Genres(md.Raw()))
+	}
+	if _, ok := before[Composer]; ok {
+		before[Composer] = clean(tag.Composers(md.Raw()))
 	}
 	ids := mbz.Extract(md)
 	if _, ok := before[ArtistIDs]; ok {
@@ -1004,8 +1065,10 @@ func verify(f format, path string, want Values) error {
 	if !f.is(md) {
 		return fmt.Errorf("%w: it reads as %s", ErrNotVerified, describe(md))
 	}
-	if err := checkMarker(md, want[Marker], "the marker"); err != nil {
-		return err
+	if marked, ok := want[Marker]; ok {
+		if err := checkMarker(md, marked, "the marker"); err != nil {
+			return err
+		}
 	}
 	if err := verifyReader(md, want); err != nil {
 		return err
@@ -1082,8 +1145,15 @@ func verifyReader(md tag.Metadata, want Values) error {
 		case AlbumArtistIDs:
 			got = ids.AlbumArtistIDs
 			ok = slices.Equal(ids.AlbumArtistIDs, vs)
+		case Genre:
+			// The index lists the genres and the composers by this reader.
+			list := tag.Genres(md.Raw())
+			got, ok = list, slices.Equal(list, vs) || len(list) == 0 && len(vs) == 0
+		case Composer:
+			list := tag.Composers(md.Raw())
+			got, ok = list, slices.Equal(list, vs) || len(list) == 0 && len(vs) == 0
 		default:
-			ok = true // compilation: checked through go-taglib only
+			ok = true // compilation and comment: checked through go-taglib only
 		}
 		if !ok {
 			return fmt.Errorf("%w: %s reads as %q, want %q", ErrNotVerified, field, got, vs)

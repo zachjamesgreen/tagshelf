@@ -4,19 +4,15 @@
   _Untagged\live.mp3
 
   Title        > Live                                                                               
-                                                                                                    
   Artist       > Hand Tagged                                                                        
-                                                                                                    
   Album artist >                                                                                    
-                                                                                                    
 ┃ Album        > Tape                                                                               
-                                                                                                    
   Year         > YYYY or YYYY-MM-DD                                                                 
-                                                                                                    
   Track        > N or N/total                                                                       
-                                                                                                    
   Disc         > N or N/total                                                                       
-                                                                                                    
+  Genre        > several are written Rock; Jazz                                                     
+  Composer     >                                                                                    
+  Comment      >                                                                                    
   Compilation  Yes     No                                                                          
 
   Marker:        hand 2026-09-01
@@ -29,4 +25,8 @@
 
 
 
-↑↓/tab field  ←→ compilation  ctrl+s save  esc back
+
+
+
+
+↑↓/tab field  ←→ compilation  ctrl+s save  ctrl+f to whole folder  esc back
