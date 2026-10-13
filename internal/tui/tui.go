@@ -5,6 +5,7 @@ package tui
 
 import (
 	"context"
+	"image"
 	"slices"
 	"time"
 
@@ -89,6 +90,9 @@ type Source interface {
 	RunDetail(id int64) (RunDetail, error)
 	// Tags reads the tags of an audio file that the tag editor edits.
 	Tags(path string) (tagwrite.Values, error)
+	// Picture reads the picture an audio file holds, for the tag editor to
+	// show; nil when it holds none.
+	Picture(path string) (image.Image, error)
 	// UndoPlan works out what undoing a run would do, changing nothing.
 	UndoPlan(runID int64) (engine.UndoPlan, error)
 	// Search lists up to limit files of the library whose artist, album or
@@ -224,6 +228,10 @@ func (s librarySource) RunDetail(id int64) (RunDetail, error) {
 
 func (s librarySource) Tags(path string) (tagwrite.Values, error) {
 	return tagwrite.ReadAll(path)
+}
+
+func (s librarySource) Picture(path string) (image.Image, error) {
+	return readPicture(path)
 }
 
 func (s librarySource) Folder(dir string, hidden bool) (FolderList, error) {

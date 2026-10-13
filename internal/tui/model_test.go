@@ -3,6 +3,7 @@ package tui
 import (
 	"cmp"
 	"errors"
+	"image"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,6 +32,7 @@ type fakeSource struct {
 	details                     map[int64]RunDetail
 	detailed                    []int64                    // the runs whose detail was read
 	tags                        map[string]tagwrite.Values // by path, for the tag editor
+	pictures                    map[string]image.Image     // by path, for the tag editor
 	// plans are what undoing each run would do, and planned which were asked.
 	plans   map[int64]engine.UndoPlan
 	planned []int64
@@ -104,6 +106,10 @@ func (f *fakeSource) LibraryReleases() (map[string]bool, error) {
 
 func (f *fakeSource) Tags(path string) (tagwrite.Values, error) {
 	return f.tags[path], f.err
+}
+
+func (f *fakeSource) Picture(path string) (image.Image, error) {
+	return f.pictures[path], nil
 }
 
 func (f *fakeSource) RunDetail(id int64) (RunDetail, error) {

@@ -57,6 +57,28 @@ func Shrink(pic Picture, size int) (Picture, error) {
 	return Describe(buf.Bytes())
 }
 
+// Thumb reads pic as an image for showing, made smaller so that its longer
+// side has no more than size pixels.
+func Thumb(pic Picture, size int) (image.Image, error) {
+	if pic.Width <= 0 || pic.Height <= 0 || pic.Width*pic.Height > maxPixels {
+		return nil, fmt.Errorf("a picture of %d by %d pixels is too large to show", pic.Width, pic.Height)
+	}
+	src, _, err := image.Decode(bytes.NewReader(pic.Data))
+	if err != nil {
+		return nil, errors.New("it is not a JPEG or PNG picture")
+	}
+	w, h := pic.Width, pic.Height
+	if longer := max(w, h); longer > size {
+		w, h = max(w*size/longer, 1), max(h*size/longer, 1)
+	}
+	return average(src, w, h), nil
+}
+
+// Resize draws src at w by h pixels, as a picture made smaller is drawn.
+func Resize(src image.Image, w, h int) image.Image {
+	return average(src, max(w, 1), max(h, 1))
+}
+
 // average draws src at w by h pixels, each the average of the pixels of src
 // it covers: the plain way to make a picture smaller, and a good one when it
 // is made much smaller. What shows through a picture that is not opaque is

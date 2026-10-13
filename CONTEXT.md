@@ -32,6 +32,10 @@ _Avoid_: core tag, main tag
 The front picture of an album, which is one folder of the library: an image file in it named cover, folder or front. tagshelf writes one named cover into a folder that has none, and can put the album's cover into each of its audio files as the picture the file holds.
 _Avoid_: artwork, album art, thumbnail
 
+**Picture**:
+The image an audio file holds inside it, the first when it holds several. The tag editor shows it beside the form: as an image in a terminal that draws them, as coloured blocks in any other.
+_Avoid_: embedded art, thumbnail, preview
+
 **Cover art run**:
 An action that gives album folders the cover they lack, and their audio files the picture they lack, from what the album already has or else from the Cover Art Archive: after a match, by `c` on an album, or by `tagshelf art`.
 _Avoid_: art fetch, art sync

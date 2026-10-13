@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
+	"image"
 	"os"
 	"strings"
 	"unicode"
@@ -55,6 +56,7 @@ func (noSource) Lock() (store.LockHolder, bool, error)     { return store.LockHo
 func (noSource) Load(parts Parts) (Snapshot, error)        { return Snapshot{Parts: parts}, nil }
 func (noSource) RunDetail(int64) (RunDetail, error)        { return RunDetail{}, errNoLibrary }
 func (noSource) Tags(path string) (tagwrite.Values, error) { return tagwrite.ReadAll(path) }
+func (noSource) Picture(path string) (image.Image, error)  { return readPicture(path) }
 func (noSource) UndoPlan(int64) (engine.UndoPlan, error)   { return engine.UndoPlan{}, errNoLibrary }
 func (noSource) Search(string, int) ([]store.File, error)  { return nil, nil }
 func (noSource) Album(store.File) ([]store.File, error)    { return nil, nil }
