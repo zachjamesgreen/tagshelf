@@ -76,9 +76,11 @@ const (
 	OpSaveTags                         // saving tags a person chose to a file
 	OpUndo                             // undoing what a run did to a file
 	OpCover                            // finding or writing an album's cover
+	OpReadPlaylist                     // reading a playlist
+	OpRewritePlaylist                  // writing a rewritten playlist
 )
 
-var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags", "undo", "cover"}
+var opNames = [...]string{"walk", "walk-root", "open", "rel-path", "resolve", "move", "rename", "read-cue", "save-cue-original", "rewrite-cue", "record", "index", "review", "save-tags", "undo", "cover", "read-playlist", "rewrite-playlist"}
 
 func (op Operation) String() string {
 	if op < 0 || int(op) >= len(opNames) {
@@ -117,6 +119,12 @@ const (
 	// Path and the name Name beside it differ only in letter case, which a
 	// file system that tells them apart allows. Path is the one used.
 	WarnCaseTwins
+	// Count entries of the playlist at Path were left as they are: they are
+	// not files, or name files that are not there.
+	WarnPlaylistEntries
+	// The playlist at Path is in Windows-1252, which cannot hold a new name:
+	// it was left unchanged.
+	WarnPlaylistEncoding
 )
 
 // Warning reports something that went less than right without failing the
@@ -126,6 +134,8 @@ type Warning struct {
 	Path string
 	Name string // cue warnings: the FILE name concerned; twins: the other name
 	Err  error  // copy, stale copy and details warnings: the underlying error
+	// Count is, for a playlist, how many of its entries the warning is about.
+	Count int
 }
 
 // Rename is one FILE line of a cue sheet pointed at a new name.
@@ -171,6 +181,13 @@ type CoverEmbedded struct {
 	Asked bool
 }
 
+// PlaylistRewritten reports a playlist of which Entries entries were pointed
+// at where their files are now, or in a dry run would be.
+type PlaylistRewritten struct {
+	Path    string
+	Entries int
+}
+
 // CueRewritten reports a cue sheet whose FILE lines were pointed at the new
 // names of its audio. Path is where the cue sheet now lives.
 type CueRewritten struct {
@@ -196,9 +213,10 @@ const (
 	PhaseCue                        // rewriting the FILE lines of moved cue sheets
 	PhaseCleanup                    // removing emptied directories
 	PhaseCovers                     // a cover art run: seeing to album folders
+	PhasePlaylists                  // pointing the entries of playlists at files that moved
 )
 
-var phaseNames = [...]string{"walk", "index", "audio", "companions", "retry-suffixed", "cue", "cleanup", "covers"}
+var phaseNames = [...]string{"walk", "index", "audio", "companions", "retry-suffixed", "cue", "cleanup", "covers", "playlists"}
 
 func (p Phase) String() string {
 	if p < 0 || int(p) >= len(phaseNames) {
@@ -262,15 +280,16 @@ type RunFinished struct {
 	NotUndone string
 }
 
-func (RunStarted) event()    {}
-func (FilePlaced) event()    {}
-func (FileError) event()     {}
-func (Warning) event()       {}
-func (CueRewritten) event()  {}
-func (CoverWritten) event()  {}
-func (CoverSkipped) event()  {}
-func (CoverEmbedded) event() {}
-func (DirRemoved) event()    {}
-func (PhaseStarted) event()  {}
-func (Progress) event()      {}
-func (RunFinished) event()   {}
+func (RunStarted) event()        {}
+func (FilePlaced) event()        {}
+func (FileError) event()         {}
+func (Warning) event()           {}
+func (CueRewritten) event()      {}
+func (PlaylistRewritten) event() {}
+func (CoverWritten) event()      {}
+func (CoverSkipped) event()      {}
+func (CoverEmbedded) event()     {}
+func (DirRemoved) event()        {}
+func (PhaseStarted) event()      {}
+func (Progress) event()          {}
+func (RunFinished) event()       {}

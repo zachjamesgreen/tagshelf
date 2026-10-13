@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/zachjamesgreen/tagshelf/internal/playlist"
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
 	"github.com/zachjamesgreen/tagshelf/internal/store"
 	"github.com/zachjamesgreen/tagshelf/internal/tag"
@@ -59,6 +60,9 @@ type Counters struct {
 	Covers int64
 	// Audio files a picture was put into, or given their earlier one back.
 	Pictures int64
+	// Playlists whose entries were rewritten, or given their earlier text
+	// back.
+	Playlists int64
 	// Audio files read into the index.
 	Indexed int64
 }
@@ -78,6 +82,7 @@ type stats struct {
 	CueRewritten atomic.Int64
 	Covers       atomic.Int64
 	Pictures     atomic.Int64
+	Playlists    atomic.Int64
 	Indexed      atomic.Int64
 }
 
@@ -96,6 +101,7 @@ func (s *stats) snapshot() Counters {
 		CueRewritten: s.CueRewritten.Load(),
 		Covers:       s.Covers.Load(),
 		Pictures:     s.Pictures.Load(),
+		Playlists:    s.Playlists.Load(),
 		Indexed:      s.Indexed.Load(),
 	}
 }
@@ -108,10 +114,14 @@ type Options struct {
 	Untagged     string // default: <Destination>/_Untagged
 	Other        string // default: <Destination>/_Other
 	Duplicates   string // default: <Destination>/_Duplicates
+	Playlists    string // default: <Destination>/_Playlists
 	Compilations string // default: rules.DefaultCompilations
 	Workers      int    // default: the number of CPUs
 	DryRun       bool
 	NoCueRewrite bool // leave the FILE lines of moved cue sheets alone
+	// NoPlaylistRewrite leaves the entries of playlists alone, and has a
+	// playlist travel like any other non-audio file.
+	NoPlaylistRewrite bool
 	// NoAutoResolve leaves exact duplicate groups the run adds a file to for
 	// review instead of resolving them.
 	NoAutoResolve bool
@@ -154,6 +164,9 @@ func (o Options) WithDefaults() Options {
 	}
 	if o.Duplicates == "" && o.Destination != "" {
 		o.Duplicates = filepath.Join(o.Destination, "_Duplicates")
+	}
+	if o.Playlists == "" && o.Destination != "" {
+		o.Playlists = filepath.Join(o.Destination, "_Playlists")
 	}
 	if o.Compilations == "" {
 		o.Compilations = rules.DefaultCompilations
@@ -294,6 +307,15 @@ type organizer struct {
 	// lives: its new path, its unchanged path, or an identical copy. In a dry
 	// run it holds the planned paths. Cue rewriting resolves FILE lines with it.
 	placed sync.Map
+	// keptFor maps rules.PathKey of a file set aside as a duplicate to the
+	// path the copy that was kept had then: a playlist's entry for the one
+	// is pointed at the other.
+	keptFor sync.Map
+	// cameFrom maps the keys of placed to the paths as they were spelled.
+	cameFrom sync.Map
+	// restoredPlaylists holds rules.PathKey of the playlists an undo gave
+	// their earlier text back, where they were then.
+	restoredPlaylists sync.Map
 	// asked maps the same key to the path the file was asked to be at, where
 	// that is spelled in another letter case than the path it is at: the
 	// folders on disk decide the second, the tags the first. Without an entry
@@ -849,6 +871,14 @@ func Run(ctx context.Context, opts Options) RunFinished {
 	var companions []companionFile
 	var audioBytes, companionBytes int64
 	skip := append(slices.Clone(walkDirs), cfg.Destination, cfg.Untagged, cfg.Other, cfg.Duplicates)
+	// What is in the playlists folder is never moved: it is walked on its
+	// own, for the playlists in it.
+	keepPlaylists := cfg.Store != nil && !cfg.NoPlaylistRewrite
+	if cfg.Playlists != "" && !containsPath(walkDirs, cfg.Playlists) {
+		skip = append(skip, cfg.Playlists)
+	}
+	var playlists []walkedFile
+	playlistsComplete := true
 	for _, dir := range walkDirs {
 		isRunRoot := containsPath(roots, dir)
 		var idx *indexRoot
@@ -868,6 +898,9 @@ func Run(ctx context.Context, opts Options) RunFinished {
 		}
 		complete := o.walk(ctx, dir, skip, func(f walkedFile) {
 			audioFile := isAudioFile(f.path)
+			if keepPlaylists && idx != nil && idx.kind != store.RootSource && f.infoOK && playlist.Is(f.path) {
+				playlists = append(playlists, f)
+			}
 			if idx != nil && audioFile && f.infoOK {
 				idx.audio = append(idx.audio, f)
 				if cfg.IndexOnly {
@@ -890,6 +923,19 @@ func Run(ctx context.Context, opts Options) RunFinished {
 		})
 		if idx != nil {
 			idx.complete = complete
+			if !complete && idx.kind != store.RootSource {
+				playlistsComplete = false
+			}
+		}
+	}
+	if keepPlaylists && cfg.Playlists != "" && !containsPath(walkDirs, cfg.Playlists) && ctx.Err() == nil {
+		if info, err := os.Stat(cfg.Playlists); err == nil && info.IsDir() {
+			complete := o.walk(ctx, cfg.Playlists, nil, func(f walkedFile) {
+				if f.infoOK && playlist.Is(f.path) {
+					playlists = append(playlists, f)
+				}
+			})
+			playlistsComplete = playlistsComplete && complete
 		}
 	}
 
@@ -905,6 +951,9 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			}
 			o.startIndexPhase(int64(len(jobs)), bytes, first && len(jobs) > 0)
 			o.indexFiles(ctx, jobs)
+		}
+		if keepPlaylists {
+			o.refreshPlaylists(playlists, playlistsComplete && ctx.Err() == nil)
 		}
 	}
 
@@ -962,6 +1011,7 @@ func Run(ctx context.Context, opts Options) RunFinished {
 			o.phase.advance(0)
 		}
 	}
+	o.rewritePlaylists(ctx)
 
 	interrupted := ctx.Err() != nil
 
@@ -1289,7 +1339,13 @@ func (o *organizer) processCompanion(c companionFile, tree map[string]map[string
 	// folder has no folder of its own: the song dropped next to it is no
 	// reason to move it, or anything below it.
 	loose := reorganizing && rules.PathKey(filepath.Dir(path)) == rules.PathKey(c.root)
-	if dir, ok := companionDir(c.root, tree, filepath.Dir(path), !reorganizing); ok && !loose {
+	dir, ok := companionDir(c.root, tree, filepath.Dir(path), !reorganizing)
+	follows := ok && !loose
+	if home, ok := o.playlistHome(path, follows, reorganizing); ok {
+		o.place(path, c.root, home, Companion)
+		return
+	}
+	if follows {
 		o.place(path, c.root, filepath.Join(dir, filepath.Base(path)), Companion)
 		return
 	}
@@ -1325,6 +1381,7 @@ func (o *organizer) place(path, root, desiredDst string, kind Outcome) bool {
 	// The path asked for is kept beside the one the file is at, when the
 	// folders on disk spell it in another case.
 	key := rules.PathKey(path)
+	o.cameFrom.Store(key, path)
 	if asked != finalDst {
 		o.asked.Store(key, asked)
 	} else {
