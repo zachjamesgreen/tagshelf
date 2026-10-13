@@ -375,6 +375,7 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | **Settings** | |
 | `enter` | Change the setting: type a value, or turn it on or off. |
 | `tab` | While typing a path, complete the folder name. |
+| `b` | On a folder setting, pick the folder from a list in place of typing it. |
 | `s` | Save to the config file. |
 | `esc` | Drop the changes that are not saved. |
 
@@ -400,6 +401,7 @@ The Settings tab edits the config file tagshelf read: the one named with `-confi
 
 - **Change several settings, then press `s`.** Changed rows are marked with `*`. Nothing is written before `s`, and leaving the tab with changes asks first.
 - **Paths can be typed or pasted.** `tab` completes a folder name, and a note under the field says whether the folder exists. A path may start with `~`, your home folder, and is saved as you typed it.
+- **Or picked.** `b` on a folder setting opens a list of folders, at the folder the setting holds now or your home folder: `enter` goes into a folder, `backspace` back out, and `s` takes the folder shown. `n` makes a new folder there, `.` shows the folders whose names start with a dot, and `~` goes to your home folder. On Windows, going back from the top of a drive lists the drives. `ctrl+o` while typing a path opens the list at what you typed. Taking a folder changes the row like typing would: it is not saved until you press `s`.
 - **A save is checked first.** A source folder that does not exist, a library folder inside the source, two folders that are the same, or a contact that is not an email address or URL is refused, with the reason beside the setting. Nothing is written until all of them pass.
 - **Some saves ask first.** A library folder that does not exist is made if you say yes. Changing the library folder of a library that is open says plainly that it opens a different library and moves no music.
 - **A save takes effect at once.** The library is opened again with the new settings. Saving is refused while a run or an action is going.

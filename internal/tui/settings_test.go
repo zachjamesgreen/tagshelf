@@ -172,7 +172,7 @@ func TestSettingsEditing(t *testing.T) {
 	if m.tab != TabSettings || m.settings.input == nil {
 		t.Fatalf("typing left the field: tab %v, typing %t", m.tab, m.settings.input != nil)
 	}
-	if got := screen(m); !strings.Contains(got, "type or paste a path  tab complete  enter done  esc cancel") {
+	if got := screen(m); !strings.Contains(got, "type or paste a path  tab complete  ctrl+o pick  enter done  esc cancel") {
 		t.Errorf("the keys shown while typing a path:\n%s", got)
 	}
 	press(t, m, "enter")

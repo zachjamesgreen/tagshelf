@@ -21,7 +21,7 @@ Keys
   b      keep both copies (Duplicates)
   c      confirm a possible group is one song (Duplicates)
   A      resolve all exact groups (Duplicates)
-  s      save the settings to the config file (Settings)
+  s      save the settings to the config file, b pick a folder (Settings)
   R      reload the library now, and on Settings the config file
   ?      show or hide this help
   esc    back
