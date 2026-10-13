@@ -462,7 +462,7 @@ A file with no tags and a name like `track07.flac` gives a search nothing to go 
 In a lookup (`l`) or a release match (`L`), press `ctrl+s`:
 
 - **One file.** tagshelf listens to the file and asks AcoustID which recordings it is. They join the list of matches, first, best first, each with AcoustID's score as a percentage in place of the search's score. You pick as before; nothing is picked for you.
-- **A release.** Every selected file is listened to. The releases that hold what AcoustID heard are listed first, the one that holds the most of your files at the top; the score is the share of the files it holds. On the release you pick, each file goes to the track AcoustID named for it, also a file whose name and tags say nothing.
+- **A release.** Every selected file is listened to, a few at a time. The releases that hold what AcoustID heard are listed first, the one that holds the most of your files at the top; the score is the share of the files it holds. On the release you pick, each file goes to the track AcoustID named for it, also a file whose name and tags say nothing; where it named several, to the one it is surest of.
 
 A match that came by sound is saved with the AcoustID of the audio in the tag `ACOUSTID_ID`, beside its MusicBrainz IDs. It works in the Files tab as elsewhere. It is never done without the key press, and never by a run.
 
@@ -470,7 +470,7 @@ A match that came by sound is saved with the AcoustID of the audio in the tag `A
 
 **What is sent.** A request to AcoustID carries the fingerprint of the audio, the length of the file in seconds and the key of the application. It carries no file name, no tags and no contact of yours. The recordings AcoustID names are then asked for at MusicBrainz, by their IDs, as any lookup is.
 
-**What is kept.** The fingerprint of a file is kept in the library's database for good, by the audio it was made from, so a file is listened to once whatever becomes of its tags and its name. AcoustID's answer is kept for thirty days and given again without asking; the list says how old it is, and a second `ctrl+s` asks AcoustID anew.
+**What is kept.** The fingerprint of a file is kept in the library's database for good, by the audio it was made from, so a file is listened to once whatever becomes of its tags and its name. AcoustID's answer is kept for thirty days and given again without asking; the list says how old it is, and a second `ctrl+s` asks AcoustID anew. When some files of a release could not be listened to, the second `ctrl+s` tries those again and takes the answers of the others from the record.
 
 **The key.** AcoustID asks every program for the API key of its application. A download of tagshelf has one built in. A tagshelf you build from source has none: [register an application](https://acoustid.org/new-application) of your own, which is free, and set its key, which also comes before the built-in one:
 

@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/zachjamesgreen/tagshelf/internal/acoustid"
 	"github.com/zachjamesgreen/tagshelf/internal/config"
 )
 
@@ -79,6 +80,15 @@ type settingRow struct {
 	kind       settingKind
 	unset      string // what an empty value means
 	about      string
+}
+
+// unsetText is what an empty value of the setting means in this tagshelf.
+func (r settingRow) unsetText() string {
+	if r.key == "acoustid_key" && acoustid.Key("") == "" {
+		// Built from source: there is no key to fall back on.
+		return "not set: identifying by sound is off"
+	}
+	return r.unset
 }
 
 // settingRows are the settings in the order the tab lists them.
@@ -648,7 +658,7 @@ func (m *Model) settingValue(r settingRow, value any) string {
 			return dimStyle.Render("(kept under " + clean(m.settings.file.DataFolder) + ", by the library's ID)")
 		}
 		if v == "" {
-			return dimStyle.Render("(" + r.unset + ")")
+			return dimStyle.Render("(" + r.unsetText() + ")")
 		}
 		return clean(v)
 	}

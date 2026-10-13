@@ -1,4 +1,4 @@
-package musicbrainz
+package pacing
 
 import (
 	"context"
@@ -7,61 +7,24 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/zachjamesgreen/tagshelf/internal/pacing/pacingtest"
 )
 
-// fakeClock advances only when something sleeps on it.
-type fakeClock struct {
-	mu    sync.Mutex
-	now   time.Time
-	slept []time.Duration
-	// onSleep, when set, runs as a sleep starts: what happens while a
-	// caller waits.
-	onSleep func()
-}
-
-func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)}
-}
-
-func (f *fakeClock) Now() time.Time {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.now
-}
-
-func (f *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
-	if f.onSleep != nil {
-		f.onSleep()
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.slept = append(f.slept, d)
-	f.now = f.now.Add(d)
-	return nil
-}
-
-func (f *fakeClock) Advance(d time.Duration) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.now = f.now.Add(d)
-}
-
-func (f *fakeClock) Slept() []time.Duration {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.slept)
-}
+// least and most are what the interval of the tests' limiters goes from and
+// to.
+const (
+	least = time.Second
+	most  = 32 * time.Second
+)
 
 func TestLimiterSpacesRequestsOneSecondApart(t *testing.T) {
-	clk := newFakeClock()
-	l := newLimiter(clk)
+	clk := pacingtest.NewClock()
+	l := NewLimiter(clk, least, most)
 	ctx := context.Background()
 
 	for range 3 {
-		if err := l.wait(ctx); err != nil {
+		if err := l.Wait(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -72,7 +35,7 @@ func TestLimiterSpacesRequestsOneSecondApart(t *testing.T) {
 
 	// After a quiet spell there is nothing to wait for.
 	clk.Advance(5 * time.Second)
-	if err := l.wait(ctx); err != nil {
+	if err := l.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(clk.Slept()); got != 2 {
@@ -81,7 +44,7 @@ func TestLimiterSpacesRequestsOneSecondApart(t *testing.T) {
 
 	// A request half a second after the last one waits the other half.
 	clk.Advance(500 * time.Millisecond)
-	if err := l.wait(ctx); err != nil {
+	if err := l.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := clk.Slept(); got[len(got)-1] != 500*time.Millisecond {
@@ -90,21 +53,21 @@ func TestLimiterSpacesRequestsOneSecondApart(t *testing.T) {
 }
 
 func TestLimiterBackoffDoublesToMaxAndRecovers(t *testing.T) {
-	clk := newFakeClock()
-	l := newLimiter(clk)
+	clk := pacingtest.NewClock()
+	l := NewLimiter(clk, least, most)
 	ctx := context.Background()
-	if err := l.wait(ctx); err != nil {
+	if err := l.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	var waits []time.Duration
 	for {
-		ok := l.backoff()
+		ok := l.Backoff()
 		if !ok {
 			break
 		}
 		before := clk.Now()
-		if err := l.wait(ctx); err != nil {
+		if err := l.Wait(ctx); err != nil {
 			t.Fatal(err)
 		}
 		waits = append(waits, clk.Now().Sub(before))
@@ -116,7 +79,7 @@ func TestLimiterBackoffDoublesToMaxAndRecovers(t *testing.T) {
 
 	// Successes halve the interval back down to one second.
 	for _, want := range []time.Duration{16 * time.Second, 8 * time.Second, 4 * time.Second, 2 * time.Second, time.Second, time.Second} {
-		l.recover()
+		l.Recover()
 		if l.interval != want {
 			t.Errorf("interval after recover = %v, want %v", l.interval, want)
 		}
@@ -124,14 +87,14 @@ func TestLimiterBackoffDoublesToMaxAndRecovers(t *testing.T) {
 }
 
 func TestLimiterWaitHonoursCancellation(t *testing.T) {
-	clk := newFakeClock()
-	l := newLimiter(clk)
+	clk := pacingtest.NewClock()
+	l := NewLimiter(clk, least, most)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := l.wait(ctx); err != nil {
+	if err := l.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 	cancel()
-	if err := l.wait(ctx); err != context.Canceled {
+	if err := l.Wait(ctx); err != context.Canceled {
 		t.Errorf("wait after cancel = %v, want context.Canceled", err)
 	}
 }
@@ -139,28 +102,28 @@ func TestLimiterWaitHonoursCancellation(t *testing.T) {
 // A lookup dropped while it waits takes no slot: the TUI drops one for every
 // new search, and each would push the next request back an interval.
 func TestLimiterDroppedWaitsTakeNoSlot(t *testing.T) {
-	clk := newFakeClock()
-	l := newLimiter(clk)
-	if err := l.wait(context.Background()); err != nil {
+	clk := pacingtest.NewClock()
+	l := NewLimiter(clk, least, most)
+	if err := l.Wait(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// Five lookups, each dropped while it waited for its turn.
 	for range 5 {
 		ctx, cancel := context.WithCancel(context.Background())
-		clk.onSleep = cancel
-		if err := l.wait(ctx); err != context.Canceled {
+		clk.OnSleep = cancel
+		if err := l.Wait(ctx); err != context.Canceled {
 			t.Fatalf("a wait dropped while sleeping = %v, want context.Canceled", err)
 		}
 	}
-	clk.onSleep = nil
-	if err := l.wait(context.Background()); err != nil {
+	clk.OnSleep = nil
+	if err := l.Wait(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := clk.Slept(), []time.Duration{time.Second}; !slices.Equal(got, want) {
 		t.Errorf("the request after five dropped ones slept %v, want %v", got, want)
 	}
 	// The one that was sent took its slot.
-	if err := l.wait(context.Background()); err != nil {
+	if err := l.Wait(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := clk.Slept(), []time.Duration{time.Second, time.Second}; !slices.Equal(got, want) {
@@ -170,8 +133,8 @@ func TestLimiterDroppedWaitsTakeNoSlot(t *testing.T) {
 
 // Callers that wait at once are still let through an interval apart.
 func TestLimiterSpacesConcurrentCallers(t *testing.T) {
-	clk := newFakeClock()
-	l := newLimiter(clk)
+	clk := pacingtest.NewClock()
+	l := NewLimiter(clk, least, most)
 	first := clk.Now()
 	const callers = 8
 	var wg sync.WaitGroup
@@ -179,7 +142,7 @@ func TestLimiterSpacesConcurrentCallers(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := l.wait(context.Background()); err != nil {
+			if err := l.Wait(context.Background()); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -187,7 +150,7 @@ func TestLimiterSpacesConcurrentCallers(t *testing.T) {
 	wg.Wait()
 	// Each caller let through moves the next slot on by an interval or more,
 	// so two let through together would leave it short of this.
-	if got, want := l.next.Sub(first), callers*minInterval; got < want {
+	if got, want := l.next.Sub(first), callers*least; got < want {
 		t.Errorf("after %d callers the next slot is %v on, want %v or more", callers, got, want)
 	}
 }
@@ -197,7 +160,7 @@ func TestLimiterSpacesConcurrentCallers(t *testing.T) {
 func TestRealClockSleepEndsWithTheContext(t *testing.T) {
 	sleep := func(ctx context.Context) error {
 		done := make(chan error, 1)
-		go func() { done <- realClock{}.Sleep(ctx, time.Hour) }()
+		go func() { done <- RealClock{}.Sleep(ctx, time.Hour) }()
 		select {
 		case err := <-done:
 			return err
@@ -217,7 +180,7 @@ func TestRealClockSleepEndsWithTheContext(t *testing.T) {
 	}
 
 	// Left alone it sleeps the time through.
-	var clk realClock
+	var clk RealClock
 	before := clk.Now()
 	if err := clk.Sleep(context.Background(), 20*time.Millisecond); err != nil {
 		t.Errorf("Sleep = %v", err)

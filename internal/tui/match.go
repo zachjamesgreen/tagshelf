@@ -61,11 +61,16 @@ type match struct {
 	// found are the releases the search found, and bySound those that hold
 	// recordings AcoustID named for the files: releases is the second and
 	// then the rest of the first. heard is, by file, what AcoustID says of
-	// each recording it named; nil until it has been asked. listened counts
-	// the files done while it listens, and back is the step that began at.
+	// each recording it named; nil until it has been asked. failed is how
+	// many files could not be listened to then, and heardOld how old the
+	// oldest answer taken from the record was, 0 when AcoustID was asked for
+	// all or a second ctrl+s would not ask again. listened counts the files
+	// done while it listens, and back is the step that began at.
 	found    []musicbrainz.ReleaseCandidate
 	bySound  []musicbrainz.ReleaseCandidate
 	heard    map[int]map[string]soundHit
+	failed   int
+	heardOld time.Duration
 	listened *atomic.Int32
 	back     matchStep
 

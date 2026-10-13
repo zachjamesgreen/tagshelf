@@ -128,7 +128,8 @@ func TestParse(t *testing.T) {
 	if err != nil || got != (Print{Fingerprint: "AQAA", Duration: 187}) {
 		t.Errorf("parse = %+v, %v", got, err)
 	}
-	for _, out := range []string{"", "DURATION=187\n", "DURATION=long\nFINGERPRINT=AQAA\n"} {
+	// Without a length too: AcoustID cannot be asked with the fingerprint.
+	for _, out := range []string{"", "DURATION=187\n", "DURATION=long\nFINGERPRINT=AQAA\n", "FINGERPRINT=AQAA\n", "DURATION=0\nFINGERPRINT=AQAA\n"} {
 		if got, err := parse(out, "a.mp3"); err == nil {
 			t.Errorf("parse(%q) = %+v, want an error", out, got)
 		}

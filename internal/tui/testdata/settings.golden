@@ -17,7 +17,7 @@ Settings  C:\Users\me\AppData\Roaming\tagshelf\config.yaml  unsaved changes
     Files at once        0  one for each CPU
     Verbose              off
     MusicBrainz contact  (not set: lookups are off)
-    AcoustID key         (not set: the one tagshelf was built with)
+    AcoustID key         (not set: identifying by sound is off)
     MusicBrainz genre    (fill)
     Cover file           off
     Cover in the files   off

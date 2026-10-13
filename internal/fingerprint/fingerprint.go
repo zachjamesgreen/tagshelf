@@ -153,6 +153,11 @@ func parse(out, name string) (Print, error) {
 	if p.Fingerprint == "" {
 		return Print{}, fmt.Errorf("listening to %s: the module gave no fingerprint", name)
 	}
+	if p.Duration <= 0 {
+		// AcoustID is asked with the length too: without one the fingerprint
+		// is of no use.
+		return Print{}, fmt.Errorf("listening to %s: the file does not say how long it is", name)
+	}
 	return p, nil
 }
 

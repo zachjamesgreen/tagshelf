@@ -10,14 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/zachjamesgreen/tagshelf/internal/pacing"
 	"github.com/zachjamesgreen/tagshelf/internal/version"
 )
 
@@ -56,21 +55,26 @@ var ErrBusy = errors.New("AcoustID is not accepting requests right now; try agai
 // ErrTimeout is returned when a request got no answer in time.
 var ErrTimeout = errors.New("AcoustID did not answer in time; try again later")
 
+// ErrUnreachable is returned, with why, when a request did not get to
+// AcoustID or its answer did not get back.
+var ErrUnreachable = errors.New("AcoustID cannot be reached")
+
 // requestTimeout bounds one whole exchange.
 const requestTimeout = 30 * time.Second
 
-// interval is the least time between two requests. AcoustID allows three a
-// second; this stays under it.
-const interval = 400 * time.Millisecond
+// minInterval is the least time between two requests. AcoustID allows three
+// a second; this stays under it. Each time AcoustID says it is busy the
+// interval doubles, up to maxInterval.
+const (
+	minInterval = 400 * time.Millisecond
+	maxInterval = 64 * minInterval
+)
 
 // maxAnswer bounds an answer read from the service.
 const maxAnswer = 4 << 20
 
-// pace spaces every request the process makes.
-var pace struct {
-	sync.Mutex
-	next time.Time
-}
+// sharedLimiter spaces every request the process makes to AcoustID.
+var sharedLimiter = pacing.NewLimiter(pacing.RealClock{}, minInterval, maxInterval)
 
 // Client asks the AcoustID web service. It is safe for concurrent use.
 type Client struct {
@@ -78,9 +82,7 @@ type Client struct {
 	key       string
 	userAgent string
 	http      *http.Client
-	// wait waits until the next request may go; tests put nothing in its
-	// place to go without waiting.
-	wait func(ctx context.Context) error
+	limiter   *pacing.Limiter
 }
 
 // New returns a client that asks with key. It returns ErrNoKey when key is
@@ -95,30 +97,8 @@ func New(key string) (*Client, error) {
 		key:       key,
 		userAgent: "tagshelf/" + version.String() + " ( " + ProjectURL + " )",
 		http:      &http.Client{Timeout: requestTimeout},
-		wait:      waitTurn,
+		limiter:   sharedLimiter,
 	}, nil
-}
-
-// waitTurn waits until a request may go, an interval after the one before.
-func waitTurn(ctx context.Context) error {
-	pace.Lock()
-	now := time.Now()
-	at := pace.next
-	if at.Before(now) {
-		at = now
-	}
-	pace.next = at.Add(interval)
-	pace.Unlock()
-	if d := time.Until(at); d > 0 {
-		t := time.NewTimer(d)
-		defer t.Stop()
-		select {
-		case <-t.C:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return nil
 }
 
 // Result is one track AcoustID knows that a fingerprint matches.
@@ -155,12 +135,13 @@ const (
 
 // Lookup asks which tracks the fingerprint of a file duration seconds long
 // belongs to. The results are as AcoustID orders them, best first; there
-// are none when it knows no such audio.
+// are none when it knows no such audio. A lookup AcoustID is too busy for is
+// not tried again here: it is ErrBusy, and the next one waits longer.
 func (c *Client) Lookup(ctx context.Context, fingerprint string, duration int) ([]Result, error) {
 	if fingerprint == "" || duration <= 0 {
 		return nil, errors.New("AcoustID lookup: a fingerprint and a length are needed")
 	}
-	if err := c.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 	form := url.Values{
@@ -196,6 +177,7 @@ func (c *Client) Lookup(ctx context.Context, fingerprint string, duration int) (
 		return nil, ErrKey
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500,
 		decodeErr == nil && a.Status == "error" && a.Error.Code == codeTooManyReqs:
+		c.limiter.Backoff()
 		return nil, ErrBusy
 	case decodeErr == nil && a.Status == "error":
 		return nil, fmt.Errorf("AcoustID lookup: %s", a.Error.Message)
@@ -206,6 +188,7 @@ func (c *Client) Lookup(ctx context.Context, fingerprint string, duration int) (
 	case a.Status != "ok":
 		return nil, fmt.Errorf("AcoustID lookup: the service answered with the status %q", a.Status)
 	}
+	c.limiter.Recover()
 	results := make([]Result, 0, len(a.Results))
 	for _, r := range a.Results {
 		res := Result{ID: r.ID, Score: r.Score}
@@ -225,13 +208,12 @@ func (c *Client) failed(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	var netErr net.Error
-	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+	if pacing.TimedOut(ctx, err) {
 		return ErrTimeout
 	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		err = urlErr.Err
 	}
-	return fmt.Errorf("AcoustID lookup: %w", err)
+	return fmt.Errorf("%w: %w", ErrUnreachable, err)
 }

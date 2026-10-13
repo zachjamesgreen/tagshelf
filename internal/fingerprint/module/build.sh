@@ -21,8 +21,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${1:?usage: build.sh WORK [OUT]}"
 OUT_FILE="${2:-$HERE/../fp.wasm}"
-mkdir -p "$WORK"
+mkdir -p "$WORK" "$(dirname "$OUT_FILE")"
 WORK="$(cd "$WORK" && pwd)"
+# The build changes folder: where the module goes is not to change with it.
+OUT_FILE="$(cd "$(dirname "$OUT_FILE")" && pwd)/$(basename "$OUT_FILE")"
 
 WASI_SDK_URL=https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
 WASI_SDK_SHA256=b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
@@ -125,6 +127,5 @@ cp "$HERE/fp.cc" "$WORK/fp.cc"
 "$SDK/bin/clang++" -Os -o fp.wasm fp.o $OBJS resample2.o \
   -L"$WORK/out/lib" -lavformat -lavcodec -lswresample -lavutil -lm $EMULATED_LIBS -Wl,--strip-all
 
-mkdir -p "$(dirname "$OUT_FILE")"
 cp fp.wasm "$OUT_FILE"
 echo "built $OUT_FILE: $(wc -c < "$OUT_FILE") bytes, SHA-256 $(sha256sum "$OUT_FILE" | cut -d' ' -f1)"

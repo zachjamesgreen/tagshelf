@@ -2,21 +2,22 @@ package tui
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zachjamesgreen/tagshelf/internal/acoustid"
 	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
+	"github.com/zachjamesgreen/tagshelf/internal/store"
 	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // maxHeardEach is how many of the recordings AcoustID names for one file of
-// a release match are looked up: its best.
+// a release match are looked up at MusicBrainz: its best. A file is put on a
+// track by any of those AcoustID named.
 const maxHeardEach = 5
 
 // matchHeardMsg is what identifying a release match's files by their sound
@@ -31,7 +32,11 @@ type matchHeardMsg struct {
 	// why the first of them.
 	failed int
 	why    error
-	err    error
+	// fromRecord is how many of the answers were on record, and oldest when
+	// the oldest of those was given.
+	fromRecord int
+	oldest     time.Time
+	err        error
 }
 
 // matchListen identifies every file of the release match by its sound. The
@@ -47,52 +52,63 @@ func (m *Model) matchListen() tea.Cmd {
 		x.problem = fmt.Sprintf("%d files are too many for one release (at most %d): select fewer", n, musicbrainz.MaxMatchFiles)
 		return nil
 	}
-	again := x.heard != nil
+	// A second time asks AcoustID again, whatever is on record. After files
+	// that failed it is those that are tried again: the answers the others
+	// got are on record.
+	again := x.heard != nil && x.failed == 0
 	x.back, x.step, x.problem = x.step, matchListening, ""
 	x.listened = new(atomic.Int32)
 	ctx, seq := m.matchRequest()
-	sound, mb, src, files, done := m.sound, m.mb, m.src, x.files, x.listened
+	sound, mb, src, done := m.sound, m.mb, m.src, x.listened
+	// A list of its own: the match's is written anew when the index changes.
+	files := make([]store.File, len(x.files))
+	for i, f := range x.files {
+		files[i] = f.File
+	}
 	return func() tea.Msg {
 		msg := matchHeardMsg{seq: seq, heard: map[int]map[string]soundHit{}}
-		var ids []string
-		seen := map[string]bool{}
-		for i, f := range files {
-			heard, err := sound.Identify(ctx, f.File, again)
+		best := map[int][]string{}
+		sound.Identify(ctx, files, again, func(i int, heard Heard, err error) bool {
 			done.Add(1)
 			switch {
-			case ctx.Err() != nil:
-				msg.err = ctx.Err()
-				return msg
-			case errors.Is(err, acoustid.ErrNoKey), errors.Is(err, acoustid.ErrKey):
+			case err != nil && soundDown(err):
 				// Nothing more will come of the files that follow.
 				msg.err = err
-				return msg
+				return false
 			case err != nil:
 				// One file that cannot be read does not stop the rest.
 				if msg.failed++; msg.why == nil {
 					msg.why = err
 				}
-				continue
+				return true
 			}
-			hits, order := soundHits(heard.Results)
-			if len(order) > maxHeardEach {
-				order = order[:maxHeardEach]
+			if heard.FromRecord {
+				if msg.fromRecord++; msg.oldest.IsZero() || heard.Asked.Before(msg.oldest) {
+					msg.oldest = heard.Asked
+				}
 			}
-			if len(order) == 0 {
-				continue
+			if hits, order := soundHits(heard.Results); len(order) > 0 {
+				msg.heard[i] = hits
+				best[i] = order[:min(len(order), maxHeardEach)]
 			}
-			msg.heard[i] = map[string]soundHit{}
-			for _, id := range order {
-				msg.heard[i][id] = hits[id]
+			return true
+		})
+		if msg.err = cmp.Or(msg.err, ctx.Err()); msg.err != nil {
+			return msg
+		}
+		if msg.failed == len(files) {
+			msg.err = msg.why
+			return msg
+		}
+		var ids []string
+		seen := map[string]bool{}
+		for i := range files {
+			for _, id := range best[i] {
 				if !seen[id] {
 					seen[id] = true
 					ids = append(ids, id)
 				}
 			}
-		}
-		if msg.failed == len(files) {
-			msg.err = msg.why
-			return msg
 		}
 		for chunk := range slices.Chunk(ids, musicbrainz.MaxByID) {
 			recs, err := mb.RecordingsByID(ctx, chunk)
@@ -121,20 +137,28 @@ func (m *Model) matchHeard(msg matchHeardMsg) {
 		x.problem = msg.err.Error()
 		return
 	}
-	x.heard = msg.heard
+	x.heard, x.failed = msg.heard, msg.failed
+	x.heardOld = 0
+	if msg.fromRecord > 0 && msg.failed == 0 {
+		x.heardOld = max(time.Since(msg.oldest), time.Nanosecond)
+	}
 	x.bySound = soundReleases(msg.recs, msg.heard, len(x.files), msg.inLibrary)
 	switch {
-	case len(msg.heard) == 0:
-		x.problem = "AcoustID does not know the audio of these files"
-	case len(x.bySound) == 0:
-		x.problem = "AcoustID knows the audio, but no MusicBrainz release is linked to it"
 	case msg.failed > 0:
 		x.problem = fmt.Sprintf("%s could not be listened to: %v", plural(int64(msg.failed), "file", "files"), msg.why)
+	case len(msg.heard) == 0:
+		x.problem = "AcoustID does not know the audio of these files" + x.onRecordNote()
+	case len(x.bySound) == 0:
+		x.problem = "AcoustID knows the audio, but no MusicBrainz release is linked to it" + x.onRecordNote()
 	}
 	x.merge()
-	if len(x.bySound) > 0 {
+	switch {
+	case len(x.bySound) > 0:
 		x.cursor = 0
 		x.step = matchPick
+	case len(x.releases) == 0 && x.step == matchPick:
+		// What was listed by sound before is gone, and nothing was searched.
+		x.step = matchQuery
 	}
 }
 
@@ -207,7 +231,8 @@ func compareBools(a, b bool) int {
 }
 
 // merge makes the list of releases: those found by sound first, and then
-// what the search found that is not among them.
+// what the search found that is not among them. It is the one place the list
+// is made, and keeps the cursor within it.
 func (x *match) merge() {
 	x.releases = slices.Clone(x.bySound)
 	named := map[string]bool{}
@@ -219,38 +244,49 @@ func (x *match) merge() {
 			x.releases = append(x.releases, c)
 		}
 	}
+	x.cursor = max(min(x.cursor, len(x.releases)-1), 0)
 }
 
 // applySound puts each file AcoustID knows on the track of the release
 // picked that holds a recording it named for the file, whatever the tags
-// and names said. A track two files claim goes to the first.
+// and names said. Where a file could go on several tracks, or several files
+// on one, the file and track AcoustID is surest of go together first; of
+// those it is as sure of, the first track and the first file do.
 func (x *match) applySound() {
 	if len(x.heard) == 0 || x.release == nil || x.mapping == nil {
 		return
 	}
+	type claim struct {
+		file  int
+		track musicbrainz.TrackRef
+		score float64
+	}
+	var claims []claim
+	for _, ref := range x.release.Tracks() {
+		t := x.release.Track(ref)
+		if t.Recording == nil {
+			continue
+		}
+		id := strings.ToLower(t.Recording.ID)
+		for i := range x.files {
+			if hit, ok := x.heard[i][id]; ok {
+				claims = append(claims, claim{file: i, track: ref, score: hit.score})
+			}
+		}
+	}
+	slices.SortStableFunc(claims, func(a, b claim) int { return cmp.Compare(b.score, a.score) })
 	on := map[int]musicbrainz.TrackRef{}
 	for _, a := range x.mapping.Assignments {
 		on[a.File] = a.Track
 	}
-	taken := map[musicbrainz.TrackRef]bool{}
-	for i := range x.files {
-		hits := x.heard[i]
-		if len(hits) == 0 {
+	placed, taken := map[int]bool{}, map[musicbrainz.TrackRef]bool{}
+	for _, c := range claims {
+		if placed[c.file] || taken[c.track] {
 			continue
 		}
-		for _, ref := range x.release.Tracks() {
-			t := x.release.Track(ref)
-			if t.Recording == nil || taken[ref] {
-				continue
-			}
-			if _, ok := hits[strings.ToLower(t.Recording.ID)]; !ok {
-				continue
-			}
-			taken[ref] = true
-			if cur, ok := on[i]; !ok || cur != ref {
-				x.mapping.Reassign(i, ref)
-			}
-			break
+		placed[c.file], taken[c.track] = true, true
+		if cur, ok := on[c.file]; !ok || cur != c.track {
+			x.mapping.Reassign(c.file, c.track)
 		}
 	}
 }
@@ -282,10 +318,24 @@ func (x *match) listeningLine() string {
 	return fmt.Sprintf("Listening to the files and asking AcoustID: %d of %d…", min(n+1, len(x.files)), len(x.files))
 }
 
-// heardNote says, over the releases, that some are by sound.
+// heardNote says, over the releases, that some are by sound, and how old
+// AcoustID's answers are when they were on record.
 func (x *match) heardNote() string {
 	if len(x.bySound) == 0 {
 		return ""
 	}
+	if note := x.onRecordNote(); note != "" {
+		// Said shortly, so that both fit the line.
+		return "by sound first, by the share of the files held" + note
+	}
 	return "by sound first: the score is the share of the files a release holds"
+}
+
+// onRecordNote says, after what AcoustID's answers gave, that some were on
+// record, how old the oldest is and how to get new ones.
+func (x *match) onRecordNote() string {
+	if x.heardOld == 0 {
+		return ""
+	}
+	return "; answers up to " + age(x.heardOld) + " old, ctrl+s asks again"
 }
