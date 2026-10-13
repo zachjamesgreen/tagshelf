@@ -97,6 +97,7 @@ var settingRows = []settingRow{
 	{"musicbrainz_contact", "MusicBrainz contact", kindText, "not set: lookups are off", "An email address or URL MusicBrainz can reach you at. It is sent with every lookup."},
 	{"genre_from_musicbrainz", "MusicBrainz genre", kindText, "fill", "What a match does with the genre: fill writes it to a file that has none, replace writes it always, off never."},
 	{"cover_art_file", "Cover file", kindToggle, "", "On: an album folder without a cover gets a file named cover, from the pictures in its files or else from the Cover Art Archive."},
+	{"cover_art_embed", "Cover in the files", kindToggle, "", "On: the album's cover is put into each of its audio files that holds no picture: the cover of its folder, or else the Cover Art Archive's."},
 	{"cover_art_replace", "Replace a cover", kindText, "never", "When a cover an album has gives way to the Cover Art Archive's: never, smaller (when the archive's is larger) or always."},
 	{"database", "Database file", kindFile, "kept with tagshelf's own files, by the library's ID", "The file the library's index and run history are kept in."},
 }

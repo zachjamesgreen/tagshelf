@@ -145,6 +145,27 @@ func TestCoverEmbedFromTheArchive(t *testing.T) {
 	mustExist(t, filepath.Join(album, "cover.jpg"))
 }
 
+// Without a cover file, the picture one of the album's files holds goes into
+// the others, and the archive is not asked.
+func TestCoverEmbedFromAnotherFile(t *testing.T) {
+	lib, album, _ := coverLibrary(t)
+	flac, mp3 := filepath.Join(album, "01.flac"), filepath.Join(album, "02.mp3")
+	own := testPicture(t, "png", 80)
+	if err := taglib.WriteImage(flac, own); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore(t)
+	indexLibrary(t, s, lib)
+	a := &archive{picture: testPicture(t, "jpeg", 500)}
+	finish, put, _ := embedded(t, lib, s, CoverOptions{Fetch: a.fetch, Folders: []string{album}}, false)
+	if finish.State != StateOK || finish.Counters.Pictures != 1 || len(put) != 1 || put[0].Path != mp3 || put[0].From != CoverFromFile || len(a.asked) != 0 {
+		t.Fatalf("finish = %+v, put %+v, the archive asked %v", finish, put, a.asked)
+	}
+	if string(pictureOf(t, mp3)) != string(own) || string(pictureOf(t, flac)) != string(own) {
+		t.Error("the two files do not hold the one picture")
+	}
+}
+
 // A picture a file holds is kept, unless the setting has the archive's take
 // its place: when it is larger, or always. The picture that gave way is on
 // record, and the undo puts it back.

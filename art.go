@@ -20,6 +20,10 @@ or front) keeps it. One without gets a file named cover: the picture its
 audio files hold, or else the front cover the Cover Art Archive has for the
 MusicBrainz release in their tags.
 
+With -embed the album's cover is put into each of its audio files that
+holds no picture: the cover of its folder, or else a picture another of its
+files holds, or else the archive's.
+
 It is one run, which the terminal UI lists and can undo. Stopped with
 Ctrl-C, it goes on where it stopped the next time: the folders that have a
 cover by then are passed over.
@@ -33,9 +37,12 @@ Examples:
       of the Cover Art Archive and nothing is written.
   tagshelf art -dest D:\Music -file
       Give every album folder without a cover a cover file.
+  tagshelf art -dest D:\Music -file -embed
+      The same, and put each album's cover into its audio files that hold
+      no picture.
 `,
 	groups: []flagGroup{
-		{"What it does", []string{"file", "replace", "dry-run"}},
+		{"What it does", []string{"file", "embed", "replace", "dry-run"}},
 		{"The library", []string{"dest", "db"}},
 		{"Other", []string{"config"}},
 	},
@@ -45,8 +52,8 @@ Examples:
 // artFlags are the flags of `tagshelf art`.
 type artFlags struct {
 	*libraryFlags
-	file    *bool
-	replace *string
+	file, embed *bool
+	replace     *string
 }
 
 // newArtFlags defines the flags of `tagshelf art` on set.
@@ -63,6 +70,7 @@ func newArtFlags(set *flag.FlagSet) artFlags {
 			dryRun: set.Bool("dry-run", false, "Preview: say what would be done, ask the Cover Art Archive nothing and write nothing."),
 		},
 		file:    set.Bool("file", false, "Write a cover file into each album folder that has no cover. The same as cover_art_file in the config file."),
+		embed:   set.Bool("embed", false, "Put the album's cover into each of its audio files that holds no picture. The same as cover_art_embed."),
 		replace: set.String("replace", "", "`When` a cover a folder has gives way to the Cover Art Archive's: never, smaller or always. The same as cover_art_replace."),
 	}
 }
@@ -86,6 +94,8 @@ func runArt(ctx context.Context, args []string) int {
 		switch f.Name {
 		case "file":
 			cfg.CoverArtFile = *flags.file
+		case "embed":
+			cfg.CoverArtEmbed = *flags.embed
 		case "replace":
 			cfg.CoverArtReplace = *flags.replace
 		case "dry-run":
@@ -98,9 +108,9 @@ func runArt(ctx context.Context, args []string) int {
 	if problem := config.Check(config.Config{CoverArtReplace: cfg.CoverArtReplace})["cover_art_replace"]; problem != "" {
 		return flags.misuse("when a cover is replaced "+problem+", not "+cfg.CoverArtReplace, "Give -replace, or cover_art_replace in the config file, one of the three.")
 	}
-	if !cfg.CoverArtFile {
+	if !cfg.CoverArtFile && !cfg.CoverArtEmbed {
 		return cannotStart("no cover art setting is on, so there is nothing for tagshelf art to do",
-			"Pass -file, or set cover_art_file: true in the config file, to have cover files written.")
+			"Pass -file to have cover files written, or -embed to have covers put into the audio files, or set cover_art_file or cover_art_embed in the config file.")
 	}
 	// The other folders of the config file are not this command's concern.
 	paths, _, problem := usablePaths(config.Config{Destination: cfg.Destination, Database: cfg.Database},
@@ -124,6 +134,7 @@ func runArt(ctx context.Context, args []string) int {
 	lg.Println("================ Cover art ================")
 	lg.Printf("Library:      %s\n", paths.Destination)
 	lg.Printf("Cover file:   %t\n", cfg.CoverArtFile)
+	lg.Printf("In the files: %t\n", cfg.CoverArtEmbed)
 	lg.Printf("Replace:      %s\n", cfg.CoverReplace())
 	lg.Printf("Dry-Run:      %t\n", cfg.DryRun)
 	lg.Println("===========================================")
@@ -132,7 +143,8 @@ func runArt(ctx context.Context, args []string) int {
 	opts.DryRun = cfg.DryRun
 	opts.Store = st
 	opts.Sink = artSink(lg, cfg.DryRun)
-	finish := engine.CoverArt(ctx, opts, engine.CoverOptions{File: cfg.CoverArtFile, Replace: cfg.CoverReplace(), Fetch: coverFetch})
+	finish := engine.CoverArt(ctx, opts, engine.CoverOptions{File: cfg.CoverArtFile, Embed: cfg.CoverArtEmbed,
+		Replace: cfg.CoverReplace(), Fetch: coverFetch})
 	return exitCode(finish.State)
 }
 
@@ -153,8 +165,21 @@ func artSink(lg *log.Logger, dryRun bool) engine.Sink {
 				what += fmt.Sprintf(", in place of %q", e.Replaced)
 			}
 			lg.Printf("%s[COVER] %s\n", prefix, what)
+		case engine.CoverEmbedded:
+			what := fmt.Sprintf("%q from %s", e.Path, e.From)
+			if e.Asked {
+				what += ", if it has one"
+			}
+			if e.Replaced {
+				what += ", in place of the picture it holds"
+			}
+			lg.Printf("%s[PICTURE] %s\n", prefix, what)
 		case engine.CoverSkipped:
-			lg.Printf("%s[NO COVER] %q: %s\n", prefix, e.Dir, e.Why)
+			kind := "[NO COVER]"
+			if e.Embedding {
+				kind = "[NO PICTURE]"
+			}
+			lg.Printf("%s%s %q: %s\n", prefix, kind, e.Dir, e.Why)
 		case engine.FileError:
 			lg.Printf("[ERROR] %q: %v\n", e.Path, e.Err)
 		case engine.RunFinished:
@@ -165,8 +190,10 @@ func artSink(lg *log.Logger, dryRun bool) engine.Sink {
 			lg.Println("==================== Summary ====================")
 			if dryRun {
 				lg.Printf("Covers that would be written: %d\n", e.Counters.Covers)
+				lg.Printf("Files that would get a picture: %d\n", e.Counters.Pictures)
 			} else {
 				lg.Printf("Covers written:           %d\n", e.Counters.Covers)
+				lg.Printf("Files given a picture:    %d\n", e.Counters.Pictures)
 			}
 			lg.Printf("Errors encountered:       %d\n", e.Counters.Errors)
 			lg.Println("==================================================")

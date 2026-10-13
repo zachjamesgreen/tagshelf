@@ -24,10 +24,10 @@ type PictureSave func(st *store.Store, runID int64, path string, picture []byte)
 // no picture, and, when the setting has the archive's cover replace one, in
 // the place of the picture a file has.
 //
-// What the album already has comes first: the cover file of its folder goes
-// into the files that hold none, made smaller when it is large. Failing
-// that, and to replace a picture, the Cover Art Archive is asked, in its
-// middle size.
+// What the album already has comes first: the cover file of its folder, or
+// else the first picture one of its files holds, goes into the files that
+// hold none, made smaller when it is large. Failing that, and to replace a
+// picture, the Cover Art Archive is asked, in its middle size.
 func (o *organizer) coverEmbed(ctx context.Context, a coverAlbum, c CoverOptions) {
 	var bare, pictured []store.File
 	for _, f := range a.files {
@@ -64,7 +64,25 @@ func (o *organizer) coverEmbed(ctx context.Context, a coverAlbum, c CoverOptions
 		}
 	}
 
-	// The archive's, for the files the folder has nothing for, and for those
+	// Or else the picture one of the album's other files holds.
+	localFrom := CoverFromFolder
+	if local == nil && len(bare) > 0 {
+		for _, f := range a.files {
+			if !f.HasArt {
+				continue
+			}
+			pic, err := readEmbedded(f.Path)
+			if err == nil {
+				pic, err = coverart.ForEmbedding(pic)
+			}
+			if err == nil {
+				local, localFrom = &pic, CoverFromFile
+				break
+			}
+		}
+	}
+
+	// The archive's, for the files the album has nothing for, and for those
 	// whose picture it may replace.
 	var remote *coverart.Picture
 	asked := false
@@ -119,7 +137,7 @@ func (o *organizer) coverEmbed(ctx context.Context, a coverAlbum, c CoverOptions
 		}
 		switch {
 		case local != nil:
-			put(f, local, CoverFromFolder, false)
+			put(f, local, localFrom, false)
 		case remote != nil || asked:
 			put(f, remote, CoverFromRelease, false)
 		}

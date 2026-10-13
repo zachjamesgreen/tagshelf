@@ -161,8 +161,8 @@ type CoverSkipped struct {
 // dry run one that would be.
 type CoverEmbedded struct {
 	Path string
-	// From says where the picture came from: CoverFromFolder or
-	// CoverFromRelease.
+	// From says where the picture came from: CoverFromFolder, CoverFromFile
+	// or CoverFromRelease.
 	From string
 	// Replaced is set when the file held a picture, which gave way.
 	Replaced bool

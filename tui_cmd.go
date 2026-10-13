@@ -156,7 +156,7 @@ func (s *tuiSession) open() (tui.Options, error) {
 	s.closeStore()
 	cfg, none, err := s.settings()
 	opts := tui.Options{Destination: cfg.Destination, Source: cfg.Source, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
-		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(), CoverFile: cfg.CoverArtFile,
+		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(), CoverFile: cfg.CoverArtFile || cfg.CoverArtEmbed,
 		NoLibrary: none, Reopen: s.open, Settings: s}
 	if err != nil || none != nil {
 		opts.Destination = ""
@@ -305,8 +305,8 @@ func (r tuiRunner) CoverArt(ctx context.Context, folders []string, sink engine.S
 	opts.DryRun = false
 	opts.Store = st
 	opts.Sink = sink
-	finish := engine.CoverArt(ctx, opts, engine.CoverOptions{File: r.cfg.CoverArtFile, Replace: r.cfg.CoverReplace(),
-		Fetch: coverFetch, Folders: folders})
+	finish := engine.CoverArt(ctx, opts, engine.CoverOptions{File: r.cfg.CoverArtFile, Embed: r.cfg.CoverArtEmbed,
+		Replace: r.cfg.CoverReplace(), Fetch: coverFetch, Folders: folders})
 	if finish.State == engine.StateNotStarted {
 		return finish, finish.Err
 	}

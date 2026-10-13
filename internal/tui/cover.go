@@ -16,6 +16,7 @@ import (
 // coverDoneMsg says a cover art run has ended.
 type coverDoneMsg struct {
 	written []engine.CoverWritten
+	put     []engine.CoverEmbedded
 	skipped []engine.CoverSkipped
 	finish  engine.RunFinished
 	err     error
@@ -38,7 +39,7 @@ func albumFolders(paths []string) []string {
 	return dirs
 }
 
-// coverArt gives the album folders dirs the cover they lack, as one run off
+// coverArt gives the album folders dirs, and their files, the cover they lack, as one run off
 // the UI goroutine. It is what c asks for on an album, with why not when the
 // setting is off, and what follows a match of its own accord, which says
 // nothing then.
@@ -48,7 +49,7 @@ func (m *Model) coverArt(dirs []string, after bool) tea.Cmd {
 	}
 	if !m.coverFile {
 		if !after {
-			m.setToast(false, "Cover art is off: turn on Cover file on %d Settings", int(TabSettings)+1)
+			m.setToast(false, "Cover art is off: turn on Cover file or Cover in the files on %d Settings", int(TabSettings)+1)
 		}
 		return nil
 	}
@@ -73,6 +74,8 @@ func (m *Model) coverArt(dirs []string, after bool) tea.Cmd {
 			switch e := e.(type) {
 			case engine.CoverWritten:
 				msg.written = append(msg.written, e)
+			case engine.CoverEmbedded:
+				msg.put = append(msg.put, e)
 			case engine.CoverSkipped:
 				msg.skipped = append(msg.skipped, e)
 			}
@@ -101,6 +104,8 @@ func (m *Model) coverDone(msg coverDoneMsg) tea.Cmd {
 		}
 	case len(msg.written) > 1:
 		said = plural(int64(len(msg.written)), "cover", "covers") + " written"
+	case len(msg.put) > 0:
+		said = "Cover put into " + plural(int64(len(msg.put)), "file", "files")
 	case msg.after:
 		// Nothing to add to what the match said.
 		return m.poll(true, false)
@@ -109,6 +114,9 @@ func (m *Model) coverDone(msg coverDoneMsg) tea.Cmd {
 	default:
 		said = "The album has a cover already"
 	}
+	if len(msg.written) > 0 && len(msg.put) > 0 {
+		said += ", and put into " + plural(int64(len(msg.put)), "file", "files")
+	}
 	if msg.after && m.toast != "" {
 		// The match's own message stays, without its offer to undo: u now
 		// takes back what was done last, which is the cover.
@@ -116,7 +124,7 @@ func (m *Model) coverDone(msg coverDoneMsg) tea.Cmd {
 		ok = ok && m.toastOK
 	}
 	m.setToast(ok, "%s", said)
-	if len(msg.written) > 0 {
+	if len(msg.written)+len(msg.put) > 0 {
 		m.offerUndo(msg.finish.RunID)
 	}
 	return m.poll(true, false)

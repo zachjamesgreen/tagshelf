@@ -11,10 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zachjamesgreen/tagshelf/internal/config"
 	"github.com/zachjamesgreen/tagshelf/internal/coverart"
 	"github.com/zachjamesgreen/tagshelf/internal/engine"
 	"github.com/zachjamesgreen/tagshelf/internal/fixtures"
 	"github.com/zachjamesgreen/tagshelf/internal/store"
+	"github.com/zachjamesgreen/tagshelf/internal/tagwrite"
 )
 
 // artLibrary makes an indexed library of one album folder whose two files
@@ -92,6 +94,72 @@ func TestArtWritesCoverFiles(t *testing.T) {
 	logs.Reset()
 	if got := run(context.Background(), args); got != exitOK || !strings.Contains(logs.String(), "Covers written:           0") || len(*asked) != 1 {
 		t.Errorf("a second run = %d, asked %d times:\n%s", got, len(*asked), logs)
+	}
+}
+
+// TestArtEmbeds runs `tagshelf art -embed`: the archive's cover goes into
+// each of the album's files, no cover file is written, the pictures can be
+// undone, and a second run finds each file holding one.
+func TestArtEmbeds(t *testing.T) {
+	album, args, logs, asked := artLibrary(t)
+	lib := args[3]
+	args = append([]string{"art", "-embed"}, args...)
+	files := []string{filepath.Join(album, "01.flac"), filepath.Join(album, "02.mp3")}
+
+	if got := run(context.Background(), append(slices.Clone(args), "-dry-run")); got != exitOK {
+		t.Fatalf("the dry run = %d\n%s", got, logs)
+	}
+	for _, want := range []string{"[DRY-RUN] [PICTURE]", "if it has one", "Files that would get a picture: 2"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("the dry run's output lacks %q:\n%s", want, logs)
+		}
+	}
+	if pic, err := tagwrite.Picture(files[0]); err != nil || len(pic) != 0 || len(*asked) != 0 {
+		t.Errorf("the dry run put a picture of %d bytes into a file (%v) or asked the archive %d times", len(pic), err, len(*asked))
+	}
+
+	logs.Reset()
+	if got := run(context.Background(), args); got != exitOK {
+		t.Fatalf("run(%q) = %d\n%s", args, got, logs)
+	}
+	for _, want := range []string{"[PICTURE]", "from the Cover Art Archive", "In the files: true", "Covers written:           0", "Files given a picture:    2", "Errors encountered:       0"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("the output lacks %q:\n%s", want, logs)
+		}
+	}
+	for _, path := range files {
+		if pic, err := tagwrite.Picture(path); err != nil || len(pic) == 0 {
+			t.Errorf("%s holds no picture: %v", filepath.Base(path), err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(album, "cover.jpg")); !os.IsNotExist(err) || len(*asked) != 1 {
+		t.Errorf("a cover file was written (%v), or the archive asked %d times, want once for the album", err, len(*asked))
+	}
+
+	logs.Reset()
+	if got := run(context.Background(), args); got != exitOK || !strings.Contains(logs.String(), "Files given a picture:    0") || len(*asked) != 1 {
+		t.Errorf("a second run = %d, asked %d times:\n%s", got, len(*asked), logs)
+	}
+
+	// The undo, with the picture save tagshelf itself gives the engine.
+	st, err := store.OpenLibrary(lib, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	runs, err := st.Runs()
+	if err != nil || len(runs) != 4 || runs[2].DryRun || runs[2].Counters.Pictures != 2 {
+		t.Fatalf("the history = %+v, %v", runs, err)
+	}
+	opts := engineOptions(config.Config{Destination: lib})
+	opts.Store = st
+	if undone := engine.Undo(context.Background(), opts, runs[2].ID, nil, nil); undone.State != engine.StateOK || undone.Counters.Pictures != 2 {
+		t.Fatalf("the undo = %+v", undone)
+	}
+	for _, path := range files {
+		if pic, err := tagwrite.Picture(path); err != nil || len(pic) != 0 {
+			t.Errorf("after the undo %s holds a picture of %d bytes (%v)", filepath.Base(path), len(pic), err)
+		}
 	}
 }
 

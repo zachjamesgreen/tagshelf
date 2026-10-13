@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -310,5 +311,17 @@ func engineOptions(cfg config.Config) engine.Options {
 		RemoveStaleCopies: func(dir string) ([]string, error) {
 			return tagwrite.RemoveStaleCopies(dir, tagwrite.StaleAfter)
 		},
+		SavePicture: savePicture,
 	}
+}
+
+// savePicture puts a picture into an audio file, or takes its picture out,
+// for the engine: by tagwrite's safe save, put on record in the library's
+// history with the picture that gave way and the SHA-256 of the new one.
+func savePicture(st *store.Store, runID int64, path string, picture []byte) error {
+	_, err := tagwrite.SavePicture(path, picture, func(before []byte, apply func() error) error {
+		sum := sha256.Sum256(picture)
+		return st.RecordPicture(runID, path, before, sum[:], apply)
+	})
+	return err
 }
