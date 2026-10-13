@@ -29,7 +29,17 @@ type fakeSound struct {
 	again []bool
 }
 
-func (f *fakeSound) Identify(ctx context.Context, file store.File, again bool) (Heard, error) {
+// Identify answers the files one after another, in their order.
+func (f *fakeSound) Identify(ctx context.Context, files []store.File, again bool, each func(int, Heard, error) bool) {
+	for i, file := range files {
+		heard, err := f.identify(ctx, file, again)
+		if ctx.Err() != nil || !each(i, heard, err) {
+			return
+		}
+	}
+}
+
+func (f *fakeSound) identify(ctx context.Context, file store.File, again bool) (Heard, error) {
 	f.files, f.again = append(f.files, file.Path), append(f.again, again)
 	if err := f.gate.wait(ctx); err != nil {
 		return Heard{}, err
@@ -212,6 +222,106 @@ func TestLookupBySoundProblems(t *testing.T) {
 	hit(t, m, "ctrl+s")
 	if !strings.Contains(screen(m), "Identifying by sound is not available here") {
 		t.Errorf("without a sound service:\n%s", screen(m))
+	}
+}
+
+// A second ctrl+s that hears fewer recordings, or none, leaves the list no
+// longer than its matches, and the cursor on one of them.
+func TestLookupBySoundAgainWithFewerMatches(t *testing.T) {
+	m, _, _, sound := heardJulie(t)
+	hit(t, m, "ctrl+s", "down", "down")
+	l := m.look
+	if l.shown != 3 || l.cursor != 2 {
+		t.Fatalf("after ctrl+s: %d shown, cursor %d", l.shown, l.cursor)
+	}
+
+	sound.heard.Results = []acoustid.Result{{ID: "aid-low", Score: 0.52, Recordings: []string{"rec-9"}}}
+	hit(t, m, "ctrl+s")
+	if l.step != stepPick || len(l.matches) != 1 || l.shown != 1 || l.cursor != 0 {
+		t.Fatalf("with one recording heard: step %d, %d matches, %d shown, cursor %d", l.step, len(l.matches), l.shown, l.cursor)
+	}
+	if got := screen(m); !strings.Contains(got, "Julie and Candy (demo)") {
+		t.Errorf("the match is not listed:\n%s", got)
+	}
+
+	// None at all, and nothing searched: there is no list to go back to.
+	sound.heard.Results = nil
+	hit(t, m, "ctrl+s")
+	if l.step != stepQuery || len(l.matches) != 0 || l.shown != 0 || l.cursor != 0 {
+		t.Errorf("with nothing heard: step %d, %d matches, %d shown, cursor %d", l.step, len(l.matches), l.shown, l.cursor)
+	}
+	if got := screen(m); !strings.Contains(got, "AcoustID does not know this audio") {
+		t.Errorf("nothing heard is not said:\n%s", got)
+	}
+}
+
+// A recording AcoustID named that MusicBrainz was not asked for, or did not
+// give, is not among those heard: the search's match of it stays listed.
+func TestLookupBySoundKeepsWhatTheSearchFoundOfTheRest(t *testing.T) {
+	m, _, mb, sound := heardJulie(t)
+	// AcoustID names the search's rec-2 too; MusicBrainz gives it no
+	// recording for that ID.
+	sound.heard.Results[0].Recordings = append(sound.heard.Results[0].Recordings, "rec-2")
+	if _, known := mb.byID["rec-2"]; known {
+		t.Fatal("the lookup by ID knows rec-2")
+	}
+	hit(t, m, "enter", "ctrl+s")
+	l := m.look
+	if len(l.matches) != 4 || l.bySound != 3 || l.matches[3].Recording.ID != "rec-2" {
+		t.Fatalf("matches = %d, by sound %d", len(l.matches), l.bySound)
+	}
+	if _, ok := l.hit(3); ok {
+		t.Error("the search's match is taken for one listed by sound")
+	}
+}
+
+// A new search that fails, or is stopped, leaves what was heard listed.
+func TestLookupBySoundOutlastsASearchThatFails(t *testing.T) {
+	m, _, mb, sound := heardJulie(t)
+	hit(t, m, "ctrl+s")
+	l := m.look
+	asked := len(sound.files)
+
+	mb.err = errors.New("MusicBrainz is down")
+	hit(t, m, "/", "enter")
+	if got := screen(m); l.step != stepPick || l.bySound != 3 || len(l.matches) != 3 || l.shown != 3 || !strings.Contains(got, "MusicBrainz is down") || !strings.Contains(got, "97%") {
+		t.Errorf("after a search that failed: step %d, %d matches, %d by sound, %d shown\n%s", l.step, len(l.matches), l.bySound, l.shown, got)
+	}
+	mb.err = nil
+
+	mb.gate = newGate()
+	hit(t, m, "/")
+	h := start(t, m, "enter")
+	<-mb.gate.entered
+	hit(t, m, "esc")
+	h.answer(t, m)
+	mb.gate = nil
+	if l.step != stepPick || l.bySound != 3 || l.shown != 3 {
+		t.Errorf("after a search that was stopped: step %d, %d by sound, %d shown", l.step, l.bySound, l.shown)
+	}
+	if len(sound.files) != asked {
+		t.Errorf("AcoustID was asked again: %d times", len(sound.files)-asked)
+	}
+
+	// And one that goes through puts its matches after them.
+	hit(t, m, "/", "enter")
+	if l.step != stepPick || l.bySound != 3 || len(l.matches) != 4 || l.shown != 4 {
+		t.Errorf("after a search: step %d, %d matches, %d by sound, %d shown", l.step, len(l.matches), l.bySound, l.shown)
+	}
+}
+
+// An answer from the record that names nothing says how old it is too.
+func TestLookupBySoundSaysTheAgeOfAnEmptyAnswer(t *testing.T) {
+	m, _, _, sound := heardJulie(t)
+	sound.heard = Heard{FromRecord: true, Asked: time.Now().Add(-72 * time.Hour)}
+	hit(t, m, "ctrl+s")
+	if got := screen(m); !strings.Contains(got, "AcoustID does not know this audio; its answer is 3 days old, ctrl+s asks again") {
+		t.Errorf("an empty answer from the record does not say its age:\n%s", got)
+	}
+	sound.heard.FromRecord = false
+	hit(t, m, "ctrl+s")
+	if got := screen(m); !sound.again[1] || !strings.Contains(got, "AcoustID does not know this audio") || strings.Contains(got, "asks again") {
+		t.Errorf("an answer just given (again %v):\n%s", sound.again, got)
 	}
 }
 

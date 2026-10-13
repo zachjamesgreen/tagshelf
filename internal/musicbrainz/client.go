@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zachjamesgreen/tagshelf/internal/pacing"
 	"github.com/zachjamesgreen/tagshelf/internal/version"
 )
 
@@ -46,6 +46,17 @@ var ErrTimeout = errors.New("MusicBrainz did not answer in time; try again later
 // leave a lookup on a stalled connection waiting until the person gives up.
 const requestTimeout = 30 * time.Second
 
+// The interval between two requests starts at one second and doubles on each
+// 503, up to maxInterval.
+const (
+	minInterval = time.Second
+	maxInterval = 32 * time.Second
+)
+
+// sharedLimiter spaces every request the process makes to MusicBrainz, since
+// its limit is per IP address, not per client.
+var sharedLimiter = pacing.NewLimiter(pacing.RealClock{}, minInterval, maxInterval)
+
 // Client talks to the MusicBrainz web service. It is safe for concurrent use.
 // All clients in a process share one rate limiter; each client has its own
 // in-memory response cache.
@@ -53,7 +64,7 @@ type Client struct {
 	baseURL   string
 	userAgent string
 	http      *http.Client
-	limiter   *limiter
+	limiter   *pacing.Limiter
 
 	mu    sync.Mutex
 	cache map[string][]byte
@@ -147,7 +158,7 @@ const maxBody = 16 << 20
 // fetch sends one GET through the rate limiter, retrying 503s with backoff.
 func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 	for {
-		if err := c.limiter.wait(ctx); err != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -165,7 +176,7 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusServiceUnavailable {
-			if !c.limiter.backoff() {
+			if !c.limiter.Backoff() {
 				return nil, ErrUnavailable
 			}
 			continue
@@ -173,7 +184,7 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 		if err != nil {
 			return nil, timedOut(ctx, err)
 		}
-		c.limiter.recover()
+		c.limiter.Recover()
 		if resp.StatusCode != http.StatusOK {
 			return nil, statusError(resp.StatusCode, body)
 		}
@@ -184,8 +195,7 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 // timedOut makes ErrTimeout of the error of a request that ran out of time.
 // One the caller dropped or gave a deadline of its own keeps its error.
 func timedOut(ctx context.Context, err error) error {
-	var ne net.Error
-	if ctx.Err() == nil && errors.As(err, &ne) && ne.Timeout() {
+	if pacing.TimedOut(ctx, err) {
 		return ErrTimeout
 	}
 	return err

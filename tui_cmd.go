@@ -163,7 +163,8 @@ func (s *tuiSession) open() (tui.Options, error) {
 		return opts, err
 	}
 	opts.Runner = tuiRunner{cfg: cfg}
-	opts.Sound = newSound(cfg)
+	snd := newSound(cfg)
+	opts.Sound = snd
 
 	// The TUI only reads the library, so it takes no lock and can open while a
 	// run is going.
@@ -177,6 +178,8 @@ func (s *tuiSession) open() (tui.Options, error) {
 	}
 	s.st, s.cfg = st, cfg
 	opts.Store, opts.LibraryID = st, st.LibraryID()
+	snd.reader = st
+	opts.Sound = snd
 	return opts, nil
 }
 

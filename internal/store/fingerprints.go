@@ -52,6 +52,32 @@ func (s *Store) Fingerprint(sum string) (fp Fingerprint, ok bool, err error) {
 // without an answer keeps the answer the record had for the same
 // fingerprint.
 func (s *Store) SetFingerprint(fp Fingerprint, at time.Time) error {
+	return s.SetFingerprints([]Fingerprint{fp}, at)
+}
+
+// SetFingerprints puts each of fps on record as SetFingerprint does, all of
+// them or none: the listening to many files is kept in one write.
+func (s *Store) SetFingerprints(fps []Fingerprint, at time.Time) error {
+	if len(fps) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("recording the fingerprint: %w", err)
+	}
+	defer tx.Rollback()
+	for _, fp := range fps {
+		if err := setFingerprint(tx, fp, at); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("recording the fingerprint: %w", err)
+	}
+	return nil
+}
+
+func setFingerprint(tx *sql.Tx, fp Fingerprint, at time.Time) error {
 	if fp.Sum == "" || fp.Fingerprint == "" {
 		return errors.New("recording a fingerprint: it needs the hash of the audio and the fingerprint")
 	}
@@ -59,7 +85,7 @@ func (s *Store) SetFingerprint(fp Fingerprint, at time.Time) error {
 	if fp.Answer != nil {
 		answer, answered = string(fp.Answer), formatTime(fp.Answered)
 	}
-	_, err := s.db.Exec(`INSERT INTO fingerprints (audio_sum, duration, fingerprint, made_at, answer, answered_at)
+	_, err := tx.Exec(`INSERT INTO fingerprints (audio_sum, duration, fingerprint, made_at, answer, answered_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (audio_sum) DO UPDATE SET
 			answer = CASE WHEN excluded.answer IS NOT NULL THEN excluded.answer

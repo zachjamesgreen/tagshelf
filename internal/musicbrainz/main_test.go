@@ -9,6 +9,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/zachjamesgreen/tagshelf/internal/pacing"
+	"github.com/zachjamesgreen/tagshelf/internal/pacing/pacingtest"
 )
 
 // TestMain keeps every test of this package off the network: whatever goes
@@ -88,7 +91,7 @@ func TestRequestsOffThisMachineFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.limiter = newLimiter(newFakeClock())
+	c.limiter = pacing.NewLimiter(pacingtest.NewClock(), minInterval, maxInterval)
 	_, err = c.SearchRecordings(context.Background(), Query{Title: "x"}, 0)
 	if err == nil || !strings.Contains(err.Error(), "a test asked for musicbrainz.org") {
 		t.Errorf("a search on the real base URL: err = %v, want the guard's refusal", err)

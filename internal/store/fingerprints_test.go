@@ -59,4 +59,22 @@ func TestFingerprints(t *testing.T) {
 	if err := s.SetFingerprint(Fingerprint{Sum: "sum-2", Duration: 1, Fingerprint: "AQAA", Answer: []byte(`not json`), Answered: asked}, asked); err == nil {
 		t.Error("an answer that is not JSON was recorded")
 	}
+
+	// Several at once are all kept, or none of them.
+	many := []Fingerprint{{Sum: "sum-3", Duration: 3, Fingerprint: "AQAC"}, {Sum: "sum-4", Duration: 4, Fingerprint: "AQAD", Answer: []byte(`[]`), Answered: asked}}
+	if err := s.SetFingerprints(many, asked); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, _ := s.Fingerprint("sum-4"); !ok || got.Duration != 4 || string(got.Answer) != `[]` {
+		t.Errorf("of several at once: %+v, %t", got, ok)
+	}
+	if err := s.SetFingerprints([]Fingerprint{{Sum: "sum-5", Duration: 5, Fingerprint: "AQAE"}, {Sum: "", Fingerprint: "AQAF"}}, asked); err == nil {
+		t.Error("several were recorded with one that has no hash among them")
+	}
+	if _, ok, _ := s.Fingerprint("sum-5"); ok {
+		t.Error("part of several that were refused was kept")
+	}
+	if _, ok, _ := s.Fingerprint("sum-3"); !ok {
+		t.Error("the first of several is not on record")
+	}
 }

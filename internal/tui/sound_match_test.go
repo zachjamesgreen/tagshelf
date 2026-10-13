@@ -2,10 +2,13 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zachjamesgreen/tagshelf/internal/acoustid"
 	"github.com/zachjamesgreen/tagshelf/internal/musicbrainz"
@@ -164,6 +167,164 @@ func TestReleaseMatchBySoundJoinsTheSearchAndSaysItsProblems(t *testing.T) {
 	h.answer(t, m)
 	if x.step != matchQuery {
 		t.Errorf("after esc: step %d", x.step)
+	}
+}
+
+// A file AcoustID names two of the release's recordings for goes on the
+// track it is surest of, and leaves the other to the file that is that
+// track.
+func TestReleaseMatchBySoundGoesByTheScore(t *testing.T) {
+	m, _, sound := heardGeogaddi(t)
+	sound.by["01 track.flac"] = Heard{Results: []acoustid.Result{
+		{ID: "aid-reprise", Score: 0.95, Recordings: []string{"rec-2"}},
+		{ID: "aid-low", Score: 0.52, Recordings: []string{"rec-1"}},
+	}}
+	sound.by["02 track.flac"] = Heard{Results: []acoustid.Result{{ID: "aid-song", Score: 0.9, Recordings: []string{"rec-1"}}}}
+	hit(t, m, "ctrl+s", "enter")
+	x := m.match
+	if x.step != matchMap || len(x.mapping.Assignments) != 3 {
+		t.Fatalf("the release was not loaded, or not every file is on a track:\n%s", screen(m))
+	}
+	got := map[string]string{}
+	for _, a := range x.mapping.Assignments {
+		got[filepath.Base(x.files[a.File].Path)] = x.release.Track(a.Track).Recording.ID + " " + x.acoustID(a)
+	}
+	want := map[string]string{"01 track.flac": "rec-2 aid-reprise", "02 track.flac": "rec-1 aid-song", "zz.flac": "rec-3 aid-3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the files are on %v, want %v", got, want)
+	}
+}
+
+// Only the best few recordings of a file are asked of MusicBrainz, but the
+// file goes on the track of any recording AcoustID named for it.
+func TestReleaseMatchBySoundPlacesByEveryRecordingNamed(t *testing.T) {
+	m, mb, sound := heardGeogaddi(t)
+	named := []string{"x-1", "x-2", "x-3", "x-4", "x-5", "x-6", "x-7", "rec-3"}
+	sound.by["zz.flac"] = Heard{Results: []acoustid.Result{{ID: "aid-3", Score: 0.98, Recordings: named}}}
+	hit(t, m, "ctrl+s")
+	x := m.match
+	if len(mb.asked) != 1 || len(mb.asked[0]) != 2+maxHeardEach || slices.Contains(mb.asked[0], "rec-3") {
+		t.Fatalf("MusicBrainz was asked for %v, want the best %d of the file with many", mb.asked, maxHeardEach)
+	}
+	if x.step != matchPick || x.releases[0].Release.ID != "rel-album" || x.releases[0].Found != 2 {
+		t.Fatalf("releases = %+v", x.releases)
+	}
+	hit(t, m, "enter")
+	for _, a := range x.mapping.Assignments {
+		if filepath.Base(x.files[a.File].Path) == "zz.flac" {
+			if rec := x.release.Track(a.Track).Recording.ID; rec != "rec-3" || x.acoustID(a) != "aid-3" {
+				t.Errorf("zz.flac is on the track of %s with the AcoustID %q", rec, x.acoustID(a))
+			}
+			return
+		}
+	}
+	t.Errorf("zz.flac is on no track: %+v", x.mapping)
+}
+
+// AcoustID busy, slow or out of reach ends the listening at that file: the
+// ones after it would fare the same.
+func TestReleaseMatchBySoundStopsWhenAcoustIDIsDown(t *testing.T) {
+	for _, down := range []error{acoustid.ErrBusy, acoustid.ErrTimeout, fmt.Errorf("%w: no route to host", acoustid.ErrUnreachable)} {
+		m, mb, sound := heardGeogaddi(t)
+		sound.errs = map[string]error{"01 track.flac": down}
+		hit(t, m, "ctrl+s")
+		x := m.match
+		if got := screen(m); len(sound.files) != 1 || x.step != matchQuery || x.heard != nil || len(mb.asked) != 0 || !strings.Contains(got, down.Error()) {
+			t.Errorf("with %v: %d files listened to, step %d\n%s", down, len(sound.files), x.step, got)
+		}
+	}
+}
+
+// After files that failed, ctrl+s tries again without asking AcoustID anew
+// for the ones it answered; once all were answered, it asks anew.
+func TestReleaseMatchBySoundTriesTheFailedAgain(t *testing.T) {
+	m, _, sound := heardGeogaddi(t)
+	sound.errs = map[string]error{"zz.flac": errors.New("it is not audio")}
+	hit(t, m, "ctrl+s")
+	x := m.match
+	if got := screen(m); x.failed != 1 || !strings.Contains(got, "1 file could not be listened to: it is not audio") {
+		t.Fatalf("with one file failing: failed %d\n%s", x.failed, got)
+	}
+	sound.errs = nil
+	hit(t, m, "ctrl+s")
+	if !reflect.DeepEqual(sound.again, []bool{false, false, false, false, false, false}) {
+		t.Errorf("after a file failed: again = %v, want none asked anew", sound.again)
+	}
+	if x.failed != 0 || x.releases[0].Found != 3 {
+		t.Errorf("after the retry: failed %d, releases %+v", x.failed, x.releases)
+	}
+	hit(t, m, "ctrl+s")
+	if !reflect.DeepEqual(sound.again[6:], []bool{true, true, true}) {
+		t.Errorf("after all were answered: again = %v, want all asked anew", sound.again[6:])
+	}
+
+	// A file that failed is said even when AcoustID knows none of the rest.
+	sound.by, sound.errs = nil, map[string]error{"zz.flac": errors.New("it is not audio")}
+	hit(t, m, "ctrl+s")
+	if got := screen(m); !strings.Contains(got, "1 file could not be listened to: it is not audio") {
+		t.Errorf("a failure beside files AcoustID does not know:\n%s", got)
+	}
+}
+
+// A second ctrl+s that finds no release by sound leaves the cursor on a
+// release there is, or the screen for the query when there is none.
+func TestReleaseMatchBySoundAgainWithNothing(t *testing.T) {
+	m, mb, sound := heardGeogaddi(t)
+	hit(t, m, "ctrl+s", "down")
+	x := m.match
+	if x.step != matchPick || x.cursor != 1 {
+		t.Fatalf("after ctrl+s: step %d, cursor %d", x.step, x.cursor)
+	}
+	sound.by = nil
+	hit(t, m, "ctrl+s")
+	if got := screen(m); x.step != matchQuery || len(x.releases) != 0 || x.cursor != 0 || !strings.Contains(got, "AcoustID does not know the audio of these files") {
+		t.Errorf("with nothing known and nothing searched: step %d, %d releases, cursor %d\n%s", x.step, len(x.releases), x.cursor, got)
+	}
+
+	// With one release from the search, the cursor is on it.
+	mb.candidates = mb.candidates[:1]
+	sound.by = map[string]Heard{"01 track.flac": {Results: []acoustid.Result{{ID: "aid-1", Score: 0.9, Recordings: []string{"rec-1"}}}}}
+	hit(t, m, "enter", "ctrl+s", "down")
+	if len(x.releases) != 2 || x.cursor != 1 {
+		t.Fatalf("by sound after a search: %d releases, cursor %d", len(x.releases), x.cursor)
+	}
+	sound.by = nil
+	hit(t, m, "ctrl+s")
+	if x.step != matchPick || len(x.releases) != 1 || x.cursor != 0 {
+		t.Errorf("with nothing known after a search: step %d, %d releases, cursor %d", x.step, len(x.releases), x.cursor)
+	}
+	hit(t, m, "enter")
+	if x.step != matchMap {
+		t.Errorf("the release under the cursor could not be picked: step %d", x.step)
+	}
+}
+
+// Answers taken from the record say how old the oldest is.
+func TestReleaseMatchBySoundSaysTheAgeOfAnswersOnRecord(t *testing.T) {
+	m, _, sound := heardGeogaddi(t)
+	hit(t, m, "ctrl+s")
+	if got := screen(m); strings.Contains(got, "asks again") {
+		t.Errorf("answers just given are said to be old:\n%s", got)
+	}
+	for name, ago := range map[string]time.Duration{"01 track.flac": 30 * time.Hour, "zz.flac": 72 * time.Hour} {
+		heard := sound.by[name]
+		heard.FromRecord, heard.Asked = true, time.Now().Add(-ago)
+		sound.by[name] = heard
+	}
+	m.match.heard = nil // as when the match is opened anew
+	hit(t, m, "/", "ctrl+s")
+	if got := screen(m); !strings.Contains(got, "by sound first, by the share of the files held; answers up to 3 days old, ctrl+s asks again") {
+		t.Errorf("answers from the record do not say their age:\n%s", got)
+	}
+
+	// Nothing known, by the record: that says its age too.
+	for name := range sound.by {
+		sound.by[name] = Heard{FromRecord: true, Asked: time.Now().Add(-5 * time.Hour)}
+	}
+	m.match.heard = nil
+	hit(t, m, "/", "ctrl+s")
+	if got := screen(m); !strings.Contains(got, "AcoustID does not know the audio of these files; answers up to 5 hours old, ctrl+s asks again") {
+		t.Errorf("nothing known by the record does not say its age:\n%s", got)
 	}
 }
 

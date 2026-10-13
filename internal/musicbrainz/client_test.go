@@ -12,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/zachjamesgreen/tagshelf/internal/pacing"
+	"github.com/zachjamesgreen/tagshelf/internal/pacing/pacingtest"
 )
 
 // The responses in testdata are written by hand, in the shape MusicBrainz's
@@ -109,14 +112,14 @@ func (rp *replay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // testClient returns a client for srv with its own limiter on a fake clock.
 // It is put together here, field by field, and not by New: New's client is
 // one edit of the base URL away from the live service.
-func testClient(t *testing.T, srv *httptest.Server) (*Client, *fakeClock) {
+func testClient(t *testing.T, srv *httptest.Server) (*Client, *pacingtest.Clock) {
 	t.Helper()
-	clk := newFakeClock()
+	clk := pacingtest.NewClock()
 	return &Client{
 		baseURL:   srv.URL + "/ws/2",
 		userAgent: UserAgent("tests@example.com"),
 		http:      &http.Client{}, // http.DefaultTransport: see TestMain
-		limiter:   newLimiter(clk),
+		limiter:   pacing.NewLimiter(clk, minInterval, maxInterval),
 		cache:     map[string][]byte{},
 	}, clk
 }
@@ -301,8 +304,8 @@ func TestFetchBacksOffOn503(t *testing.T) {
 		}
 	}
 	// The success halved the interval.
-	if c.limiter.interval != 4*time.Second {
-		t.Errorf("interval after success = %v, want 4s", c.limiter.interval)
+	if c.limiter.Interval() != 4*time.Second {
+		t.Errorf("interval after success = %v, want 4s", c.limiter.Interval())
 	}
 }
 
@@ -369,7 +372,7 @@ func TestFetchCancelledWhileBackingOff(t *testing.T) {
 	}))
 	defer srv.Close()
 	c, clk := testClient(t, srv)
-	clk.onSleep = cancel
+	clk.OnSleep = cancel
 
 	if _, err := c.SearchRecordings(ctx, Query{Title: "x"}, 0); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)

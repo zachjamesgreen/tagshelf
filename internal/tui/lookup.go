@@ -83,8 +83,8 @@ type lookup struct {
 
 	// What identifying the file by its sound gave: the recordings AcoustID
 	// named as MusicBrainz has them, and by recording ID what it says of
-	// each. sound is nil until it has been asked. The first bySound of
-	// matches are those. back is the step listening began at.
+	// each of those. sound is nil until it has been asked. The first bySound
+	// of matches are those. back is the step listening began at.
 	heard           []musicbrainz.Recording
 	sound           map[string]soundHit
 	bySound         int
@@ -246,7 +246,10 @@ func (m *Model) search() tea.Cmd {
 		l.problem = "Nothing to search for: type a title, an artist or an album"
 		return nil
 	}
-	l.query, l.recs, l.total, l.matches, l.shown, l.cursor, l.problem = q, nil, 0, nil, 0, 0, ""
+	l.query, l.recs, l.total, l.problem = q, nil, 0, ""
+	// What was heard stays listed, whatever comes of the search.
+	l.rank()
+	l.shown, l.cursor = l.bySound, 0
 	l.step = stepSearching
 	return m.fetch(0)
 }

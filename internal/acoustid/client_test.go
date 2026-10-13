@@ -8,10 +8,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/zachjamesgreen/tagshelf/internal/pacing"
+	"github.com/zachjamesgreen/tagshelf/internal/pacing/pacingtest"
 )
 
-// testClient is a client that asks the stand-in server srv, without
-// waiting between requests. No test asks the real service.
+// testClient is a client that asks the stand-in server srv, with a limiter
+// of its own on a clock that does not wait. No test asks the real service.
 func testClient(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
 	c, err := New("the-key")
@@ -20,7 +24,7 @@ func testClient(t *testing.T, srv *httptest.Server) *Client {
 	}
 	c.baseURL = srv.URL
 	c.http = srv.Client()
-	c.wait = func(context.Context) error { return nil }
+	c.limiter = pacing.NewLimiter(pacingtest.NewClock(), minInterval, maxInterval)
 	return c
 }
 
@@ -126,15 +130,47 @@ func TestLookupErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	c := testClient(t, srv)
 	srv.Close()
-	if _, err := c.Lookup(context.Background(), "AQAA", 100); err == nil || strings.Contains(err.Error(), "the-key") {
+	if _, err := c.Lookup(context.Background(), "AQAA", 100); !errors.Is(err, ErrUnreachable) || strings.Contains(err.Error(), "the-key") {
 		t.Errorf("with the service gone: %v", err)
 	}
 
 	// A cancelled request says so.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	c.wait = waitTurn
 	if _, err := c.Lookup(ctx, "AQAA", 100); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled: %v", err)
+	}
+}
+
+// A lookup AcoustID is too busy for makes the next one wait twice as long,
+// and one it answers brings the wait back down.
+func TestLookupBacksOffWhenBusy(t *testing.T) {
+	busy := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if busy {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte(`{"status":"ok","results":[]}`))
+	}))
+	defer srv.Close()
+	c := testClient(t, srv)
+	clk := pacingtest.NewClock()
+	c.limiter = pacing.NewLimiter(clk, minInterval, maxInterval)
+
+	for range 2 {
+		if _, err := c.Lookup(context.Background(), "AQAA", 100); !errors.Is(err, ErrBusy) {
+			t.Fatalf("err = %v, want ErrBusy", err)
+		}
+	}
+	busy = false
+	if _, err := c.Lookup(context.Background(), "AQAA", 100); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := clk.Slept(), []time.Duration{2 * minInterval, 4 * minInterval}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the lookups after a busy answer waited %v, want %v", got, want)
+	}
+	if got := c.limiter.Interval(); got != 2*minInterval {
+		t.Errorf("the interval after an answer = %v, want %v", got, 2*minInterval)
 	}
 }
