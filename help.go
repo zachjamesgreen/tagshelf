@@ -46,6 +46,7 @@ Artist\Album (Year)\Track - Title. It never deletes or writes over a file.
 Usage:
   tagshelf [flags]        organize the source folder into the library
   tagshelf tui [flags]    open the terminal UI on the library (tagshelf tui -h)
+  tagshelf report [flags] list the library's files as CSV (tagshelf report -h)
   tagshelf -version       print the version
   tagshelf -h             show this help
 

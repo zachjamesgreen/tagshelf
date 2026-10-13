@@ -143,8 +143,8 @@ func (f *libraryFlags) overrides() config.Overrides {
 	return ov
 }
 
-// run parses args, does one run (or, for `tagshelf tui`, shows the TUI) and
-// returns the process exit code. With no arguments at all it only shows the
+// run parses args, does one run (or, for `tagshelf tui`, shows the TUI, and
+// for `tagshelf report` writes the report) and returns the process exit code. With no arguments at all it only shows the
 // help, or the TUI when it was started by a double click: a run is never
 // started by a config file alone, without a word typed to ask for it.
 func run(ctx context.Context, args []string) int {
@@ -164,6 +164,9 @@ func run(ctx context.Context, args []string) int {
 	}
 	if args[0] == "tui" {
 		return runTUI(ctx, args[1:])
+	}
+	if args[0] == "report" {
+		return runReport(args[1:])
 	}
 	// -version alone, so that it never starts a run beside a config file.
 	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {

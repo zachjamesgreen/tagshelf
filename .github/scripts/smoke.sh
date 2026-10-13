@@ -55,6 +55,11 @@ echo "--- the index, and a second run that finds everything in place"
 "$bin" -reorganize "$work/lib" > "$work/again.log" 2>&1 || { cat "$work/again.log"; fail "the reorganize"; }
 grep -q 'Already in place:  *2$' "$work/again.log" || { cat "$work/again.log"; fail "the reorganize did not find the two tagged files in place"; }
 
+echo "--- the report lists the three files"
+"$bin" report -dest "$work/lib" -o "$work/report.csv" > "$work/report.log" 2>&1 || { cat "$work/report.log"; fail "the report"; }
+[ "$(wc -l < "$work/report.csv")" -eq 4 ] || { cat "$work/report.csv"; fail "the report does not have a row for each of the three files"; }
+grep -q 'Files:  *3 (library 2, untagged 1)$' "$work/report.log" || { cat "$work/report.log"; fail "the report's counts"; }
+
 echo "--- its data is under the home folder"
 ls "$HOME/.local/share/tagshelf/libraries" > /dev/null || fail "no database under ~/.local/share/tagshelf"
 ls "$HOME/.cache/tagshelf" > /dev/null || fail "no cache under ~/.cache/tagshelf"

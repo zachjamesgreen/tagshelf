@@ -178,8 +178,9 @@ MP3, FLAC, Ogg Vorbis (`.ogg`, `.oga`), Opus, MP4 (`.m4a`, `.m4b`, `.m4p`, `.m4r
 ```text
 tagshelf [flags]          one run, then exit
 tagshelf tui [flags]      the terminal UI
+tagshelf report [flags]   a list of the library's files, as CSV
 tagshelf -version
-tagshelf -h               the help; tagshelf tui -h for the terminal UI's
+tagshelf -h               the help; tagshelf tui -h and tagshelf report -h for theirs
 ```
 
 `tagshelf` with nothing after it prints the help and does nothing else. (Started by a double click, where the help would vanish with the window, it opens the terminal UI instead.) It takes at least one flag to start a run, even when a config file holds every setting: `tagshelf -config config.yaml`, or `tagshelf -dry-run` beside a `config.yaml`.
@@ -223,6 +224,42 @@ A run ends with warnings for what went less than right without failing a file: a
 | 1 | The run finished, but some files failed. They are listed at the end. |
 | 2 | The run could not start: bad flags, config or database. Nothing was touched. |
 | 130 | Ctrl-C, or one of the two signals, stopped the run. |
+
+### The report
+
+`tagshelf report` lists every audio file the index knows, a row each, as CSV. It only reads: nothing in the library or its database changes, and it can be made while a run is going.
+
+```powershell
+tagshelf report -dest "D:\Music" -o report.csv
+```
+
+| Flag | Meaning |
+|---|---|
+| `-o FILE` | Write the report to this file, which must not exist yet. Without it the report is printed. |
+| `-dest DIR` | The library to report on. |
+| `-db FILE` | The database file, if not the default. |
+| `-config FILE` | The config file to take the library from. |
+
+The report covers the library, `_Untagged`, `_Duplicates` and `_Other`; the `folder` column says which a file is in. The columns are what the index knows about a file, not a verdict on it. To find the low bit rates or the files without MusicBrainz IDs, sort or filter the column in a spreadsheet.
+
+| Column | What it holds |
+|---|---|
+| `folder` | `library`, `untagged`, `duplicates` or `other`. |
+| `path` | The full path of the file. |
+| `format`, `lossless` | The file type, and `yes` or `no`. |
+| `bitrate_kbps`, `sample_rate_hz`, `bit_depth`, `length_seconds`, `size_bytes` | The audio's measures. One that is not known is left empty. |
+| `artist`, `album_artist`, `album`, `title`, `year`, `track`, `disc` | The tags. |
+| `musicbrainz_release_id`, `musicbrainz_recording_id` | The MusicBrainz IDs in the tags. |
+| `manual_marker` | The manual marker, such as `hand 2026-09-27`, for a file that is manually tagged. |
+| `embedded_art` | `yes` when the file holds a picture. A cover image beside the file does not count. |
+| `duplicate_group` | The number and kind of each duplicate group the file is in that still waits for your decision, such as `3 exact`. Files with the same number are copies of one song. |
+| `read_error` | What could not be read from the file. |
+
+After the report, tagshelf prints the counts: the files in each folder, those without MusicBrainz IDs, without embedded art, in duplicate groups, and not fully read.
+
+The report is as fresh as the index, which the last run brought up to date; the summary says when that was. For a fresh report, run `tagshelf -index` first.
+
+A file written with `-o` starts with a byte order mark, so that Excel reads its names as UTF-8. A printed report has none.
 
 ## Config file
 
