@@ -232,6 +232,8 @@ func TestCheck(t *testing.T) {
 		{"a contact that is a URL", with(func(c *Config) { c.MusicBrainzContact = "https://example.org/me" }), nil},
 		{"a contact that is neither", with(func(c *Config) { c.MusicBrainzContact = "me" }), map[string]string{"musicbrainz_contact": "email address or a URL"}},
 		{"a contact with a space", with(func(c *Config) { c.MusicBrainzContact = "me at example.org" }), map[string]string{"musicbrainz_contact": "without spaces"}},
+		{"an AcoustID key", with(func(c *Config) { c.AcoustIDKey = " AbCdEf123 " }), nil},
+		{"an AcoustID key with a space", with(func(c *Config) { c.AcoustIDKey = "my key" }), map[string]string{"acoustid_key": "no spaces"}},
 		{"a contact without a host", with(func(c *Config) { c.MusicBrainzContact = "me@example" }), map[string]string{"musicbrainz_contact": "email address"}},
 		{"a compilations name with a slash", with(func(c *Config) { c.Compilations = "Various/Artists" }), map[string]string{"compilations": "cannot hold"}},
 		{"a compilations name ending in a full stop", with(func(c *Config) { c.Compilations = "Various." }), map[string]string{"compilations": "full stop"}},

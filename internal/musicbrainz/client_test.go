@@ -555,3 +555,33 @@ func TestFlexInt(t *testing.T) {
 		srv.Close()
 	}
 }
+
+// Recordings are asked for by ID in one search, and come back in the order
+// asked, whatever order MusicBrainz answers in. What is not an ID is not
+// sent.
+func TestRecordingsByID(t *testing.T) {
+	const a, b, gone = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"
+	var query, limit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query, limit = r.URL.Query().Get("query"), r.URL.Query().Get("limit")
+		w.Write([]byte(`{"count":2,"recordings":[{"id":"` + b + `","title":"Second"},{"id":"` + a + `","title":"First"}]}`))
+	}))
+	defer srv.Close()
+	c, _ := testClient(t, srv)
+
+	recs, err := c.RecordingsByID(context.Background(), []string{strings.ToUpper(a), "not an id) OR recording:(x", gone, b, a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 || recs[0].Title != "First" || recs[1].Title != "Second" {
+		t.Errorf("recordings = %+v, want the two MusicBrainz knows, in the order asked", recs)
+	}
+	if want := "rid:(" + a + " OR " + gone + " OR " + b + ")"; query != want || limit != "3" {
+		t.Errorf("asked %q with limit %s, want %q with 3", query, limit, want)
+	}
+
+	query = ""
+	if recs, err := c.RecordingsByID(context.Background(), []string{"nothing", ""}); err != nil || recs != nil || query != "" {
+		t.Errorf("with no IDs: %v, %v, asked %q", recs, err, query)
+	}
+}

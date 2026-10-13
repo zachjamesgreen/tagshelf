@@ -325,6 +325,9 @@ func Check(c Config) map[string]string {
 	if msg := contactProblem(c.MusicBrainzContact); msg != "" {
 		problems["musicbrainz_contact"] = msg
 	}
+	if strings.ContainsAny(strings.TrimSpace(c.AcoustIDKey), " \t") {
+		problems["acoustid_key"] = "must be the API key of your application at AcoustID, which has no spaces"
+	}
 	if msg := folderNameProblem(c.Compilations); msg != "" {
 		problems["compilations"] = msg
 	}

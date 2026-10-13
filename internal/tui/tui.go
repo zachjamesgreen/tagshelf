@@ -34,6 +34,8 @@ type Options struct {
 	// GenreFromMusicBrainz is what a match does with the genre: config's
 	// GenreOff, GenreFill or GenreReplace.
 	GenreFromMusicBrainz string
+	// Sound identifies files by their sound; nil leaves that out.
+	Sound Sound
 	// CoverFile says a cover art setting is on: an album without a cover is
 	// given one, as a file or in its audio files, by c on an album and after
 	// a match.

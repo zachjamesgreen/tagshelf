@@ -122,6 +122,8 @@ type Model struct {
 	// coverFile says a cover art setting is on: whether c and a match see to
 	// an album's cover.
 	coverFile bool
+	// sound identifies files by their sound; nil when it cannot be done.
+	sound Sound
 
 	// busy is closed when the action a tab is carrying out on the library has
 	// ended, nil when none is.
@@ -267,6 +269,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.coverDone(msg)
 	case lookupFoundMsg:
 		m.lookupFound(msg)
+	case lookupHeardMsg:
+		m.lookupHeard(msg)
 	case lookupPickedMsg:
 		m.lookupPicked(msg)
 	case lookupDoneMsg:

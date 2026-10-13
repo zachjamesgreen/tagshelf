@@ -30,6 +30,7 @@ type MusicBrainz interface {
 	SearchRecordings(ctx context.Context, q musicbrainz.Query, offset int) (*musicbrainz.RecordingSearch, error)
 	SearchReleaseCandidates(ctx context.Context, q musicbrainz.ReleaseQuery, boost []musicbrainz.Query, inLibrary func(releaseID string) bool) ([]musicbrainz.ReleaseCandidate, error)
 	LookupRelease(ctx context.Context, id string) (*musicbrainz.Release, error)
+	RecordingsByID(ctx context.Context, ids []string) ([]musicbrainz.Recording, error)
 }
 
 // lookupStep is where a lookup has got to.
@@ -44,7 +45,11 @@ const (
 	stepLoading                     // waiting for the release of the match picked
 	stepConfirm                     // looking at what would be written
 	stepSaving                      // writing it
+	stepListening                   // listening to the file and asking AcoustID
 )
+
+// listening is what a lookup says while it identifies its file by sound.
+const listening = "Listening to the file and asking AcoustID…"
 
 // matchPage is how many more matches each "more" shows.
 const matchPage = musicbrainz.PageSize
@@ -75,6 +80,17 @@ type lookup struct {
 	matches   []musicbrainz.Candidate // recs ranked
 	shown     int                     // how many of matches are listed
 	cursor    int
+
+	// What identifying the file by its sound gave: the recordings AcoustID
+	// named as MusicBrainz has them, and by recording ID what it says of
+	// each. sound is nil until it has been asked. The first bySound of
+	// matches are those. back is the step listening began at.
+	heard           []musicbrainz.Recording
+	sound           map[string]soundHit
+	bySound         int
+	heardAt         time.Time
+	heardFromRecord bool
+	back            lookupStep
 
 	picked musicbrainz.Candidate
 	tags   musicbrainz.Tags // what the pick would write
@@ -287,8 +303,8 @@ func (m *Model) lookupFound(msg lookupFoundMsg) {
 		// The service has no more than it gave, whatever it counted.
 		l.total = len(l.recs)
 	}
-	l.matches = musicbrainz.Rank(l.query, l.recs, func(id string) bool { return l.inLibrary[id] })
-	l.shown = min(l.shown+matchPage, len(l.matches))
+	l.rank()
+	l.shown = min(max(l.shown, l.bySound)+matchPage, len(l.matches))
 	if at != nil {
 		for i, c := range l.matches {
 			if sameMatch(c, *at) {
@@ -407,6 +423,7 @@ var lookupFields = []struct {
 	{tagwrite.Genre, "Genre"},
 	{tagwrite.RecordingID, "Recording ID"}, {tagwrite.ReleaseTrackID, "Track ID"}, {tagwrite.AlbumID, "Release ID"},
 	{tagwrite.ReleaseGroupID, "Release group ID"}, {tagwrite.ArtistIDs, "Artist IDs"}, {tagwrite.AlbumArtistIDs, "Album artist IDs"},
+	{tagwrite.AcoustID, "AcoustID"},
 }
 
 // lookupIDsFrom is where in lookupFields the MusicBrainz IDs start; the
@@ -476,9 +493,14 @@ func lookupValues(t musicbrainz.Tags, path string) tagwrite.Values {
 }
 
 // lookupWrites are the tags the picked match would write to the file: the
-// match's, and its genres when the setting has them written.
+// match's, its genres when the setting has them written, and the AcoustID of
+// the audio when the match is one AcoustID heard.
 func (m *Model) lookupWrites(l *lookup) tagwrite.Values {
-	return withGenres(lookupValues(l.tags, l.file.Path), l.tags.Genres, m.genreMode, l.orig[tagwrite.Genre])
+	v := withGenres(lookupValues(l.tags, l.file.Path), l.tags.Genres, m.genreMode, l.orig[tagwrite.Genre])
+	if hit, ok := l.heardAs(l.picked); ok && hit.acoustID != "" {
+		v[tagwrite.AcoustID] = []string{hit.acoustID}
+	}
+	return v
 }
 
 // lookupSave is the tag save of a confirmed match: its tags and the manual
@@ -573,6 +595,8 @@ func (m *Model) lookupKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.closeLookup()
 		case "enter":
 			return m.search()
+		case "ctrl+s":
+			return m.listen()
 		default:
 			// The form never gets the key that would complete it: a
 			// completed form cannot be edited again.
@@ -586,6 +610,11 @@ func (m *Model) lookupKey(msg tea.KeyPressMsg) tea.Cmd {
 		if k == "esc" {
 			l.stop()
 			l.step = stepPick
+		}
+	case stepListening:
+		if k == "esc" {
+			l.stop()
+			l.step = l.back
 		}
 	case stepSearching:
 		if k == "esc" {
@@ -621,6 +650,8 @@ func (m *Model) lookupKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		case "enter":
 			return m.pick()
+		case "ctrl+s":
+			return m.listen()
 		}
 	case stepLoading:
 		if k == "esc" {
@@ -643,6 +674,10 @@ func (m *Model) lookupCrumb() string {
 	l := m.look
 	crumb := " " + dimStyle.Render(l.from.String()+" › ") + boldStyle.Render("Look up") + dimStyle.Render(" › ") + clean(filepath.Base(l.file.Path))
 	switch l.step {
+	case stepListening:
+		if l.back == stepPick {
+			crumb += dimStyle.Render(" › ") + "Matches"
+		}
 	case stepPick, stepMore, stepLoading:
 		crumb += dimStyle.Render(" › ") + "Matches"
 	case stepConfirm, stepSaving:
@@ -657,11 +692,11 @@ func (m *Model) lookupHelp() string {
 	case stepDisabled:
 		return "ctrl+e edit the tags by hand  esc back"
 	case stepQuery:
-		return "↑↓/tab field  enter search  ctrl+e edit by hand  esc back"
-	case stepSearching, stepMore, stepLoading:
+		return "↑↓/tab field  enter search  ctrl+s by sound  ctrl+e edit by hand  esc back"
+	case stepSearching, stepMore, stepLoading, stepListening:
 		return "esc stop waiting"
 	case stepPick:
-		return "↑↓ move  enter pick  m more  / change the query  ctrl+e edit by hand  esc back"
+		return "↑↓ move  enter pick  m more  / change the query  ctrl+s by sound  ctrl+e edit by hand  esc back"
 	case stepConfirm:
 		return "enter write these tags  ctrl+e edit by hand  esc back to the matches"
 	}
@@ -680,14 +715,23 @@ func (m *Model) lookupBody(h int) string {
 	switch l.step {
 	case stepDisabled:
 		lookupsOff(&b, "ctrl+e edits the tags by hand")
+	case stepListening:
+		if l.back == stepPick {
+			m.matchesBody(&b, h-2)
+			break
+		}
+		fallthrough
 	case stepQuery, stepSearching:
 		b.WriteString("  " + boldStyle.Render("Search MusicBrainz for") + "\n\n")
 		b.WriteString(strings.TrimRight(l.form.View(), "\n") + "\n")
 		if l.problem != "" {
 			b.WriteString("\n  " + badStyle.Render(clean(l.problem)) + "\n")
 		}
-		if l.step == stepSearching {
+		switch l.step {
+		case stepSearching:
 			b.WriteString("\n  " + dimStyle.Render("Searching MusicBrainz…") + "\n")
+		case stepListening:
+			b.WriteString("\n  " + dimStyle.Render(listening) + "\n")
 		}
 	case stepPick, stepMore, stepLoading:
 		m.matchesBody(&b, h-2)
@@ -725,7 +769,10 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 	if l.hasMore() {
 		count += "; m shows more"
 	}
-	b.WriteString("  " + boldStyle.Render("Matches") + dimStyle.Render("  "+count) + "\n")
+	if by := l.heardLine(time.Now()); by != "" {
+		count += "; " + by
+	}
+	b.WriteString("  " + boldStyle.Render("Matches") + dimStyle.Render("  "+strings.TrimRight(cell(count, max(m.width-12, 20)), " ")) + "\n")
 	flex := max(m.width-matchFixedWidth, 30)
 	titleW, artistW := flex*36/100, flex*28/100
 	releaseW := flex - titleW - artistW
@@ -764,7 +811,11 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 		if c.HasLengthDelta {
 			diff = delta(c.LengthDelta)
 		}
-		line := row(strconv.Itoa(c.Score), c.Title(), c.Artist(), release, year, country, c.Format, pos, diff)
+		score := strconv.Itoa(c.Score)
+		if hit, ok := l.hit(i); ok {
+			score = percent(hit.score)
+		}
+		line := row(score, c.Title(), c.Artist(), release, year, country, c.Format, pos, diff)
 		if i == l.cursor {
 			b.WriteString("› " + activeTab.Render(line) + "\n")
 		} else {
@@ -779,6 +830,8 @@ func (m *Model) matchesBody(b *strings.Builder, h int) {
 		b.WriteString("\n  " + dimStyle.Render("Reading the release from MusicBrainz…") + "\n")
 	case stepMore:
 		b.WriteString("\n  " + dimStyle.Render("Asking MusicBrainz for more…") + "\n")
+	case stepListening:
+		b.WriteString("\n  " + dimStyle.Render(listening) + "\n")
 	}
 }
 

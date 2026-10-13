@@ -37,6 +37,25 @@ type fakeMB struct {
 	queries []musicbrainz.Query
 	offsets []int
 	looked  []string
+
+	// byID are the recordings a lookup by ID knows, and asked the IDs each
+	// such lookup named.
+	byID  map[string]musicbrainz.Recording
+	asked [][]string
+}
+
+func (f *fakeMB) RecordingsByID(ctx context.Context, ids []string) ([]musicbrainz.Recording, error) {
+	f.asked = append(f.asked, ids)
+	if err := cmp.Or(f.gate.wait(ctx), f.err); err != nil {
+		return nil, err
+	}
+	var out []musicbrainz.Recording
+	for _, id := range ids {
+		if rec, ok := f.byID[id]; ok {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeMB) SearchRecordings(ctx context.Context, q musicbrainz.Query, offset int) (*musicbrainz.RecordingSearch, error) {
