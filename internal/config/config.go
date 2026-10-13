@@ -48,6 +48,14 @@ type Config struct {
 	// genre: GenreOff, GenreFill or GenreReplace. Empty means the default,
 	// GenreFill.
 	GenreFromMusicBrainz string `yaml:"genre_from_musicbrainz"`
+	// CoverArtFile has a cover file written into an album's folder that has
+	// none, when cover art is seen to: after a MusicBrainz match, by the
+	// TUI's action on an album, and by tagshelf art.
+	CoverArtFile bool `yaml:"cover_art_file"`
+	// CoverArtReplace is when a cover an album already has is replaced by
+	// the Cover Art Archive's: engine.CoverNever, CoverSmaller or
+	// CoverAlways. Empty means the default, CoverNever.
+	CoverArtReplace string `yaml:"cover_art_replace"`
 
 	// Database is the library's database file. Empty means the default
 	// location for the library's ID.
@@ -68,6 +76,15 @@ func (c Config) GenreMode() string {
 		return mode
 	}
 	return GenreFill
+}
+
+// CoverReplace is when a cover an album has is replaced: one of
+// engine.CoverNever, CoverSmaller and CoverAlways.
+func (c Config) CoverReplace() string {
+	if mode := strings.ToLower(strings.TrimSpace(c.CoverArtReplace)); mode != "" {
+		return mode
+	}
+	return engine.CoverNever
 }
 
 // RewriteCues reports whether moved cue sheets get their FILE lines fixed.

@@ -20,6 +20,7 @@ func commandFlags() map[string]*libraryFlags {
 	report, _ := reportFlags(flag.NewFlagSet("tagshelf report", flag.ContinueOnError))
 	return map[string]*libraryFlags{
 		"tagshelf report": report,
+		"tagshelf art":    newArtFlags(flag.NewFlagSet("tagshelf art", flag.ContinueOnError)).libraryFlags,
 		"tagshelf":        organizeFlags(flag.NewFlagSet("tagshelf", flag.ContinueOnError)),
 		"tagshelf tui": addLibraryFlags(tuiSet, tuiHelp, "The source `folder`.",
 			"The library `folder`.", "Dry run."),
@@ -65,6 +66,8 @@ func TestHelpScreen(t *testing.T) {
 		}
 		if name == "tagshelf report" {
 			wants = append(wants, "\nThe report:\n", "  -o <file>  ", "  -dest <folder>  ", "  -db <file>  ")
+		} else if name == "tagshelf art" {
+			wants = append(wants, "\nWhat it does:\n", "  -file  ", "  -replace <When>  ", "  -dry-run  ", "  -dest <folder>  ")
 		} else {
 			wants = append(wants, "\nFolders:\n", "  -source <folder>  ", "  -compilations <name>  ", "  -workers <n>  ", "  -dry-run  ",
 				// So are the defaults.

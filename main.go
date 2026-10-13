@@ -168,6 +168,9 @@ func run(ctx context.Context, args []string) int {
 	if args[0] == "report" {
 		return runReport(args[1:])
 	}
+	if args[0] == "art" {
+		return runArt(ctx, args[1:])
+	}
 	// -version alone, so that it never starts a run beside a config file.
 	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {
 		fmt.Fprintln(stdout, "tagshelf", version.String())
