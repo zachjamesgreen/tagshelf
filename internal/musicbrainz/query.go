@@ -1,8 +1,10 @@
 package musicbrainz
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,9 @@ type Query struct {
 	Track      int
 	TrackTotal int
 	Length     time.Duration
+	// ISRC is the recording's ISRC, as CleanISRC gives it. With one, it alone
+	// is searched for, and the other fields only rank what it finds.
+	ISRC string
 }
 
 // FileInfo is what tagshelf knows about a file before a lookup: its tags, its
@@ -156,6 +161,10 @@ func parseFolder(folder string) (artist, album string) {
 // is sent as qdur (ms / 2000) ORed with its neighbouring buckets, because a
 // file's length rarely matches the recording's to the bucket.
 func (q Query) Lucene() string {
+	if q.ISRC != "" {
+		// An ISRC names its recordings; nothing else narrows it down.
+		return "isrc:" + q.ISRC
+	}
 	var terms []string
 	add := func(field, value string) {
 		if value = strings.TrimSpace(value); value != "" {
@@ -187,6 +196,61 @@ func qdurBuckets(length time.Duration) []string {
 		}
 	}
 	return out
+}
+
+// isrcPattern matches an ISRC without its hyphens: a country, a registrant,
+// a year and a number.
+var isrcPattern = regexp.MustCompile(`^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$`)
+
+// CleanISRC reads an ISRC as a person types it or a tag holds it, with or
+// without hyphens and in either case, and returns it as MusicBrainz has it:
+// twelve letters and digits. Nothing is no ISRC.
+func CleanISRC(s string) (string, error) {
+	isrc := strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s)))
+	if isrc == "" {
+		return "", nil
+	}
+	if !isrcPattern.MatchString(isrc) {
+		return "", fmt.Errorf("an ISRC is two letters, three letters or digits and seven digits, as in GBAHT1600302, not %q", strings.TrimSpace(s))
+	}
+	return isrc, nil
+}
+
+// barcodePattern matches a barcode without its spaces: an EAN-8, a UPC of
+// twelve digits, an EAN-13 or a GTIN of fourteen.
+var barcodePattern = regexp.MustCompile(`^[0-9]{8,14}$`)
+
+// CleanBarcode reads a barcode as a person types it or a tag holds it, with
+// or without spaces and hyphens, and returns its digits. Nothing is no
+// barcode.
+func CleanBarcode(s string) (string, error) {
+	code := strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s))
+	if code == "" {
+		return "", nil
+	}
+	if !barcodePattern.MatchString(code) {
+		return "", fmt.Errorf("a barcode is 8 to 14 digits, not %q", strings.TrimSpace(s))
+	}
+	return code, nil
+}
+
+// barcodeForms are the ways the barcode code may be written: as it is, and
+// since a UPC of twelve digits is the EAN-13 that starts with a zero, as the
+// other of the two as well.
+func barcodeForms(code string) []string {
+	switch {
+	case len(code) == 12:
+		return []string{code, "0" + code}
+	case len(code) == 13 && code[0] == '0':
+		return []string{code, code[1:]}
+	}
+	return []string{code}
+}
+
+// SameBarcode reports whether a and b are one barcode, however each is
+// written. No barcode is not the same as any.
+func SameBarcode(a, b string) bool {
+	return a != "" && b != "" && slices.Contains(barcodeForms(a), b)
 }
 
 // luceneSpecial is Picard's set of characters escaped in query values.

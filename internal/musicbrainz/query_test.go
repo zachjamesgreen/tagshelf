@@ -120,10 +120,70 @@ func TestLucene(t *testing.T) {
 		{"bucket zero has no negative neighbour", Query{Length: 1500 * time.Millisecond}, "qdur:(0 OR 1)"},
 		{"bucket boundary", Query{Length: 4 * time.Second}, "qdur:(1 OR 2 OR 3)"},
 		{"just under a boundary", Query{Length: 3999 * time.Millisecond}, "qdur:(0 OR 1 OR 2)"},
+		{"an ISRC is searched for alone", Query{Title: "Blow Your Mind", Artist: "Dua Lipa", Length: 178 * time.Second, ISRC: "GBAHT1600302"}, "isrc:GBAHT1600302"},
 	}
 	for _, tt := range tests {
 		if got := tt.in.Lucene(); got != tt.want {
 			t.Errorf("%s: Lucene() =\n %s\nwant\n %s", tt.desc, got, tt.want)
+		}
+	}
+}
+
+func TestCleanISRC(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                 "",
+		"   ":              "",
+		"GBAHT1600302":     "GBAHT1600302",
+		"gb-aht-16-00302":  "GBAHT1600302",
+		" GB AHT 16 00302": "GBAHT1600302",
+		"US-S1Z-99-00001":  "USS1Z9900001",
+	} {
+		if got, err := CleanISRC(in); err != nil || got != want {
+			t.Errorf("CleanISRC(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"GBAHT160030", "GBAHT16003021", "1BAHT1600302", "GBAHT16OO302", "GBAHT1600302?", "isrc:GBAHT1600302 OR x"} {
+		if got, err := CleanISRC(bad); err == nil {
+			t.Errorf("CleanISRC(%q) = %q, want an error", bad, got)
+		}
+	}
+}
+
+func TestCleanBarcode(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                 "",
+		"190295819984":     "190295819984",
+		" 1 90295 81998 4": "190295819984",
+		"0-190295-819984":  "0190295819984",
+		"12345670":         "12345670",
+		"00190295819984":   "00190295819984",
+	} {
+		if got, err := CleanBarcode(in); err != nil || got != want {
+			t.Errorf("CleanBarcode(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"1234567", "123456789012345", "19029581998X", "190295819984) OR release:(x"} {
+		if got, err := CleanBarcode(bad); err == nil {
+			t.Errorf("CleanBarcode(%q) = %q, want an error", bad, got)
+		}
+	}
+}
+
+func TestSameBarcode(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"190295819984", "190295819984", true},
+		{"190295819984", "0190295819984", true},
+		{"0190295819984", "190295819984", true},
+		{"190295819984", "190295819985", false},
+		{"5099749423862", "099749423862", false},
+		{"", "", false},
+		{"190295819984", "", false},
+	} {
+		if got := SameBarcode(tt.a, tt.b); got != tt.want {
+			t.Errorf("SameBarcode(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
 		}
 	}
 }

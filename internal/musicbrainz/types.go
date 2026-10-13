@@ -22,6 +22,7 @@ type Recording struct {
 	Score        flexInt        `json:"score"`
 	ArtistCredit []ArtistCredit `json:"artist-credit"`
 	Releases     []Release      `json:"releases"`
+	ISRCs        []string       `json:"isrcs"`
 }
 
 // ArtistCredit is one entry of an ordered artist credit.
@@ -53,6 +54,7 @@ type Release struct {
 	Status       string         `json:"status"`
 	Date         string         `json:"date"`
 	Country      string         `json:"country"`
+	Barcode      string         `json:"barcode"`
 	TrackCount   int            `json:"track-count"` // whole release
 	ArtistCredit []ArtistCredit `json:"artist-credit"`
 	ReleaseGroup ReleaseGroup   `json:"release-group"`
@@ -103,6 +105,8 @@ type TrackRecording struct {
 	ArtistCredit     []ArtistCredit `json:"artist-credit"`
 	FirstReleaseDate string         `json:"first-release-date"`
 	Genres           []Genre        `json:"genres"`
+	// ISRCs is only in lookups with inc=isrcs.
+	ISRCs []string `json:"isrcs"`
 }
 
 // Credit joins an artist credit into its display string, as Picard does.

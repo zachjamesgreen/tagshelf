@@ -165,3 +165,25 @@ func TestRankAlbumAndNumbersDecideBetweenReleases(t *testing.T) {
 		t.Errorf("got %s %d, %s %d", got[0].Release.ID, got[0].Score, got[1].Release.ID, got[1].Score)
 	}
 }
+
+// An ISRC searched for scores by whether the recording has it, with the
+// weight of a title.
+func TestRankByISRC(t *testing.T) {
+	rec := Recording{ID: "r", Title: "Song", ArtistCredit: credit("Band"), ISRCs: []string{"GBAHT1600318", "GBAHT1600302"}}
+	rec.Releases = []Release{release("a", "Album", "Official", "Album", nil, "2001-05-01", 3, 10)}
+	for _, tt := range []struct {
+		desc string
+		q    Query
+		want int
+	}{
+		{"the ISRC alone", Query{ISRC: "GBAHT1600302"}, 100},
+		{"another recording's", Query{ISRC: "USS1Z9900001"}, 0},
+		// Title 0 of 13, ISRC 1 of 13.
+		{"with a title that is not its", Query{Title: "Other", ISRC: "GBAHT1600302"}, 50},
+		{"with its title", Query{Title: "Song", ISRC: "GBAHT1600302"}, 100},
+	} {
+		if got := Rank(tt.q, []Recording{rec}, nil); len(got) != 1 || got[0].Score != tt.want {
+			t.Errorf("%s: got %+v, want one candidate scoring %d", tt.desc, got, tt.want)
+		}
+	}
+}

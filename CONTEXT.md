@@ -84,6 +84,14 @@ _Avoid_: approve, confirm tags
 Tagging several files at once from one MusicBrainz release, each file assigned to one of its tracks.
 _Avoid_: album lookup, batch tag
 
+**ISRC**:
+The code of a recording, twelve letters and digits, kept in a file's `ISRC` tag. A lookup that is given one searches MusicBrainz for it alone, and a match writes the ISRCs MusicBrainz has for the recording.
+_Avoid_: track code, recording code
+
+**Barcode**:
+The digits printed on a release, kept in a file's `BARCODE` tag. A release match that is given one searches MusicBrainz for it alone, and a match writes the barcode MusicBrainz has for the release.
+_Avoid_: UPC, EAN (each is one way of writing a barcode), catalogue number (that is the label's own)
+
 **Undo**:
 Reversing a whole run or TUI action (its moves, cue rewrites and tag saves), skipping any file that has changed since; itself recorded as a run.
 _Avoid_: rollback, revert

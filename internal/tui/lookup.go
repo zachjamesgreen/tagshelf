@@ -64,6 +64,7 @@ type lookup struct {
 	// title, artist, album and length.
 	base                         musicbrainz.Query
 	title, artist, album, length string
+	isrc                         string
 	form                         *huh.Form
 	last                         huh.Field // the form's last field
 	problem                      string    // what went wrong with the last request
@@ -134,22 +135,68 @@ func (m *Model) openLookup(f store.File, from string) tea.Cmd {
 	l.base = musicbrainz.QueryFor(fileInfo(f, from))
 	l.title, l.artist, l.album, l.length = l.base.Title, l.base.Artist, l.base.Album, length(l.base.Length)
 	l.step = stepQuery
+	// The file's own ISRC goes into the form once its tags are read.
+	src := m.src
+	tagged := func() tea.Msg {
+		v, _ := src.Tags(f.Path)
+		isrc, _ := musicbrainz.CleanISRC(firstValue(v[isrcTag]))
+		return lookupTaggedMsg{id: f.ID, isrc: isrc}
+	}
+	return tea.Batch(m.lookupForm(l), tagged)
+}
 
+// The tags a recording's ISRCs and a release's barcode are kept in, by the
+// names Picard gives them.
+var (
+	isrcTag    = tagwrite.Other("ISRC")
+	barcodeTag = tagwrite.Other("BARCODE")
+)
+
+// queryKeys are the keys of a form that asks what to search for.
+func queryKeys() *huh.KeyMap {
 	keys := huh.NewDefaultKeyMap()
 	keys.Quit.SetEnabled(false) // ctrl+c is the TUI's
 	keys.Input.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
 	keys.Input.Next = key.NewBinding(key.WithKeys("tab", "down"))
-	input := func(title string, value *string) *huh.Input {
-		return huh.NewInput().Title(fmt.Sprintf("%-7s", title)).Value(value).Inline(true)
-	}
-	l.last = input("Length", &l.length).Placeholder("m:ss")
+	return keys
+}
+
+// queryInput is a field of a form that asks what to search for.
+func queryInput(title string, value *string) *huh.Input {
+	return huh.NewInput().Title(fmt.Sprintf("%-7s", title)).Value(value).Inline(true)
+}
+
+// lookupForm makes the form that asks what to search for, of what the lookup
+// holds.
+func (m *Model) lookupForm(l *lookup) tea.Cmd {
+	l.last = queryInput("ISRC", &l.isrc).Placeholder("alone finds its recording, whatever is above")
 	l.form = huh.NewForm(huh.NewGroup(
-		input("Title", &l.title),
-		input("Artist", &l.artist),
-		input("Album", &l.album),
+		queryInput("Title", &l.title),
+		queryInput("Artist", &l.artist),
+		queryInput("Album", &l.album),
+		queryInput("Length", &l.length).Placeholder("m:ss"),
 		l.last,
-	)).WithKeyMap(keys).WithShowHelp(false).WithWidth(m.editorWidth())
+	)).WithKeyMap(queryKeys()).WithShowHelp(false).WithWidth(m.editorWidth())
 	return l.form.Init()
+}
+
+// lookupTaggedMsg is the ISRC the file a lookup opened on holds, "" when it
+// holds none that reads as one.
+type lookupTaggedMsg struct {
+	id   int64
+	isrc string
+}
+
+// lookupTagged puts the file's own ISRC into the form, unless one has been
+// typed since.
+func (m *Model) lookupTagged(msg lookupTaggedMsg) tea.Cmd {
+	l := m.look
+	if l == nil || l.file.ID != msg.id || l.step != stepQuery || msg.isrc == "" || strings.TrimSpace(l.isrc) != "" {
+		return nil
+	}
+	// A form shows what it was made with: it is made again.
+	l.isrc = msg.isrc
+	return m.lookupForm(l)
 }
 
 // fileInfo is what a lookup goes by of the indexed file f, which a run took
@@ -239,11 +286,17 @@ func (m *Model) search() tea.Cmd {
 		l.problem = err.Error()
 		return nil
 	}
+	isrc, err := musicbrainz.CleanISRC(l.isrc)
+	if err != nil {
+		l.problem = capitalize(err.Error())
+		return nil
+	}
 	q := l.base
 	q.Title, q.Artist, q.Album, q.Length = strings.TrimSpace(l.title), strings.TrimSpace(l.artist), strings.TrimSpace(l.album), d
+	q.ISRC = isrc
 	// A length alone matches every song of that length.
-	if q.Title == "" && q.Artist == "" && q.Album == "" {
-		l.problem = "Nothing to search for: type a title, an artist or an album"
+	if q.Title == "" && q.Artist == "" && q.Album == "" && q.ISRC == "" {
+		l.problem = "Nothing to search for: type a title, an artist, an album or an ISRC"
 		return nil
 	}
 	l.query, l.recs, l.total, l.matches, l.shown, l.cursor, l.problem = q, nil, 0, nil, 0, 0, ""
@@ -318,6 +371,9 @@ func (m *Model) lookupFound(msg lookupFoundMsg) {
 	l.step = stepPick
 	if len(l.matches) == 0 {
 		l.problem = "MusicBrainz has no match for that: change the query and search again"
+		if l.query.ISRC != "" {
+			l.problem = "MusicBrainz has no recording with the ISRC " + l.query.ISRC + ": clear it to search by the other fields"
+		}
 		l.step = stepQuery
 	}
 }
@@ -420,7 +476,7 @@ var lookupFields = []struct {
 }{
 	{tagwrite.Title, "Title"}, {tagwrite.Artist, "Artist"}, {tagwrite.AlbumArtist, "Album artist"}, {tagwrite.Album, "Album"},
 	{tagwrite.Date, "Date"}, {tagwrite.Track, "Track"}, {tagwrite.Disc, "Disc"}, {tagwrite.Compilation, "Compilation"},
-	{tagwrite.Genre, "Genre"},
+	{tagwrite.Genre, "Genre"}, {isrcTag, "ISRC"}, {barcodeTag, "Barcode"},
 	{tagwrite.RecordingID, "Recording ID"}, {tagwrite.ReleaseTrackID, "Track ID"}, {tagwrite.AlbumID, "Release ID"},
 	{tagwrite.ReleaseGroupID, "Release group ID"}, {tagwrite.ArtistIDs, "Artist IDs"}, {tagwrite.AlbumArtistIDs, "Album artist IDs"},
 	{tagwrite.AcoustID, "AcoustID"},
@@ -428,7 +484,11 @@ var lookupFields = []struct {
 
 // lookupIDsFrom is where in lookupFields the MusicBrainz IDs start; the
 // fields before it are the ones a person reads.
-const lookupIDsFrom = 9
+const lookupIDsFrom = 11
+
+// lookupCodesFrom is where in lookupFields the ISRC and the barcode are,
+// between the fields a person reads and the IDs.
+const lookupCodesFrom = 9
 
 // withGenres is values with the genres MusicBrainz has for the match, when
 // the setting mode has a match write them to a file whose genres are has:
@@ -457,7 +517,9 @@ func genresOf(path string) []string {
 }
 
 // lookupValues are the tags t as a save takes them: every field a match
-// writes is there, and one MusicBrainz has no value for is cleared.
+// writes is there, and one MusicBrainz has no value for is cleared. The ISRCs
+// and the barcode are there only when MusicBrainz has them: the file keeps
+// its own otherwise.
 func lookupValues(t musicbrainz.Tags, path string) tagwrite.Values {
 	one := func(s string) []string {
 		if s == "" {
@@ -482,6 +544,12 @@ func lookupValues(t musicbrainz.Tags, path string) tagwrite.Values {
 		tagwrite.RecordingID: one(t.RecordingID), tagwrite.ReleaseTrackID: one(t.ReleaseTrackID),
 		tagwrite.AlbumID: one(t.AlbumID), tagwrite.ReleaseGroupID: one(t.ReleaseGroupID),
 		tagwrite.ArtistIDs: many(t.ArtistIDs), tagwrite.AlbumArtistIDs: many(t.AlbumArtistIDs),
+	}
+	if len(t.ISRCs) > 0 {
+		v[isrcTag] = many(t.ISRCs)
+	}
+	if t.Barcode != "" {
+		v[barcodeTag] = one(t.Barcode)
 	}
 	if tagwrite.HasCompilation(path) {
 		v[tagwrite.Compilation] = []string{}

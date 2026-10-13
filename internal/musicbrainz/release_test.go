@@ -202,6 +202,11 @@ func TestReleaseQueryLucene(t *testing.T) {
 		{ReleaseQuery{Year: 2017}, ""},
 		{ReleaseQuery{Album: "Dua Lipa", Artist: "Dua Lipa", Tracks: 17, Year: 2017}, "release:(dua lipa) artist:(dua lipa) tracks:(17)"},
 		{ReleaseQuery{Album: "Back in Black", Artist: "AC/DC"}, `release:(back in black) artist:(ac\/dc)`},
+		// A barcode is searched for alone, in both the ways it may be written.
+		{ReleaseQuery{Album: "Dua Lipa", Tracks: 17, Barcode: "190295819984"}, "barcode:(190295819984 OR 0190295819984)"},
+		{ReleaseQuery{Barcode: "0190295819984"}, "barcode:(0190295819984 OR 190295819984)"},
+		{ReleaseQuery{Barcode: "5099749423862"}, "barcode:(5099749423862)"},
+		{ReleaseQuery{Barcode: "12345670"}, "barcode:(12345670)"},
 	}
 	for _, tt := range tests {
 		if got := tt.q.Lucene(); got != tt.want {
@@ -215,7 +220,7 @@ func TestReleaseLookupURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/ws/2/release/d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d?fmt=json&inc=artist-credits+recordings+release-groups+media+genres"
+	want := "/ws/2/release/d1a2b3c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d?fmt=json&inc=artist-credits+recordings+release-groups+media+genres+isrcs"
 	if got != want {
 		t.Errorf("url = %s, want %s", got, want)
 	}
@@ -528,4 +533,44 @@ func lookupFixture(t *testing.T, file string) *Release {
 		t.Fatal(err)
 	}
 	return &rel
+}
+
+// A barcode searched for scores by whether it is the release's, however the
+// two are written, with the weight of a title.
+func TestRankReleasesByBarcode(t *testing.T) {
+	mine := searchRelease("mine", "Album", "Band", 12, "2017-06-02")
+	mine.Barcode = "0190295819984"
+	reissue := searchRelease("reissue", "Album", "Band", 12, "2019")
+	reissue.Barcode = "190295819999"
+	bare := searchRelease("bare", "Album", "Band", 12, "2017")
+
+	got := RankReleases(ReleaseQuery{Barcode: "190295819984"}, []Release{bare, reissue, mine}, nil, nil)
+	if len(got) != 3 || got[0].Release.ID != "mine" || got[0].Score != 100 || got[1].Score != 0 || got[2].Score != 0 {
+		t.Errorf("by the barcode alone: %+v", got)
+	}
+	// Album 5 and barcode 13: the others have the album only, 5/18.
+	got = RankReleases(ReleaseQuery{Album: "Album", Barcode: "190295819984"}, []Release{bare, reissue, mine}, nil, nil)
+	if got[0].Release.ID != "mine" || got[0].Score != 100 || got[1].Score != 28 {
+		t.Errorf("by the barcode and the album: %+v", got)
+	}
+}
+
+func TestSearchReleasesByBarcodeSendsItAlone(t *testing.T) {
+	var query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query().Get("query")
+		_, _ = w.Write([]byte(`{"count":1,"releases":[{"id":"` + deluxeID + `","title":"Dua Lipa","barcode":"190295819984"}]}`))
+	}))
+	defer srv.Close()
+	c, _ := testClient(t, srv)
+	res, err := c.SearchReleases(context.Background(), ReleaseQuery{Album: "Dua Lipa", Artist: "Dua Lipa", Tracks: 17, Barcode: "190295819984"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query != "barcode:(190295819984 OR 0190295819984)" {
+		t.Errorf("query = %q", query)
+	}
+	if len(res.Releases) != 1 || res.Releases[0].Barcode != "190295819984" {
+		t.Errorf("releases = %+v", res.Releases)
+	}
 }
