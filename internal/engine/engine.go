@@ -57,6 +57,8 @@ type Counters struct {
 	CueRewritten int64
 	// Cover files written into album folders, or taken out again by an undo.
 	Covers int64
+	// Audio files a picture was put into, or given their earlier one back.
+	Pictures int64
 	// Audio files read into the index.
 	Indexed int64
 }
@@ -75,6 +77,7 @@ type stats struct {
 	Retried      atomic.Int64
 	CueRewritten atomic.Int64
 	Covers       atomic.Int64
+	Pictures     atomic.Int64
 	Indexed      atomic.Int64
 }
 
@@ -92,6 +95,7 @@ func (s *stats) snapshot() Counters {
 		Retried:      s.Retried.Load(),
 		CueRewritten: s.CueRewritten.Load(),
 		Covers:       s.Covers.Load(),
+		Pictures:     s.Pictures.Load(),
 		Indexed:      s.Indexed.Load(),
 	}
 }
@@ -127,6 +131,9 @@ type Options struct {
 	// removes emptied folders; a dry run and an index run never do. It must
 	// leave the library's ID and lock files alone. Nil removes none.
 	RemoveStaleCopies func(dir string) ([]string, error)
+	// SavePicture puts a picture into an audio file, for a cover art run
+	// that does and for the undo of one. Nil leaves both unable to.
+	SavePicture PictureSave
 }
 
 // Reorganizing reports whether the run re-sorts an existing library in place.

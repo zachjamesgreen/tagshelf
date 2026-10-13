@@ -300,6 +300,7 @@ dry_run: true
 | `cue_rewrite` | `true` | Fix the `FILE` lines of moved cue sheets. |
 | `musicbrainz_contact` | none | An email address or URL for MusicBrainz. Lookups are off until it is set. |
 | `cover_art_file` | `false` | Write a cover file into an album folder that has no cover. See [Cover art](#cover-art). |
+| `cover_art_embed` | `false` | Put the album's cover into each of its audio files that holds no picture. See [Cover art](#cover-art). |
 | `cover_art_replace` | `never` | When a cover an album has gives way to the Cover Art Archive's: `never`, `smaller` (when the archive's is larger) or `always`. |
 | `genre_from_musicbrainz` | `fill` | What a MusicBrainz match does with the genre: `fill` writes it to a file that has none, `replace` writes it whenever MusicBrainz has one, `off` never writes it. |
 | `database` | see below | The database file. |
@@ -448,10 +449,11 @@ A match also brings the **genre**, where MusicBrainz has one. The votes for each
 
 ## Cover art
 
-tagshelf can give an album the cover it lacks. It is off until you turn it on:
+tagshelf can give an album the cover it lacks, as a file in its folder, in its audio files, or both. Both are off until you turn them on:
 
 ```yaml
-cover_art_file: true
+cover_art_file: true    # a cover file in the album's folder
+cover_art_embed: true   # the cover in each of the album's audio files
 ```
 
 An album is one folder of the library. A folder that has a cover keeps it: any image file named `cover`, `folder` or `front`, with the extension of a JPEG or a PNG. A folder without one gets a file named `cover.jpg` or `cover.png`:
@@ -460,6 +462,14 @@ An album is one folder of the library. A folder that has a cover keeps it: any i
 2. or else from the [Cover Art Archive](https://coverartarchive.org/): the front cover of the MusicBrainz release in the files' tags, or failing that of its release group.
 
 The archive is asked only when every file of the folder that names a release names the same one. Its cover is taken at 1200 pixels, or the next size below when it has no such size, never the original, which has no limit to its size.
+
+**In the audio files.** With `cover_art_embed` on, the album's cover is put into each of its audio files that holds no picture. A file that holds one keeps it. The cover comes:
+
+1. from the cover file of its folder, as it is when it is no more than 500 KB, and otherwise scaled down to 500 pixels;
+2. or else from the first picture another of the album's files holds, by the same rule;
+3. or else from the Cover Art Archive, at 500 pixels.
+
+With both settings on the cover file is written first, so the files hold the picture their folder shows. Every kind of audio file tagshelf reads can hold a picture, and each is written the safe way a tag save is: to a copy, checked, then put in the file's place.
 
 Covers are seen to at three moments, and never by a run:
 
@@ -470,20 +480,22 @@ Covers are seen to at three moments, and never by a run:
 ```powershell
 tagshelf art -dest "D:\Music" -file -dry-run
 tagshelf art -dest "D:\Music" -file
+tagshelf art -dest "D:\Music" -file -embed
 ```
 
 | Flag | Meaning |
 |---|---|
-| `-file` | Write cover files. The same as `cover_art_file: true`; without either there is nothing for it to do. |
+| `-file` | Write cover files. The same as `cover_art_file: true`. |
+| `-embed` | Put covers into the audio files. The same as `cover_art_embed: true`. Without `-file`, `-embed` or one of the two settings there is nothing for it to do. |
 | `-replace WHEN` | `never`, `smaller` or `always`. The same as `cover_art_replace`. |
-| `-dry-run` | Say which folders would get a cover and from where. The archive is not asked, and nothing is written. |
+| `-dry-run` | Say which folders and files would get a cover and from where. The archive is not asked, and nothing is written. |
 | `-dest DIR`, `-db FILE`, `-config FILE` | The library, as for a run. |
 
 It asks the archive for one album a second at most, so a large library takes a while. Stop it with Ctrl-C when you like: the next `tagshelf art` passes over the folders that have a cover by then.
 
-**Replacing a cover.** With `cover_art_replace: smaller` the archive is asked for the albums that have a cover too, and its cover takes the place of yours when it is larger in pixels; with `always`, whenever the archive has one. The picture that gave way is kept in the library's database, whole, so that undo can put it back under its own name.
+**Replacing a cover.** With `cover_art_replace: smaller` the archive is asked for the albums that have a cover too, and its cover takes the place of yours when it is larger in pixels; with `always`, whenever the archive has one. The picture that gave way is kept in the library's database, whole, so that undo can put it back under its own name. With `cover_art_embed` on the same goes for the picture a file holds: the archive's, at 500 pixels, takes its place when it is larger, or always, and the one that gave way is kept for undo.
 
-**Undo.** Each of the three is an action in the history: the Runs tab lists it, as a `tui-action`, with every cover it wrote, and `u` takes them back. A cover file is only removed while it is still the picture tagshelf wrote. After a match, `u` takes back the cover; the tags of the match are the action before it on the Runs tab.
+**Undo.** Each of the three is an action in the history: the Runs tab lists it, as a `tui-action`, with every cover it wrote and every file it put a picture into, and `u` takes them back. A cover file is only removed while it is still the picture tagshelf wrote, and a file only gets back the picture it had, or none, while it still holds the one tagshelf put in. After a match, `u` takes back the cover; the tags of the match are the action before it on the Runs tab.
 
 **What is sent.** A request to the archive names tagshelf, its version and its web address, and the MusicBrainz ID of the release. It carries no contact of yours: the archive asks for none, and `musicbrainz_contact` is not needed for cover art. The pictures themselves are served by the Internet Archive, which the request is passed on to.
 

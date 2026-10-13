@@ -347,7 +347,7 @@ func TestEngineOptions(t *testing.T) {
 	cfg := config.Config{
 		Source: "src", Destination: "dest", Untagged: "untagged", Other: "other", Duplicates: "duplicates",
 		AutoResolveExact: &off, Compilations: "comps", Workers: 7, DryRun: true, Verbose: true, CueRewrite: &off,
-		MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "off", CoverArtFile: true, CoverArtReplace: "always", Database: "db",
+		MusicBrainzContact: "me@example.com", GenreFromMusicBrainz: "off", CoverArtFile: true, CoverArtEmbed: true, CoverArtReplace: "always", Database: "db",
 	}
 	v := reflect.ValueOf(cfg)
 	for i := range v.NumField() {
@@ -366,6 +366,12 @@ func TestEngineOptions(t *testing.T) {
 		t.Error("engineOptions leaves RemoveStaleCopies nil: a crashed tag save's copies would never be removed")
 	}
 	got.RemoveStaleCopies = nil
+	// Nor does this one: that it writes the picture and records it is
+	// TestArtEmbeds.
+	if got.SavePicture == nil {
+		t.Error("engineOptions leaves SavePicture nil: no cover could be put into a file, nor an undo take one out")
+	}
+	got.SavePicture = nil
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("engineOptions = %+v\nwant           %+v", got, want)
 	}

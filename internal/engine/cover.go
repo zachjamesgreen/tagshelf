@@ -41,6 +41,9 @@ type CoverFetch func(ctx context.Context, release, group string, size int) (cove
 type CoverOptions struct {
 	// File has a cover file written into each album folder that has none.
 	File bool
+	// Embed has the album's cover put into each of its audio files that
+	// holds no picture.
+	Embed bool
 	// Replace is when a cover a folder already has is replaced: CoverNever,
 	// CoverSmaller or CoverAlways. Empty is CoverNever.
 	Replace string
@@ -82,6 +85,9 @@ func CoverArt(ctx context.Context, opts Options, c CoverOptions) RunFinished {
 	if c.Replace == "" {
 		c.Replace = CoverNever
 	}
+	if c.Embed && cfg.SavePicture == nil && !cfg.DryRun {
+		return notStarted(errors.New("putting pictures into files needs a way to write them"))
+	}
 	albums, err := coverFolders(st, c.Folders)
 	if err != nil {
 		return notStarted(err)
@@ -97,8 +103,12 @@ func CoverArt(ctx context.Context, opts Options, c CoverOptions) RunFinished {
 		if ctx.Err() != nil {
 			break
 		}
+		// The file first: the cover it writes is what goes into the files.
 		if c.File {
 			o.coverFile(ctx, album, c)
+		}
+		if c.Embed && ctx.Err() == nil {
+			o.coverEmbed(ctx, album, c)
 		}
 		o.phase.advance(0)
 	}

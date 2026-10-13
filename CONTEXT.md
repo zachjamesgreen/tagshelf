@@ -29,11 +29,11 @@ A tag that decides where a file belongs: one its path in the library is made fro
 _Avoid_: core tag, main tag
 
 **Cover**:
-The front picture of an album, which is one folder of the library: an image file in it named cover, folder or front. tagshelf writes one named cover into a folder that has none.
+The front picture of an album, which is one folder of the library: an image file in it named cover, folder or front. tagshelf writes one named cover into a folder that has none, and can put the album's cover into each of its audio files as the picture the file holds.
 _Avoid_: artwork, album art, thumbnail
 
 **Cover art run**:
-An action that gives album folders the cover they lack, from the pictures in their files or else from the Cover Art Archive: after a match, by `c` on an album, or by `tagshelf art`.
+An action that gives album folders the cover they lack, and their audio files the picture they lack, from what the album already has or else from the Cover Art Archive: after a match, by `c` on an album, or by `tagshelf art`.
 _Avoid_: art fetch, art sync
 
 **Files tab**:

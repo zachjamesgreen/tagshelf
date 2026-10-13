@@ -119,7 +119,8 @@ type Model struct {
 	// genreMode is what a MusicBrainz match does with the genre: config's
 	// GenreOff, GenreFill or GenreReplace. Empty is GenreFill.
 	genreMode string
-	// coverFile is the cover art setting: whether cover files are written.
+	// coverFile says a cover art setting is on: whether c and a match see to
+	// an album's cover.
 	coverFile bool
 
 	// busy is closed when the action a tab is carrying out on the library has

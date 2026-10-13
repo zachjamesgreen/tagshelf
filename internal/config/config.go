@@ -52,6 +52,9 @@ type Config struct {
 	// none, when cover art is seen to: after a MusicBrainz match, by the
 	// TUI's action on an album, and by tagshelf art.
 	CoverArtFile bool `yaml:"cover_art_file"`
+	// CoverArtEmbed has the album's cover put into each of its audio files
+	// that holds no picture, at the same moments.
+	CoverArtEmbed bool `yaml:"cover_art_embed"`
 	// CoverArtReplace is when a cover an album already has is replaced by
 	// the Cover Art Archive's: engine.CoverNever, CoverSmaller or
 	// CoverAlways. Empty means the default, CoverNever.

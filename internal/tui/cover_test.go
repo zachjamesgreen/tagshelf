@@ -25,7 +25,7 @@ func TestLibraryCoverKey(t *testing.T) {
 
 	// With the setting off the key says where to turn it on.
 	hit(t, m, "c")
-	if len(f.covered) != 0 || !strings.Contains(m.toast, "Cover art is off: turn on Cover file on 6 Settings") {
+	if len(f.covered) != 0 || !strings.Contains(m.toast, "Cover art is off: turn on Cover file or Cover in the files on 6 Settings") {
 		t.Fatalf("with the setting off: covered %v, toast %q", f.covered, m.toast)
 	}
 
@@ -40,6 +40,25 @@ func TestLibraryCoverKey(t *testing.T) {
 	if !m.toastOK || !strings.Contains(m.toast, "Cover written to") || !strings.Contains(m.toast, "from the Cover Art Archive") ||
 		!strings.Contains(m.toast, "u undo") || m.undoable != 12 {
 		t.Errorf("toast %q (ok %t), undoable %d", m.toast, m.toastOK, m.undoable)
+	}
+
+	// Pictures put into the album's files are counted, with the cover file
+	// or alone, and can be undone.
+	one, two := filepath.Join(dir, "01.flac"), filepath.Join(dir, "02.flac")
+	f.coverEvents = []engine.Event{
+		engine.CoverWritten{Dir: dir, Path: cover, From: engine.CoverFromRelease},
+		engine.CoverEmbedded{Path: one, From: engine.CoverFromFolder}, engine.CoverEmbedded{Path: two, From: engine.CoverFromFolder},
+	}
+	f.coverFinish = engine.RunFinished{State: engine.StateOK, RunID: 13, Counters: engine.Counters{Covers: 1, Pictures: 2}}
+	hit(t, m, "c")
+	if !m.toastOK || !strings.Contains(m.toast, "Cover written to") || !strings.Contains(m.toast, ", and put into 2 files") || m.undoable != 13 {
+		t.Errorf("with a cover file and pictures: toast %q (ok %t), undoable %d", m.toast, m.toastOK, m.undoable)
+	}
+	f.coverEvents = []engine.Event{engine.CoverEmbedded{Path: one, From: engine.CoverFromFolder}}
+	f.coverFinish = engine.RunFinished{State: engine.StateOK, RunID: 14, Counters: engine.Counters{Pictures: 1}}
+	hit(t, m, "c")
+	if !m.toastOK || !strings.Contains(m.toast, "Cover put into 1 file") || !strings.Contains(m.toast, "u undo") || m.undoable != 14 {
+		t.Errorf("with a picture alone: toast %q (ok %t), undoable %d", m.toast, m.toastOK, m.undoable)
 	}
 
 	// A folder left without one says why; one that has a cover says so.
