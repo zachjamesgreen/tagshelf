@@ -38,6 +38,8 @@ func TestTagsForFixtureReleases(t *testing.T) {
 				AlbumArtistIDs: []string{duaLipaID},
 				ArtistIDs:      []string{duaLipaID, "5b7a6c3e-7f4b-4f0c-9a0c-2d8e4b7f1a93"},
 				ReleaseGroupID: dlGroupID,
+				ISRCs:          []string{"GBAHT1700049", "GBAHT1700302"},
+				Barcode:        "190295819984",
 			},
 		},
 		{
@@ -53,6 +55,8 @@ func TestTagsForFixtureReleases(t *testing.T) {
 				AlbumArtistIDs: []string{duaLipaID},
 				ArtistIDs:      []string{duaLipaID},
 				ReleaseGroupID: dlGroupID,
+				// The recording has no ISRC; the barcode is the release's.
+				Barcode: "190295819984",
 			},
 		},
 		{

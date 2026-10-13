@@ -370,7 +370,7 @@ func TestReleaseMatchCorners(t *testing.T) {
 
 	// Nothing typed to search for.
 	hit(t, m, "up", "up", "ctrl+u", "up", "ctrl+u", "enter")
-	if got := screen(m); len(mb.releaseQueries) != 0 || !strings.Contains(got, "Nothing to search for: type an album or an artist") {
+	if got := screen(m); len(mb.releaseQueries) != 0 || !strings.Contains(got, "Nothing to search for: type an album, an artist or a barcode") {
 		t.Fatalf("an empty query: %d searches\n%s", len(mb.releaseQueries), got)
 	}
 	typeText(t, m, "Geogaddi")

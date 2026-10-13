@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"regexp"
+	"slices"
 
 	"github.com/zachjamesgreen/tagshelf/internal/rules"
 )
@@ -48,6 +49,13 @@ type Tags struct {
 	// whether they are, and over a genre the file has, is a setting, and
 	// none never clears the file's.
 	Genres []string
+
+	// ISRCs are the recording's ISRCs and Barcode the release's barcode,
+	// empty when MusicBrainz has none. Like the genres they are only ever
+	// written, never cleared: a file's own may come from the disc it was
+	// ripped from.
+	ISRCs   []string
+	Barcode string
 }
 
 // TagsFor maps track ref of a looked-up release to the tags written for it,
@@ -73,12 +81,14 @@ func TagsFor(rel *Release, ref TrackRef) Tags {
 		ArtistIDs:      artistIDs(t.ArtistCredit),
 		ReleaseGroupID: rel.ReleaseGroup.ID,
 		Genres:         GenresFor(rel, ref),
+		Barcode:        rel.Barcode,
 	}
 	if tags.TrackTotal == 0 {
 		tags.TrackTotal = len(medium.Tracks)
 	}
 	if r := t.Recording; r != nil {
 		tags.RecordingID = r.ID
+		tags.ISRCs = slices.Clone(r.ISRCs)
 		if tags.Title == "" {
 			tags.Title = r.Title
 		}

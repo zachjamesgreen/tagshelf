@@ -435,13 +435,13 @@ func TestLookupFormSurvivesItsLastFieldAndTheCursorFollowsItsMatch(t *testing.T)
 			Releases: []musicbrainz.Release{{ID: "rel-3", Title: "Tape"}}},
 	}}
 	m, _, _ := lookupOn(t, 104, mb)
-	hit(t, m, "down", "down", "down", "down", "tab", "down")
-	if got := screen(m); !strings.Contains(got, "> Live") || !strings.Contains(got, "Length") {
+	hit(t, m, "down", "down", "down", "down", "down", "tab", "down")
+	if got := screen(m); !strings.Contains(got, "> Live") || !strings.Contains(got, "ISRC") {
 		t.Fatalf("the query form is gone:\n%s", got)
 	}
 	typeText(t, m, "9")
-	if m.look.length != "9" {
-		t.Fatalf("the form no longer takes keys: length %q", m.look.length)
+	if m.look.isrc != "9" {
+		t.Fatalf("the form no longer takes keys: ISRC %q", m.look.isrc)
 	}
 	hit(t, m, "backspace")
 

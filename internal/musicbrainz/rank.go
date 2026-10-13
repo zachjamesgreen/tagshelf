@@ -127,6 +127,10 @@ func candidate(q Query, rec *Recording, rel *Release, inLibrary func(string) boo
 	if q.Title != "" {
 		part(similarity(q.Title, rec.Title), weightTitle)
 	}
+	if q.ISRC != "" {
+		// It says which recording it is, as a title does.
+		part(boolScore(slices.Contains(rec.ISRCs, q.ISRC)), weightTitle)
+	}
 	if q.Artist != "" {
 		part(similarity(q.Artist, Credit(rec.ArtistCredit)), weightArtist)
 	}

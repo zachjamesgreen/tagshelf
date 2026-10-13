@@ -449,10 +449,14 @@ Lookups use the public [MusicBrainz](https://musicbrainz.org/) web service, whic
 musicbrainz_contact: "you@example.com"
 ```
 
-The contact is sent to MusicBrainz in the `User-Agent` header of each request and nowhere else. tagshelf sends at most one request a second, as MusicBrainz asks, and sends only what you see in the search form: titles, artist and album names, track counts and lengths. No audio and no file paths leave your computer.
+The contact is sent to MusicBrainz in the `User-Agent` header of each request and nowhere else. tagshelf sends at most one request a second, as MusicBrainz asks, and sends only what you see in the search form: titles, artist and album names, track counts and lengths, an ISRC or a barcode. No audio and no file paths leave your computer.
 
 - **Look up one file (`l`)**: searches by the file's tags, or by its file name when it has none. You pick a recording and a release, see the tags before and after, and confirm.
 - **Match a release (`L`)**: tags a whole album at once. tagshelf puts each file on a track by title, number and length; you can move files between tracks before confirming.
+
+**By ISRC or barcode.** Each search form has one more field, for the code that names the thing exactly. A lookup takes an **ISRC**, the code of a recording, such as `GBAHT1600302`; a release match takes a **barcode**, the 8 to 14 digits on the back of the disc. Hyphens, spaces and small letters are fine. With a code in the form, the code alone is searched for, and the other fields only put what it finds in order. If MusicBrainz does not know the code, tagshelf says so: clear the field to search by the rest. A file that already holds an `ISRC` tag, or an album whose files hold a `BARCODE` tag, opens with it filled in.
+
+A match writes the recording's **ISRCs** and the release's **barcode** to the file as well, in the tags `ISRC` and `BARCODE` as Picard names them, when MusicBrainz has them. When it has none, the file keeps its own. Neither decides where a file goes.
 
 A match also brings the **genre**, where MusicBrainz has one. The votes for each genre are added up over the recording, the release and its release group; of the five with the most votes, those with at least nine tenths of the leader's are written, each word with a capital, as [Picard](https://picard.musicbrainz.org/) picks them. By default a genre is only written to a file that has none. `genre_from_musicbrainz: replace` writes it over the file's own, and `off` leaves genres alone. A match that has no genre never takes one away. The composer and the comment are not looked up; they are yours to type.
 

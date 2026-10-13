@@ -90,7 +90,7 @@ func TestReleaseMatchTagsAFolderAsOneRelease(t *testing.T) {
 	}
 
 	// The year only ranks; it can be typed.
-	hit(t, m, "down", "down", "down", "down", "tab")
+	hit(t, m, "down", "down", "down", "down", "down", "tab", "up")
 	typeText(t, m, "2002")
 	hit(t, m, "enter")
 	if want := []musicbrainz.ReleaseQuery{{Album: "Geogaddi", Artist: "Boards of Canada", Tracks: 3, Year: 2002}}; !reflect.DeepEqual(mb.releaseQueries, want) {

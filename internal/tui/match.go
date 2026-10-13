@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
@@ -48,6 +47,7 @@ type match struct {
 
 	// What the query form's fields hold.
 	album, artist, tracks, year string
+	barcode                     string
 	form                        *huh.Form
 	last                        huh.Field // the form's last field
 	problem                     string    // what went wrong with the last request
@@ -55,6 +55,7 @@ type match struct {
 	seq    int // of the request going on, 0 when none is
 	cancel context.CancelFunc
 
+	searched musicbrainz.ReleaseQuery // as last searched
 	releases []musicbrainz.ReleaseCandidate
 	cursor   int // index into releases
 
@@ -128,22 +129,60 @@ func (m *Model) openMatch(files []store.UntaggedFile) tea.Cmd {
 		x.year = strconv.Itoa(q.Year)
 	}
 	x.step = matchQuery
-
-	keys := huh.NewDefaultKeyMap()
-	keys.Quit.SetEnabled(false) // ctrl+c is the TUI's
-	keys.Input.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
-	keys.Input.Next = key.NewBinding(key.WithKeys("tab", "down"))
-	input := func(title string, value *string) *huh.Input {
-		return huh.NewInput().Title(fmt.Sprintf("%-7s", title)).Value(value).Inline(true)
+	// The files' own barcode goes into the form once it is read: of the
+	// first few files, which is where an album's would be.
+	src := m.src
+	paths := make([]string, 0, matchBarcodeFiles)
+	for _, f := range files[:min(len(files), matchBarcodeFiles)] {
+		paths = append(paths, f.Path)
 	}
-	x.last = input("Year", &x.year).Placeholder("only ranks the releases found")
+	tagged := func() tea.Msg {
+		for _, path := range paths {
+			v, _ := src.Tags(path)
+			if code, _ := musicbrainz.CleanBarcode(firstValue(v[barcodeTag])); code != "" {
+				return matchTaggedMsg{match: x, barcode: code}
+			}
+		}
+		return matchTaggedMsg{match: x}
+	}
+	return tea.Batch(m.matchForm(x), tagged)
+}
+
+// matchBarcodeFiles is how many of a release match's files are read for the
+// barcode they hold.
+const matchBarcodeFiles = 3
+
+// matchForm makes the form that asks what to search for, of what the release
+// match holds.
+func (m *Model) matchForm(x *match) tea.Cmd {
+	x.last = queryInput("Barcode", &x.barcode).Placeholder("alone finds its release, whatever is above")
 	x.form = huh.NewForm(huh.NewGroup(
-		input("Album", &x.album),
-		input("Artist", &x.artist),
-		input("Tracks", &x.tracks).Placeholder("how many the release has"),
+		queryInput("Album", &x.album),
+		queryInput("Artist", &x.artist),
+		queryInput("Tracks", &x.tracks).Placeholder("how many the release has"),
+		queryInput("Year", &x.year).Placeholder("only ranks the releases found"),
 		x.last,
-	)).WithKeyMap(keys).WithShowHelp(false).WithWidth(m.editorWidth())
+	)).WithKeyMap(queryKeys()).WithShowHelp(false).WithWidth(m.editorWidth())
 	return x.form.Init()
+}
+
+// matchTaggedMsg is the barcode the files of a release match hold, "" when
+// they hold none that reads as one.
+type matchTaggedMsg struct {
+	match   *match
+	barcode string
+}
+
+// matchTagged puts the files' own barcode into the form, unless one has been
+// typed since.
+func (m *Model) matchTagged(msg matchTaggedMsg) tea.Cmd {
+	x := m.match
+	if x == nil || x != msg.match || x.step != matchQuery || msg.barcode == "" || strings.TrimSpace(x.barcode) != "" {
+		return nil
+	}
+	// A form shows what it was made with: it is made again.
+	x.barcode = msg.barcode
+	return m.matchForm(x)
 }
 
 // matchRequest starts a request to MusicBrainz for the release match that is
@@ -201,18 +240,28 @@ func (m *Model) matchSearch() tea.Cmd {
 		}
 		*field.into = n
 	}
+	var err error
+	if q.Barcode, err = musicbrainz.CleanBarcode(x.barcode); err != nil {
+		x.problem = capitalize(err.Error())
+		return nil
+	}
 	// A track count alone matches every release of that size.
-	if q.Album == "" && q.Artist == "" {
-		x.problem = "Nothing to search for: type an album or an artist"
+	if q.Album == "" && q.Artist == "" && q.Barcode == "" {
+		x.problem = "Nothing to search for: type an album, an artist or a barcode"
 		return nil
 	}
 	x.problem, x.found, x.cursor = "", nil, 0
+	x.searched = q
 	x.merge()
 	x.step = matchSearching
 	ctx, seq := m.matchRequest()
 	// The files' own searches take the album and artist typed here into
-	// account: BoostQueries says how.
+	// account: BoostQueries says how. A barcode needs none: it names the
+	// release, and theirs would only add others to it.
 	mb, src, boost := m.mb, m.src, musicbrainz.BoostQueries(x.infos, q)
+	if q.Barcode != "" {
+		boost = nil
+	}
 	return func() tea.Msg {
 		// A library that cannot be read only costs the ranking a tie-break.
 		inLibrary, _ := src.LibraryReleases()
@@ -234,6 +283,9 @@ func (m *Model) matchFound(msg matchFoundMsg) {
 		x.problem = msg.err.Error()
 	case len(msg.releases) == 0 && len(x.bySound) == 0:
 		x.problem = "MusicBrainz has no release like that: change the query and search again"
+		if code := x.searched.Barcode; code != "" {
+			x.problem = "MusicBrainz has no release with the barcode " + code + ": clear it to search by the other fields"
+		}
 	default:
 		x.found = msg.releases
 		x.merge()
@@ -866,25 +918,33 @@ func (m *Model) matchDiffBody(b *strings.Builder, h int) {
 		}
 		lines = append(lines, head)
 		values, old := x.values(a), x.orig[a.File]
-		changed, ids := 0, false
+		changed, ids, codes := 0, false, false
 		for i, lf := range lookupFields {
 			now, ok := values[lf.field]
 			if !ok || strings.Join(old[lf.field], "\x00") == strings.Join(now, "\x00") {
 				continue
 			}
 			changed++
-			// The fields a person reads, then the IDs as one line.
-			if i >= lookupIDsFrom {
+			// The fields a person reads, then the codes and the IDs as one
+			// line.
+			switch {
+			case i >= lookupIDsFrom:
 				ids = true
-				continue
+			case i >= lookupCodesFrom:
+				codes = true
+			default:
+				lines = append(lines, fmt.Sprintf("    %-13s%s -> %s", lf.name, dimStyle.Render(cell(show(old[lf.field]), valueW)), accentStyle.Render(show(now))))
 			}
-			lines = append(lines, fmt.Sprintf("    %-13s%s -> %s", lf.name, dimStyle.Render(cell(show(old[lf.field]), valueW)), accentStyle.Render(show(now))))
 		}
 		switch {
 		case changed == 0:
 			lines = append(lines, dimStyle.Render("    already tagged like this"))
+		case ids && codes:
+			lines = append(lines, dimStyle.Render("    and its ISRC, barcode and MusicBrainz IDs"))
 		case ids:
 			lines = append(lines, dimStyle.Render("    and its MusicBrainz IDs"))
+		case codes:
+			lines = append(lines, dimStyle.Render("    and its ISRC and barcode"))
 		}
 	}
 	room := max(h-5-len(notes), 1)

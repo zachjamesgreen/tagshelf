@@ -127,6 +127,7 @@
             "id": "9c0d0002-1b2c-4d3e-8f4a-5b6c7d8e9f02",
             "title": "Lost in Your Light",
             "length": 204000,
+            "isrcs": ["GBAHT1700049", "GBAHT1700302"],
             "video": false,
             "disambiguation": "",
             "artist-credit": [

@@ -16,8 +16,8 @@ import (
 
 // releaseInc is what a release lookup includes: everything the tags come
 // from. With genres, the release, its release group and its recordings each
-// list theirs.
-const releaseInc = "artist-credits+recordings+release-groups+media+genres"
+// list theirs, and with isrcs each recording lists its ISRCs.
+const releaseInc = "artist-credits+recordings+release-groups+media+genres+isrcs"
 
 // MaxBoostFiles is how many files of a release match get a recording search
 // to boost the release candidates.
@@ -33,6 +33,11 @@ const MaxMatchFiles = 500
 // weighs as a title does in single-track ranking.
 const weightFound = weightTitle
 
+// weightBarcode is the weight of the barcode searched for being the
+// release's, in release ranking: it says which release it is, as a title says
+// which recording.
+const weightBarcode = weightTitle
+
 // ReleaseQuery is what a release match searches for: the editable fields the
 // TUI shows before sending. Year is not sent but takes part in ranking.
 type ReleaseQuery struct {
@@ -41,6 +46,9 @@ type ReleaseQuery struct {
 	// Tracks is the number of tracks on the whole release.
 	Tracks int
 	Year   int
+	// Barcode is the release's barcode, as CleanBarcode gives it. With one,
+	// it alone is searched for, and the other fields only rank what it finds.
+	Barcode string
 }
 
 // ReleaseQueryFor builds the initial release query for a selection of files:
@@ -160,6 +168,10 @@ func boostQuery(f FileInfo, rq ReleaseQuery) (Query, bool) {
 // AND, as Query.Lucene does. On the release index "tracks" is the track count
 // of the whole release.
 func (q ReleaseQuery) Lucene() string {
+	if q.Barcode != "" {
+		// A barcode names its release; nothing else narrows it down.
+		return "barcode:(" + strings.Join(barcodeForms(q.Barcode), " OR ") + ")"
+	}
 	var terms []string
 	add := func(field, value string) {
 		if value = strings.TrimSpace(value); value != "" {
@@ -189,7 +201,7 @@ func (c *Client) SearchReleases(ctx context.Context, q ReleaseQuery, offset int)
 }
 
 // errNoReleaseQuery is the error for a release query with nothing to send.
-var errNoReleaseQuery = errors.New("nothing to search for: fill in an album, artist or track count")
+var errNoReleaseQuery = errors.New("nothing to search for: fill in an album, artist, track count or barcode")
 
 // releaseSearchURL is the URL of one page of a release search.
 func releaseSearchURL(base string, q ReleaseQuery, offset int) (string, error) {
@@ -361,6 +373,9 @@ func RankReleases(q ReleaseQuery, releases []Release, hits [][]Recording, inLibr
 		}
 		if q.Year > 0 && r.Year() > 0 {
 			part(boolScore(q.Year == r.Year()), weightDate)
+		}
+		if q.Barcode != "" {
+			part(boolScore(SameBarcode(q.Barcode, r.Barcode)), weightBarcode)
 		}
 		if c.Searched > 0 {
 			part(float64(c.Found)/float64(c.Searched), weightFound)

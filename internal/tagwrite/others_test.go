@@ -25,6 +25,9 @@ func TestOtherTags(t *testing.T) {
 			want := Values{
 				Other("MOOD"): {"calm"}, Other("LABEL"): {"Warp", "Skam"}, Other("LYRICS"): {lyrics}, Other("MY TAG"): {"x; y"},
 				AcoustID: {"aaaaaaaa-0000-4000-8000-00000000000a"},
+				// What a MusicBrainz match writes beside its IDs: every kind
+				// of file has to have a place for them.
+				Other("ISRC"): {"GBBPW0100005", "GBBPW0100099"}, Other("BARCODE"): {"5021603101128"},
 			}
 			if ext == ".wma" {
 				// A WMA file has no place for a name with a space in it: the
