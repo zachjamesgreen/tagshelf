@@ -6,7 +6,7 @@ tagshelf sorts audio files into a music library by their tags. It moves each fil
 
 ```text
  tagshelf  T:\Music  library 345d9616
- 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings
+ 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings   7 Files
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Duplicates (1 group to review)
   Song                                  Kind           Copies  Keeps
@@ -19,7 +19,7 @@ Fixture Artist - Silence Café  release-track, 2 copies
                MP3   8 kbps 8 kHz            0:01  Fixture Artist / Fixture Album / Silence Café
 
 
-↑↓/n select  k keeper  enter resolve  b keep both  c confirm  A all exact   1-5 tabs  R reload  ? h…
+↑↓/n select  k keeper  enter resolve  b keep both  c confirm  A all exact   1-7 tabs  R reload  ? h…
 ```
 
 ## Contents
@@ -316,7 +316,7 @@ A run that cannot start from Home says why and what to do, in place: no source f
 
 ```text
  tagshelf  T:\Music  library 345d9616
- 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings
+ 1 Home   2 Untagged 2   3 Duplicates 1   4 Library   5 Runs   6 Settings   7 Files
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Library
   Library              2 files
@@ -329,7 +329,7 @@ Needs attention
   1 duplicate group to review                                3 Duplicates
 
 
-o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q quit
+o organize  r reorganize  i index  d dry run   1-7 tabs  R reload  ? help  q quit
 ```
 
 | Tab | What it is for |
@@ -340,10 +340,11 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | **4 Library** | Search the library, and edit or re-match files in it. |
 | **5 Runs** | Every run and action, what each moved, and undo. |
 | **6 Settings** | The config file: folders and how runs behave. |
+| **7 Files** | Any folder of the computer: tag the audio in it where it is, without organizing it. |
 
 | Key | What it does |
 |---|---|
-| `1`-`6`, `tab` | Switch tab. |
+| `1`-`7`, `tab` | Switch tab. |
 | `?` | Show every key. |
 | `q` | Quit. It asks first while a run or an action is going. |
 | `esc` | Back. |
@@ -372,6 +373,11 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | **Runs** | |
 | `enter` | Open the run to see what it moved. |
 | `u` | Undo the run. Right after any action, `u` undoes that action. |
+| **Files** | |
+| `enter`, `backspace` | Go into the folder under the cursor, and back out. On a file, `enter` edits its tags. |
+| `space` | Select the file. |
+| `a`, `e`, `l`, `L` | As on Untagged: accept, edit, look up, match a release. `L` takes the selection, or every file of the folder. |
+| `.`, `~` | Show the files and folders whose names start with a dot; go to your home folder. |
 | **Settings** | |
 | `enter` | Change the setting: type a value, or turn it on or off. |
 | `tab` | While typing a path, complete the folder name. |
@@ -380,6 +386,15 @@ o organize  r reorganize  i index  d dry run   1-6 tabs  R reload  ? help  q qui
 | `esc` | Drop the changes that are not saved. |
 
 Once a file's tags qualify, saving them also moves it into the library. Every save shows where the file will go before you confirm.
+
+### The Files tab
+
+The Files tab shows one folder of the computer at a time: the folders in it, then the audio files tagshelf can tag, each with its artist, album and title and how far its tags are from what the library takes. It opens on the source folder, or on your home folder when none is set.
+
+- **Files outside the library are tagged where they are.** Editing, a lookup, a release match and accepting tags all work as on the Untagged tab, but nothing is moved or renamed, whatever the tags say. A later run organizes them; a file you tagged here then qualifies.
+- **Files inside the library's folders behave as on the other tabs.** A save files the song where its tags say. A file there that the index does not hold yet has to be indexed first (`i` on Home).
+- **Every save is in the history.** It is recorded as an action of the library, so the Runs tab lists it and `u` undoes it. That is why saving needs a library to be set up; before that the tab lists folders and shows tags, and says what saving needs.
+- **What is left alone.** A file that is a link is listed and never changed, as are the copies in `_Duplicates`. A file that cannot be read says why.
 
 ### The tag editor
 

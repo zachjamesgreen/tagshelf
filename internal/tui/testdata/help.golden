@@ -1,8 +1,8 @@
  tagshelf  D:\Music  library 3f2a1b2c
- 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs   6 Settings 
+ 1 Home   2 Untagged 12   3 Duplicates 3   4 Library   5 Runs   6 Settings   7 Files 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Keys
-  1-6    switch tab (tab next, shift+tab previous)
+  1-7    switch tab (tab next, shift+tab previous)
   o      organize the configured source (Home)
   r      reorganize the library in place (Home)
   i      bring the index up to date, moving nothing (Home)
@@ -10,14 +10,14 @@ Keys
   ctrl+c interrupt the run going on
   space  select the file, g its whole group (Untagged)
   v      group by original folder, album tag or nothing (Untagged)
-  a      accept the tags of the selected files as they are (Untagged)
+  a      accept the tags of the selected files as they are (Untagged, Files)
   e      edit the file's tags (Untagged, Library); ctrl+f writes to the folder
   l      look the file up on MusicBrainz (Untagged, Library)
   L      match the selection, group or album to a release (Untagged, Library)
   /      search the library (Library)
   u      undo the run (Runs), or what was just done
   k      choose which copy to keep (Duplicates)
-  enter  resolve the group (Duplicates), open the run (Runs)
+  enter  resolve the group (Duplicates), open the run (Runs) or folder (Files)
   b      keep both copies (Duplicates)
   c      confirm a possible group is one song (Duplicates)
   A      resolve all exact groups (Duplicates)
@@ -29,4 +29,4 @@ Keys
 
 The view reloads by itself when another tagshelf changes the library.
 
-esc back  1-6 tabs  R reload  ? help  q quit
+esc back  1-7 tabs  R reload  ? help  q quit

@@ -276,6 +276,9 @@ func (m *Model) tabBody(h int) string {
 	if m.tab == TabSettings {
 		return m.settingsBody(h)
 	}
+	if m.tab == TabFiles {
+		return m.filesBody(h)
+	}
 	if m.noLibrary != nil && m.tab != TabHome {
 		return dimStyle.Render("No library yet: see 1 Home.")
 	}
@@ -386,7 +389,7 @@ func (m *Model) toastLine() string {
 }
 
 func (m *Model) keyHelp() string {
-	help := "1-6 tabs  R reload  ? help  q quit"
+	help := "1-7 tabs  R reload  ? help  q quit"
 	if m.edit != nil {
 		return "↑↓/tab field  ctrl+s save  ctrl+n new tag  ctrl+f to whole folder  esc back"
 	}
@@ -428,6 +431,8 @@ func (m *Model) keyHelp() string {
 		help = "↑↓ select  enter open  u undo   " + help
 	case m.tab == TabSettings:
 		help = m.settingsHelp(help)
+	case m.tab == TabFiles:
+		help = "↑↓ move  enter open  backspace up  space select  a accept  e edit  l look up  L release   " + help
 	case m.tab != TabHome:
 	case m.ReadOnly():
 		if m.width >= 100 {
@@ -453,7 +458,7 @@ func (m *Model) helpBody(h int) string {
 // helpLines are the lines of the key help.
 func helpLines() []string {
 	keys := [][2]string{
-		{"1-6", "switch tab (tab next, shift+tab previous)"},
+		{"1-7", "switch tab (tab next, shift+tab previous)"},
 		{"o", "organize the configured source (Home)"},
 		{"r", "reorganize the library in place (Home)"},
 		{"i", "bring the index up to date, moving nothing (Home)"},
@@ -461,14 +466,14 @@ func helpLines() []string {
 		{"ctrl+c", "interrupt the run going on"},
 		{"space", "select the file, g its whole group (Untagged)"},
 		{"v", "group by original folder, album tag or nothing (Untagged)"},
-		{"a", "accept the tags of the selected files as they are (Untagged)"},
+		{"a", "accept the tags of the selected files as they are (Untagged, Files)"},
 		{"e", "edit the file's tags (Untagged, Library); ctrl+f writes to the folder"},
 		{"l", "look the file up on MusicBrainz (Untagged, Library)"},
 		{"L", "match the selection, group or album to a release (Untagged, Library)"},
 		{"/", "search the library (Library)"},
 		{"u", "undo the run (Runs), or what was just done"},
 		{"k", "choose which copy to keep (Duplicates)"},
-		{"enter", "resolve the group (Duplicates), open the run (Runs)"},
+		{"enter", "resolve the group (Duplicates), open the run (Runs) or folder (Files)"},
 		{"b", "keep both copies (Duplicates)"},
 		{"c", "confirm a possible group is one song (Duplicates)"},
 		{"A", "resolve all exact groups (Duplicates)"},

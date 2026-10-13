@@ -754,8 +754,13 @@ func (m *Model) matchDiffBody(b *strings.Builder, h int) {
 	// Where they go: one album folder, as a rule.
 	dirs := make(map[string]string)
 	lacking := 0
+	stay := false
 	for _, a := range mp.Assignments {
 		f := x.files[a.File]
+		if outside(f.File) {
+			stay = true
+			continue
+		}
 		dst, ok := rules.LibraryPathFor(m.header.Destination, m.compilations, rulesTags(musicbrainz.TagsFor(x.release, a.Track)), filepath.Ext(f.Path))
 		if !ok {
 			lacking++
@@ -764,6 +769,8 @@ func (m *Model) matchDiffBody(b *strings.Builder, h int) {
 		dirs[rules.PathKey(filepath.Dir(dst))] = filepath.Dir(dst)
 	}
 	switch {
+	case stay:
+		b.WriteString("  " + staysLine + "\n")
 	case len(dirs) == 1 && lacking == 0:
 		for _, dir := range dirs {
 			b.WriteString("  Will go to:    " + m.shortPath(dir) + "\n")

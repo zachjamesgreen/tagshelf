@@ -132,6 +132,8 @@ func (m *Model) canChange() bool {
 		m.setToast(false, "%s", stillBusy)
 	case m.header.DryRun:
 		m.setToast(false, "Dry run is on: turn it off with d on Home before changing the library")
+	case m.runner == nil && m.tab == TabFiles:
+		m.setToast(false, "Saving tags needs a library, where what is saved is recorded: set one up on %d Settings", int(TabSettings)+1)
 	case m.runner == nil:
 		m.setToast(false, "The library cannot be changed from here")
 	default:

@@ -491,3 +491,28 @@ func (s *Store) SetLists(lists []FileLists) error {
 	}
 	return nil
 }
+
+// RootOf reports which of the folders the index covers the file or folder at
+// path is under, if any.
+func (s *Store) RootOf(path string) (RootKind, bool, error) {
+	roots, err := queryRoots(s.db)
+	if err != nil {
+		return "", false, err
+	}
+	id, _, ok := rootOf(roots, path)
+	if !ok {
+		// A root is under itself.
+		for _, r := range roots {
+			if PathKey(r.Path) == PathKey(path) {
+				return r.Kind, true, nil
+			}
+		}
+		return "", false, nil
+	}
+	for _, r := range roots {
+		if r.ID == id {
+			return r.Kind, true, nil
+		}
+	}
+	return "", false, nil
+}

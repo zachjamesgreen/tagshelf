@@ -21,8 +21,11 @@ type Options struct {
 	// nil when there is no library to show, and NoLibrary then says why.
 	Store       *store.Store
 	Destination string // the library's root folder
-	LibraryID   string
-	DryRun      bool
+	// Source is the folder runs organize from, empty when none is set. The
+	// Files tab opens on it.
+	Source    string
+	LibraryID string
+	DryRun    bool
 	// Compilations is the folder name compilations are filed under.
 	Compilations string
 	// MusicBrainzContact is the email address or URL MusicBrainz lookups
@@ -90,6 +93,10 @@ type Source interface {
 	// LibraryReleases lists the MusicBrainz release IDs of the files in the
 	// library.
 	LibraryReleases() (map[string]bool, error)
+	// Folder lists the folders and the audio files of a folder of the
+	// computer, for the Files tab; with hidden those named with a leading
+	// dot too. An empty dir is the list of drives.
+	Folder(dir string, hidden bool) (FolderList, error)
 }
 
 // Parts names the lists of a Snapshot. Each is as long as the library is
@@ -211,6 +218,10 @@ func (s librarySource) RunDetail(id int64) (RunDetail, error) {
 
 func (s librarySource) Tags(path string) (tagwrite.Values, error) {
 	return tagwrite.ReadAll(path)
+}
+
+func (s librarySource) Folder(dir string, hidden bool) (FolderList, error) {
+	return readFolder(s.st, dir, hidden)
 }
 
 func (s librarySource) LibraryReleases() (map[string]bool, error) {

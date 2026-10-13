@@ -113,7 +113,15 @@ func (m *Model) askFolder() tea.Cmd {
 		return nil
 	}
 	e.counting = true
-	src, file, values := m.src, e.file, e.value(field)
+	file, values := e.file, e.value(field)
+	if outside(file) {
+		// The files beside it are those the Files tab lists: nothing to read.
+		files, err := m.folderOf(file)
+		return func() tea.Msg {
+			return editorFolderMsg{id: file.ID, field: field, values: values, files: files, err: err}
+		}
+	}
+	src := m.src
 	return func() tea.Msg {
 		files, err := src.Album(file)
 		return editorFolderMsg{id: file.ID, field: field, values: values, files: files, err: err}

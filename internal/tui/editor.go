@@ -93,7 +93,7 @@ func (m *Model) failed(s saved) bool {
 // saveOne saves tags to the indexed file with the given ID as one run, off
 // the UI goroutine; done turns how it went into the message to send.
 func (m *Model) saveOne(id int64, save engine.TagSave, done func(saved) tea.Msg) tea.Cmd {
-	runner := m.runner
+	run := m.tagSaver([]int64{id})
 	ctx, ended := m.begin()
 	return func() tea.Msg {
 		defer close(ended)
@@ -114,7 +114,7 @@ func (m *Model) saveOne(id int64, save engine.TagSave, done func(saved) tea.Msg)
 				}
 			}
 		}
-		res.finish, res.err = runner.SaveTags(ctx, []int64{id}, save, sink)
+		res.finish, res.err = run(ctx, save, sink)
 		res.warnings = warned.text()
 		return done(res)
 	}
@@ -327,6 +327,9 @@ func numberOf(s string) (n, total int) {
 // willGoTo says where a save would put the file, or why it would stay;
 // lacking is set when it would stay for want of tags.
 func (m *Model) willGoTo(e *editor) (line string, lacking bool) {
+	if outside(e.file) {
+		return staysLine, false
+	}
 	if !e.qualifiesOnceSaved() {
 		return "Will stay " + whereItIs(e.file) + ": it is not marked as tagged by hand, and this save would not mark it", true
 	}

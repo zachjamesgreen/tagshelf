@@ -39,6 +39,7 @@ type fakeRunner struct {
 	// What the Untagged tab asked to save tags to, the events SaveTags then
 	// reports, and what it answers.
 	saved      [][]int64
+	savedFiles [][]store.File   // the files of each save of files outside the index
 	saves      []engine.TagSave // the save given with each, to run on real files
 	saveEvents []engine.Event
 	saveFinish engine.RunFinished
@@ -71,6 +72,17 @@ func (f *fakeRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagS
 		sink(e)
 	}
 	return f.saveFinish, nil
+}
+
+// SaveFiles notes the files as SaveTags notes its IDs, and the files
+// themselves besides.
+func (f *fakeRunner) SaveFiles(ctx context.Context, files []store.File, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error) {
+	ids := make([]int64, len(files))
+	for i, file := range files {
+		ids[i] = file.ID
+	}
+	f.savedFiles = append(f.savedFiles, files)
+	return f.SaveTags(ctx, ids, save, sink)
 }
 
 func (f *fakeRunner) Resolve(ctx context.Context, resolutions []engine.Resolution) (engine.RunFinished, error) {
