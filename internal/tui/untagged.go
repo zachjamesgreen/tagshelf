@@ -278,7 +278,7 @@ func (m *Model) acceptTags(ids []int64) tea.Cmd {
 // off the UI goroutine; done turns where the files that qualified went, what
 // the run warned of and how it ended into the message to send.
 func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []string, warnings string, finish engine.RunFinished, err error) tea.Msg) tea.Cmd {
-	runner := m.runner
+	run := m.tagSaver(ids)
 	ctx, ended := m.begin()
 	return func() tea.Msg {
 		defer close(ended)
@@ -293,7 +293,7 @@ func (m *Model) saveMany(ids []int64, save engine.TagSave, done func(moved []str
 				mu.Unlock()
 			}
 		}
-		finish, err := runner.SaveTags(ctx, ids, save, sink)
+		finish, err := run(ctx, save, sink)
 		return done(moved, warned.text(), finish, err)
 	}
 }

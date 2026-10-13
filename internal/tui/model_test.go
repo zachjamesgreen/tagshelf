@@ -39,6 +39,28 @@ type fakeSource struct {
 	searches []string
 	// releases are the MusicBrainz releases the library holds.
 	releases map[string]bool
+	// folders are what the Files tab is shown of each folder, by path. One
+	// that is not among them reads as empty, unless disk is set: then it is
+	// read from the disk, with no index. A test never lists a folder that
+	// is not its own. folderErr fails the reading of every one.
+	folders   map[string]FolderList
+	disk      bool
+	folderErr error
+	listed    []string // the folders asked for
+}
+
+func (f *fakeSource) Folder(dir string, hidden bool) (FolderList, error) {
+	f.listed = append(f.listed, dir)
+	if f.folderErr != nil {
+		return FolderList{Dir: dir}, f.folderErr
+	}
+	if list, ok := f.folders[dir]; ok {
+		return list, f.err
+	}
+	if f.disk {
+		return readFolder(nil, dir, hidden)
+	}
+	return FolderList{Dir: dir}, f.err
 }
 
 func (f *fakeSource) UndoPlan(runID int64) (engine.UndoPlan, error) {
@@ -325,8 +347,9 @@ func TestTabKeys(t *testing.T) {
 		key  string
 		want Tab
 	}{
-		{"3", TabDuplicates}, {"5", TabRuns}, {"tab", TabSettings}, {"tab", TabHome}, {"shift+tab", TabSettings}, {"shift+tab", TabRuns},
-		{"6", TabSettings}, {"2", TabUntagged}, {"1", TabHome}, {"x", TabHome}, {"7", TabHome},
+		{"3", TabDuplicates}, {"5", TabRuns}, {"tab", TabSettings}, {"tab", TabFiles}, {"tab", TabHome},
+		{"shift+tab", TabFiles}, {"shift+tab", TabSettings}, {"shift+tab", TabRuns},
+		{"6", TabSettings}, {"2", TabUntagged}, {"7", TabFiles}, {"1", TabHome}, {"x", TabHome}, {"8", TabHome},
 	}
 	for _, s := range steps {
 		press(t, m, s.key)

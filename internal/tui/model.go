@@ -22,10 +22,11 @@ const (
 	TabLibrary
 	TabRuns
 	TabSettings
+	TabFiles
 	tabCount
 )
 
-var tabNames = [...]string{"Home", "Untagged", "Duplicates", "Library", "Runs", "Settings"}
+var tabNames = [...]string{"Home", "Untagged", "Duplicates", "Library", "Runs", "Settings", "Files"}
 
 func (t Tab) String() string {
 	if t < 0 || t >= tabCount {
@@ -99,10 +100,13 @@ type Model struct {
 	dups     dupsTab
 	untagged untaggedTab
 	library  libraryTab
-	edit     *editor   // the tag editor, nil when it is not open
-	look     *lookup   // the MusicBrainz lookup, nil when it is not open
-	match    *match    // the release match, nil when it is not open
-	undo     *undoFlow // the undo preflight, nil when it is not open
+	files    filesTab
+	// source is the folder runs organize from, where the Files tab opens.
+	source string
+	edit   *editor   // the tag editor, nil when it is not open
+	look   *lookup   // the MusicBrainz lookup, nil when it is not open
+	match  *match    // the release match, nil when it is not open
+	undo   *undoFlow // the undo preflight, nil when it is not open
 	// undoable is the run the last action made, which u, as the next key,
 	// offers to undo; 0 when there is none.
 	undoable int64
@@ -234,6 +238,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.seq == m.settings.hintSeq && m.settings.input != nil {
 			m.settings.hint = msg.text
 		}
+	case filesReadMsg:
+		m.filesRead(msg)
 	case pickerReadMsg:
 		m.pickerRead(msg)
 	case pickerMadeMsg:
@@ -380,7 +386,7 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 	}
 	m.have = Parts{m.have.Untagged || got.Untagged, m.have.Groups || got.Groups, m.have.Runs || got.Runs}
 	m.seen = Parts{m.seen.Untagged || got.Untagged, m.seen.Groups || got.Groups, m.seen.Runs || got.Runs}
-	cmds := []tea.Cmd{next, m.libraryReloaded()}
+	cmds := []tea.Cmd{next, m.libraryReloaded(), m.filesReloaded()}
 	if got.Groups {
 		m.dups.follow(m.snap.Groups)
 	} else {
@@ -423,9 +429,9 @@ func (m *Model) refreshed(r refreshMsg) tea.Cmd {
 // library is now.
 func (m *Model) shown() tea.Cmd {
 	if m.loaded && m.have.lacks(m.parts()) {
-		return tea.Batch(m.poll(true, false), m.settingsShown())
+		return tea.Batch(m.poll(true, false), m.settingsShown(), m.filesShown())
 	}
-	return tea.Batch(m.libraryShown(), m.settingsShown())
+	return tea.Batch(m.libraryShown(), m.settingsShown(), m.filesShown())
 }
 
 func (m *Model) key(k string) tea.Cmd {
@@ -499,6 +505,11 @@ func (m *Model) key(k string) tea.Cmd {
 			return cmd
 		}
 	}
+	if m.tab == TabFiles && !m.help {
+		if cmd, ok := m.filesKey(k); ok {
+			return cmd
+		}
+	}
 	if m.tab == TabHome && !m.help {
 		switch k {
 		case "o":
@@ -540,7 +551,7 @@ func (m *Model) key(k string) tea.Cmd {
 	case "R":
 		m.setToast(true, "Reloaded")
 		return m.poll(true, false)
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		m.switchTab(Tab(k[0] - '1'))
 	case "tab":
 		m.switchTab((m.tab + 1) % tabCount)

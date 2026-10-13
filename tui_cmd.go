@@ -155,7 +155,7 @@ func (s *tuiSession) open() (tui.Options, error) {
 	defer s.mu.Unlock()
 	s.closeStore()
 	cfg, none, err := s.settings()
-	opts := tui.Options{Destination: cfg.Destination, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
+	opts := tui.Options{Destination: cfg.Destination, Source: cfg.Source, DryRun: cfg.DryRun, Compilations: cfg.Compilations,
 		MusicBrainzContact: cfg.MusicBrainzContact, GenreFromMusicBrainz: cfg.GenreMode(),
 		NoLibrary: none, Reopen: s.open, Settings: s}
 	if err != nil || none != nil {
@@ -272,6 +272,23 @@ func (r tuiRunner) SaveTags(ctx context.Context, ids []int64, save engine.TagSav
 	opts.Store = st
 	opts.Sink = sink
 	finish := engine.SaveTags(ctx, opts, ids, save)
+	if finish.State == engine.StateNotStarted {
+		return finish, finish.Err
+	}
+	return finish, nil
+}
+
+func (r tuiRunner) SaveFiles(ctx context.Context, files []store.File, save engine.TagSave, sink engine.Sink) (engine.RunFinished, error) {
+	st, err := store.OpenLibrary(r.cfg.Destination, r.cfg.Database, false)
+	if err != nil {
+		return engine.RunFinished{}, err
+	}
+	defer st.Close()
+	opts := engineOptions(r.cfg)
+	opts.DryRun = false
+	opts.Store = st
+	opts.Sink = sink
+	finish := engine.SaveFiles(ctx, opts, files, save)
 	if finish.State == engine.StateNotStarted {
 		return finish, finish.Err
 	}

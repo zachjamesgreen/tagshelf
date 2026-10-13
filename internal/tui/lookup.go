@@ -489,6 +489,9 @@ func lookupSave(values tagwrite.Values, now time.Time) engine.TagSave {
 
 // placed is where the file would go with the picked match's tags.
 func (m *Model) placed(l *lookup) (line string, lacking bool) {
+	if outside(l.file) {
+		return staysLine, false
+	}
 	return m.placeLine(l.file, rulesTags(l.tags))
 }
 

@@ -28,6 +28,10 @@ _Avoid_: hand-tagged (when a MusicBrainz pick is meant too), user-tagged
 A tag that decides where a file belongs: one its path in the library is made from (title, artist, album artist, album, year, track, disc, compilation) or a MusicBrainz ID. A save that changes one makes the file manually tagged; a save of its genre, composer, comment or other tags alone does not.
 _Avoid_: core tag, main tag
 
+**Files tab**:
+The TUI tab that shows any folder of the computer and tags the audio in it. A file outside the library is tagged where it is and never moved; one inside the library's folders is the index's own and is filed as on the other tabs.
+_Avoid_: browser, file manager, explorer
+
 **Other tag**:
 A tag of a file that the tag editor has no fixed field for, such as MOOD or LABEL, listed and edited by the name the tag library gives it, which is the same in every format.
 _Avoid_: custom tag, arbitrary tag, extra tag, raw tag

@@ -54,11 +54,17 @@ func (noSource) DataVersion() (int64, error)               { return 0, nil }
 func (noSource) Lock() (store.LockHolder, bool, error)     { return store.LockHolder{}, false, nil }
 func (noSource) Load(parts Parts) (Snapshot, error)        { return Snapshot{Parts: parts}, nil }
 func (noSource) RunDetail(int64) (RunDetail, error)        { return RunDetail{}, errNoLibrary }
-func (noSource) Tags(string) (tagwrite.Values, error)      { return tagwrite.Values{}, errNoLibrary }
+func (noSource) Tags(path string) (tagwrite.Values, error) { return tagwrite.ReadAll(path) }
 func (noSource) UndoPlan(int64) (engine.UndoPlan, error)   { return engine.UndoPlan{}, errNoLibrary }
 func (noSource) Search(string, int) ([]store.File, error)  { return nil, nil }
 func (noSource) Album(store.File) ([]store.File, error)    { return nil, nil }
 func (noSource) LibraryReleases() (map[string]bool, error) { return nil, nil }
+
+// Folder lists a folder without a library to look its files up in: the Files
+// tab shows the computer's folders before set-up is finished.
+func (noSource) Folder(dir string, hidden bool) (FolderList, error) {
+	return readFolder(nil, dir, hidden)
+}
 
 // open points the model at the library opts describe, or at none. What it
 // held of another library is dropped. first is the TUI starting: opened
@@ -86,6 +92,10 @@ func (m *Model) open(opts Options, first bool) {
 	}
 	m.runner = opts.Runner
 	m.compilations = opts.Compilations
+	m.source = opts.Source
+	// The folder the Files tab shows is read again: what it holds may now
+	// be, or no longer be, a file of the library.
+	m.files.stale = m.files.loaded
 	m.genreMode = opts.GenreFromMusicBrainz
 	m.mb = nil
 	if client, err := musicbrainz.New(opts.MusicBrainzContact); err == nil {
